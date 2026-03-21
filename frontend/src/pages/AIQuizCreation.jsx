@@ -1,4 +1,4 @@
-// src/pages/AIQuizCreation.jsx - Version corrigée sans authentification
+// src/pages/AIQuizCreation.jsx - Version corrigée
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -30,6 +30,22 @@ const AIQuizCreation = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [error, setError] = useState(null);
+
+  // Reset des sélections
+  useEffect(() => {
+    setSelectedCategory('');
+    setSelectedLevel('');
+    setSelectedSubject('');
+    setGeneratedQuiz(null);
+    setError(null);
+  }, [selectedDomain]);
+
+  useEffect(() => {
+    setSelectedLevel('');
+    setSelectedSubject('');
+    setGeneratedQuiz(null);
+    setError(null);
+  }, [selectedCategory]);
 
   // Helpers pour les données
   const getCategories = () => selectedDomain ? Object.keys(DOMAIN_DATA[selectedDomain]) : [];
@@ -70,7 +86,7 @@ const AIQuizCreation = () => {
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  // ✅ HANDLE GENERATE - Format adapté pour l'API
+  // HANDLE GENERATE
   const handleGenerate = async () => {
     if (!selectedDomain || !selectedCategory || !selectedLevel || !selectedSubject) {
       toast.error('Veuillez remplir tous les champs obligatoires');
@@ -95,12 +111,11 @@ const AIQuizCreation = () => {
 
       console.log('🚀 Envoi au backend:', requestData);
       
-      // ✅ Utiliser fetch avec un timeout plus long
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 90000);
       
-      const RENDER = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-      const response = await fetch(`${RENDER}/api/generate-questions`, {
+      const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+      const response = await fetch(`${BACKEND_URL}/api/generate-questions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -118,7 +133,6 @@ const AIQuizCreation = () => {
       const data = await response.json();
       console.log('📦 Réponse reçue:', data);
 
-      // Traiter la réponse
       if (data && data.questions && Array.isArray(data.questions)) {
         const questions = data.questions;
         
@@ -162,87 +176,82 @@ const AIQuizCreation = () => {
     handleGenerate();
   };
 
-  // Sauvegarde du quiz dans le backend
   const handleSave = async () => {
-  if (!generatedQuiz || !quizName) {
-    toast.error('Veuillez générer un quiz et lui donner un nom');
-    return;
-  }
+    if (!generatedQuiz || !quizName) {
+      toast.error('Veuillez générer un quiz et lui donner un nom');
+      return;
+    }
 
-  setIsLoading(true);
-  try {
-    // Formater les questions pour le backend
-    const formattedQuestions = generatedQuiz.questions.map(q => ({
-      question: q.text,
-      text: q.text,
-      options: q.options,
-      answer: q.correctAnswer,
-      correctAnswer: q.correctAnswer,
-      explanation: q.explanation || '',
-      points: q.points || 1,
-      type: questionType === 'multiple' ? 'multiple' : 'single'
-    }));
+    setIsLoading(true);
+    try {
+      const formattedQuestions = generatedQuiz.questions.map(q => ({
+        question: q.text,
+        text: q.text,
+        options: q.options,
+        answer: q.correctAnswer,
+        correctAnswer: q.correctAnswer,
+        explanation: q.explanation || '',
+        points: q.points || 1,
+        type: questionType === 'multiple' ? 'multiple' : 'single'
+      }));
 
-    const examData = {
-      title: quizName,
-      domain: selectedDomain,
-      category: selectedCategory,
-      level: selectedLevel,
-      subject: selectedSubject,
-      questions: formattedQuestions,
-      duration: 60,
-      passingScore: 70,
-      totalPoints: formattedQuestions.reduce((sum, q) => sum + (q.points || 1), 0),
-      source: 'ai_generated',
-      metadata: {
-        generatedAt: new Date().toISOString(),
-        model: 'deepseek-chat',
-        prompt: keywords,
-        numQuestions: numQuestions,
-        difficulty: getDifficultyFromLevel(selectedLevel)
+      const examData = {
+        title: quizName,
+        domain: selectedDomain,
+        category: selectedCategory,
+        level: selectedLevel,
+        subject: selectedSubject,
+        questions: formattedQuestions,
+        duration: 60,
+        passingScore: 70,
+        totalPoints: formattedQuestions.reduce((sum, q) => sum + (q.points || 1), 0),
+        source: 'ai_generated',
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          model: 'deepseek-chat',
+          prompt: keywords,
+          numQuestions: numQuestions,
+          difficulty: getDifficultyFromLevel(selectedLevel)
+        }
+      };
+
+      console.log('📦 Sauvegarde de l\'épreuve:', examData);
+      
+      const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+      const response = await fetch(`${BACKEND_URL}/api/exams`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(examData),
+      });
+
+      console.log('📡 Réponse du serveur:', response.status, response.statusText);
+      
+      const responseData = await response.json();
+      console.log('📦 Données de réponse:', responseData);
+
+      if (response.ok && responseData.success !== false) {
+        toast.success('Épreuve enregistrée avec succès !');
+        setTimeout(() => navigate('/exams'), 1000);
+      } else {
+        throw new Error(responseData.error || responseData.message || 'Erreur lors de la sauvegarde');
       }
-    };
-
-    console.log('📦 Sauvegarde de l\'épreuve:', examData);
-    
-    // Utiliser fetch directement au lieu de createExam pour avoir plus de contrôle
-    const RENDER = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-    const response = await fetch(`${RENDER}/api/exams`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(examData),
-    });
-
-    console.log('📡 Réponse du serveur:', response.status, response.statusText);
-    
-    const responseData = await response.json();
-    console.log('📦 Données de réponse:', responseData);
-
-    if (response.ok && responseData.success !== false) {
-      toast.success('Épreuve enregistrée avec succès !');
-      setTimeout(() => navigate('/exams'), 1000);
-    } else {
-      throw new Error(responseData.error || responseData.message || 'Erreur lors de la sauvegarde');
+    } catch (error) {
+      console.error('❌ Erreur détaillée sauvegarde:', error);
+      
+      let errorMessage = 'Erreur lors de la sauvegarde';
+      if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Impossible de contacter le serveur. Vérifiez la connexion internet.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error) {
-    console.error('❌ Erreur détaillée sauvegarde:', error);
-    console.error('Message:', error.message);
-    
-    // Afficher un message plus informatif
-    let errorMessage = 'Erreur lors de la sauvegarde';
-    if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Impossible de contacter le serveur. Vérifiez la connexion internet.';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-    
-    toast.error(errorMessage);
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   // Composant de configuration
   const ConfigStep = () => (
@@ -252,7 +261,6 @@ const AIQuizCreation = () => {
       exit={{ opacity: 0, x: 20 }}
     >
       <div style={styles.card}>
-        {/* Affichage de l'erreur */}
         {error && (
           <div style={{
             ...styles.statusBadge,
@@ -261,9 +269,7 @@ const AIQuizCreation = () => {
             marginBottom: 24,
           }}>
             <AlertCircle size={20} color="#ef4444" />
-            <span style={{ color: '#ef4444' }}>
-              {error}
-            </span>
+            <span style={{ color: '#ef4444' }}>{error}</span>
           </div>
         )}
 
@@ -390,7 +396,6 @@ const AIQuizCreation = () => {
           />
         </div>
 
-        {/* Progression */}
         {isLoading && (
           <div style={{ marginBottom: 20 }}>
             <div style={styles.progressHeader}>
@@ -407,7 +412,6 @@ const AIQuizCreation = () => {
           </div>
         )}
 
-        {/* Bouton de génération */}
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
@@ -476,7 +480,6 @@ const AIQuizCreation = () => {
           </div>
         </div>
 
-        {/* Liste des questions */}
         <div style={styles.questionList}>
           {generatedQuiz?.questions?.map((q, index) => (
             <motion.div
@@ -539,7 +542,6 @@ const AIQuizCreation = () => {
           ))}
         </div>
 
-        {/* Actions */}
         <div style={styles.actionButtons}>
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -630,16 +632,18 @@ const AIQuizCreation = () => {
         </AnimatePresence>
       </main>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .animate-spin { animation: spin 1s linear infinite; }
-        select option {
-          background: #0f172a !important;
-          color: #f8fafc !important;
-        }
-        select:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
-        input:focus  { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
-      \`}</style>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes spin { to { transform: rotate(360deg); } }
+          .animate-spin { animation: spin 1s linear infinite; }
+          select option {
+            background: #0f172a !important;
+            color: #f8fafc !important;
+          }
+          select:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
+          input:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
+        `
+      }} />
     </div>
   );
 };
