@@ -31,22 +31,6 @@ const AIQuizCreation = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [error, setError] = useState(null);
 
-  // Reset des sélections
-  useEffect(() => {
-    setSelectedCategory('');
-    setSelectedLevel('');
-    setSelectedSubject('');
-    setGeneratedQuiz(null);
-    setError(null);
-  }, [selectedDomain]);
-
-  useEffect(() => {
-    setSelectedLevel('');
-    setSelectedSubject('');
-    setGeneratedQuiz(null);
-    setError(null);
-  }, [selectedCategory]);
-
   // Helpers pour les données
   const getCategories = () => selectedDomain ? Object.keys(DOMAIN_DATA[selectedDomain]) : [];
   const getLevels = () => {
@@ -114,17 +98,22 @@ const AIQuizCreation = () => {
       // ✅ Utiliser fetch avec un timeout plus long
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-      const BASE = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
-      const response = await fetch(`${BASE}/api/generate-questions`, {
+      
+      const response = await fetch('http://localhost:5000/api/generate-questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(requestData),
         signal: controller.signal
       });
+      
       clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
       console.log('📦 Réponse reçue:', data);
 
@@ -216,10 +205,11 @@ const AIQuizCreation = () => {
     console.log('📦 Sauvegarde de l\'épreuve:', examData);
     
     // Utiliser fetch directement au lieu de createExam pour avoir plus de contrôle
-    const BASE = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
-    const response = await fetch(`${BASE}/api/exams`, {
+    const response = await fetch('http://localhost:5000/api/exams', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(examData),
     });
 
@@ -241,7 +231,7 @@ const AIQuizCreation = () => {
     // Afficher un message plus informatif
     let errorMessage = 'Erreur lors de la sauvegarde';
     if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Impossible de contacter le serveur. Vérifiez la configuration backend.';
+      errorMessage = 'Impossible de contacter le serveur. Vérifiez que le backend est bien démarré sur http://localhost:5000';
     } else if (error.message) {
       errorMessage = error.message;
     }
