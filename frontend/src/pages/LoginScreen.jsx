@@ -19,7 +19,7 @@ const LoginPage = () => {
     setIsLoading(true);
     try {
       const { data } = await axios.post(
-        `${process.env.REACT_APP_API_URL}/api/auth/login`,
+        `${process.env.REACT_APP_BACKEND_URL || ""}/api/auth/login`,
         { email, password },
         { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
       );
