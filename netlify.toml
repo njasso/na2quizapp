@@ -4,18 +4,16 @@
   publish = "build"
 
 [build.environment]
-  NODE_VERSION    = "18"
-  CI              = "false"
+  NODE_VERSION       = "18"
+  CI                 = "false"
   GENERATE_SOURCEMAP = "false"
 
-# ── Redirige /api/* vers Render (API REST) ────────────────────
 [[redirects]]
   from   = "/api/*"
   to     = "https://na2quizapp.onrender.com/api/:splat"
   status = 200
   force  = true
 
-# ── SPA fallback ─────────────────────────────────────────────
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
