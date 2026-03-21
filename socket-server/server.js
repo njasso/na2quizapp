@@ -185,6 +185,18 @@ app.use('/api', async (req, res, next) => {
   catch (err) { res.status(503).json({ error: 'Base de données indisponible', detail: err.message }); }
 });
 
+
+// ══════════════════════════════════════════════════════════════
+//  REDIRECTS — fichiers statiques servis par Netlify
+// ══════════════════════════════════════════════════════════════
+app.get('/terminal.html', (req, res) => {
+  res.redirect(301, `${FRONTEND_URL}/terminal.html`);
+});
+
+app.get('/exam/*', (req, res) => {
+  res.redirect(301, `${FRONTEND_URL}${req.path}`);
+});
+
 // ══════════════════════════════════════════════════════════════
 //  ROUTES SANTÉ
 // ══════════════════════════════════════════════════════════════
