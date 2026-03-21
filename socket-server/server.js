@@ -514,6 +514,36 @@ Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correct
   }
 });
 
+
+// ══════════════════════════════════════════════════════════════
+//  SURVEILLANCE DATA (polling SurveillancePage)
+// ══════════════════════════════════════════════════════════════
+app.get('/api/surveillance-data', (_, res) => {
+  const sessions = Array.from(activeSessions.values());
+  const students  = sessions.filter(s => s.type === 'student');
+  const terminals = sessions.filter(s => s.type === 'terminal');
+
+  const byExam = {};
+  students.forEach(s => {
+    if (!s.currentExamId) return;
+    if (!byExam[s.currentExamId]) byExam[s.currentExamId] = { waiting: 0, composing: 0, finished: 0 };
+    if (s.status === 'waiting')   byExam[s.currentExamId].waiting++;
+    if (s.status === 'composing') byExam[s.currentExamId].composing++;
+    if (s.status === 'finished')  byExam[s.currentExamId].finished++;
+  });
+
+  res.json({
+    success: true,
+    activeSessions: sessions,
+    students,
+    terminals,
+    examStats: byExam,
+    distributedExams: Array.from(activeDistributedExams.entries()).map(([id, info]) => ({ examId: id, ...info })),
+    total: sessions.length,
+    ts: new Date(),
+  });
+});
+
 // ══════════════════════════════════════════════════════════════
 //  404
 // ══════════════════════════════════════════════════════════════
