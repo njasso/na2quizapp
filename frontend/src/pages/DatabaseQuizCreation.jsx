@@ -56,13 +56,17 @@ const DatabaseQuizCreation = () => {
         limit: 1000 
       });
       
+      // ✅ Normaliser toutes les formes de réponse possibles
       let allQuestions = [];
-      if (Array.isArray(response)) {
-        allQuestions = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        allQuestions = response.data;
-      } else if (response?.questions && Array.isArray(response.questions)) {
-        allQuestions = response.questions;
+      const raw = response?.data?.data   // { success, data: [...], count }
+                || response?.data        // axios response.data direct
+                || response;             // déjà le tableau
+      if (Array.isArray(raw)) {
+        allQuestions = raw;
+      } else if (raw?.data && Array.isArray(raw.data)) {
+        allQuestions = raw.data;
+      } else if (raw?.questions && Array.isArray(raw.questions)) {
+        allQuestions = raw.questions;
       }
       
       // Normaliser les questions
