@@ -1,0 +1,135 @@
+/* results.css */
+:root {
+  --gradient-start: #0f0f1f;
+  --gradient-end: #1a1a2f;
+  --neon-cyan: #00f7ff;
+  --electric-blue: #0066ff;
+  --glass-bg: rgba(255, 255, 255, 0.05);
+}
+
+body {
+  background: linear-gradient(45deg, var(--gradient-start), var(--gradient-end));
+  color: #e0f7fa;
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+}
+
+h2 {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 15px rgba(0, 247, 255, 0.3);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  animation: float 3s ease-in-out infinite;
+}
+
+h3 {
+  color: #8f9fc8;
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+h3::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: var(--electric-blue);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--electric-blue);
+}
+
+.grid > div {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2rem;
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.grid > div:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+}
+
+.grid > div::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg, 
+    transparent 25%,
+    rgba(0, 247, 255, 0.1) 50%,
+    transparent 75%);
+  animation: borderFlow 6s linear infinite;
+  z-index: 1;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes borderFlow {
+  to { transform: rotate(360deg); }
+}
+
+.recharts-tooltip-wrapper {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+}
+
+.recharts-surface {
+  transition: transform 0.3s ease;
+}
+
+.recharts-surface:hover {
+  transform: scale(1.02);
+}
+
+/* Effet "Neon Pulse" pour les données importantes */
+.neon-pulse {
+  animation: pulse 2s infinite alternate;
+  text-shadow: 0 0 10px var(--neon-cyan);
+}
+
+@keyframes pulse {
+  from { opacity: 0.8; }
+  to { opacity: 1; }
+}
+
+/* Chargement fluide */
+.skeleton-loading {
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.05) 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  to { background-position: -200% 0; }
+}
+
+@media (max-width: 768px) {
+  .grid > div {
+    margin: 0 1rem;
+    padding: 1.5rem;
+  }
+  
+  h2 {
+    font-size: 1.8rem;
+    text-align: center;
+  }
+}

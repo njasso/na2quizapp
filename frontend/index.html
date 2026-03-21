@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Quiz App</title>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Analytics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="results.css">
+    <script src="https://unpkg.com/react/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+</head>
+<body>
+    <!-- En-tête holographique -->
+    <header class="p-6 text-center">
+        <h2 class="text-4xl neon-pulse">📊 Analytics Suite</h2>
+        <p class="mt-2 opacity-80">Real-time Data Visualization</p>
+    </header>
+
+    <main class="p-6 max-w-7xl mx-auto">
+        <!-- Grille principale -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            <!-- Carte Statistiques Principales -->
+            <div class="glass-card">
+                <h3>Performance Globale</h3>
+                <div class="mt-4 space-y-4">
+                    <div class="flex justify-between items-center hover:bg-white/5 p-3 rounded-xl transition-all">
+                        <span>📈 Taux de Conversion</span>
+                        <span class="neon-pulse">78.2%</span>
+                    </div>
+                    <div class="flex justify-between items-center hover:bg-white/5 p-3 rounded-xl transition-all">
+                        <span>💡 Engagement</span>
+                        <span class="neon-pulse">64.9%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graphique Linéaire Animé -->
+            <div class="glass-card col-span-1 md:col-span-2">
+                <h3>Évolution Mensuelle</h3>
+                <div class="chart-container mt-4">
+                    <!-- Intégration Recharts -->
+                    <div class="skeleton-loading h-64 rounded-xl"></div>
+                </div>
+            </div>
+
+            <!-- Graphique Circulaire Interactif -->
+            <div class="glass-card">
+                <h3>Répartition</h3>
+                <div class="chart-container mt-4 aspect-square">
+                    <div class="skeleton-loading h-full rounded-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Données en Temps Réel -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+            <div class="glass-card text-center p-4 hover:scale-[1.02] transition-transform">
+                <div class="text-3xl neon-pulse">2.4K</div>
+                <div class="text-sm opacity-80 mt-1">Visites</div>
+            </div>
+            <div class="glass-card text-center p-4 hover:scale-[1.02] transition-transform">
+                <div class="text-3xl neon-pulse">1.8K</div>
+                <div class="text-sm opacity-80 mt-1">Conversions</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Élément de Chargement Futuriste -->
+    <div class="skeleton-loading fixed bottom-8 left-1/2 -translate-x-1/2 h-2 w-48 rounded-full"></div>
+</body>
+</html>
+
+<script>
+  // Exemple de configuration Recharts
+  const LineChart = Recharts.LineChart;
+  // ... initialisation des graphiques
+</script>
+
+<!-- Barre de navigation -->
+<nav class="navbar-moto">
+  <a href="#" class="nav-link">Accueil</a>
+  <a href="#" class="nav-link">Modèles</a>
+  <a href="#" class="nav-link">Pièces</a>
+</nav>
+
+<!-- Carte produit -->
+<div class="moto-card">
+  <svg class="moto-icon" ...></svg>
+  <h3>Harley-Davidson Night Rod</h3>
+  <p>Custom 2023 - 1250cc</p>
+  <button class="btn-moto">Voir détails</button>
+  <div class="road-effect"></div>
+</div>
+
+<!-- Effet chrome -->
+<div class="chrome-effect">
+  <p>Spécifications techniques</p>
+</div>
+
+<div class="container">
+  <h1 class="tech-title floating">Nexus Interface</h1>
+  
+  <button class="cyber-button">
+    <span class="glow-text">Initialiser le Système</span>
+  </button>
+</div>
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Questions de Quiz</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Générateur de Questions de Quiz</h1>
+
+        <div class="form-section">
+            <div class="form-group">
+                <label for="domain">Domaine :</label>
+                <select id="domain"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="category">Catégorie :</label>
+                <select id="category"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="level">Niveau :</label>
+                <select id="level"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="subject">Matière :</label>
+                <select id="subject"></select>
+            </div>
+
+            <div class="form-group">
+                <label>Type de Question :</label>
+                <input type="radio" id="multipleChoice" name="questionType" value="multiple" checked>
+                <label for="multipleChoice">Choix Multiple</label>
+                <input type="radio" id="singleChoice" name="questionType" value="single">
+                <label for="singleChoice">Choix Unique</label>
+            </div>
+
+            <div class="form-group">
+                <label for="numQuestions">Nombre de Questions (max 100) :</label>
+                <input type="number" id="numQuestions" value="10" min="1" max="100">
+            </div>
+
+            <div class="form-group">
+                <label for="keywords">Mots Clés Supplémentaires (optionnel) :</label>
+                <input type="text" id="keywords" placeholder="Ex: Révolution Industrielle, Algorithmes">
+            </div>
+
+            <div class="buttons">
+                <button id="generateQuestions">Générer Questions</button>
+                <button id="previewQuiz" disabled>Prévisualiser Quiz</button>
+                <button id="exportPdf" disabled>Exporter en PDF</button>
+            </div>
+        </div>
+
+        <div class="preview-section" style="display: none;">
+            <h2>Prévisualisation du Quiz</h2>
+            <div id="quizContent"></div>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</body>
+</html>

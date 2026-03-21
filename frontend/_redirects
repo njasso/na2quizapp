@@ -1,0 +1,5 @@
+# frontend/public/_redirects
+# Netlify SPA fallback — toutes les routes React → index.html
+# SAUF /api/* qui va aux Netlify Functions (géré dans netlify.toml)
+
+/*    /index.html   200

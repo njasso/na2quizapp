@@ -1,0 +1,15 @@
+{
+  "name": "na2quiz-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NA²QUIZ monorepo root — frontend + netlify functions + socket server",
+  "scripts": {
+    "install:all":     "npm install && cd frontend && npm install && cd ../socket-server && npm install",
+    "install:functions": "cd netlify/functions && npm install",
+    "dev:frontend":    "cd frontend && npm start",
+    "dev:socket":      "cd socket-server && npm run dev",
+    "build":           "cd frontend && npm run build",
+    "postinstall":     "cd netlify/functions && npm install"
+  },
+  "dependencies": {}
+}

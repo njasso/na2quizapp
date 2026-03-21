@@ -1,0 +1,12 @@
+{
+  "generate_exam": "Générer une épreuve",
+  "manual_entry": "Ajout manuel",
+  "ai_generation": "Génération par IA",
+  "domain": "Domaine",
+  "subject": "Matière",
+  "level": "Niveau",
+  "add_question": "Ajouter une question",
+  "download_pdf": "Télécharger en PDF",
+  "save_exam": "Sauvegarder l’épreuve",
+  "history": "Historique des épreuves"
+}
