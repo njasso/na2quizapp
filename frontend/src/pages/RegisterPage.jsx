@@ -21,7 +21,7 @@ const RegisterPage = () => {
     setIsLoading(true);
     try {
       const { data } = await axios.post(
-        `${process.env.REACT_APP_API_URL}/api/auth/register`,
+        `${process.env.REACT_APP_BACKEND_URL || ""}/api/auth/register`,
         { name: form.name, username: form.username, email: form.email, password: form.password },
         { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
       );
