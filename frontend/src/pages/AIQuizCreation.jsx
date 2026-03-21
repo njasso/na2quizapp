@@ -97,13 +97,12 @@ const AIQuizCreation = () => {
       
       // ✅ Utiliser fetch avec un timeout plus long
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s pour DeepSeek
       
-      const response = await fetch('http://localhost:5000/api/generate-questions', {
+      const BASE = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+      const response = await fetch(`${BASE}/api/generate-questions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData),
         signal: controller.signal
       });
@@ -205,11 +204,10 @@ const AIQuizCreation = () => {
     console.log('📦 Sauvegarde de l\'épreuve:', examData);
     
     // Utiliser fetch directement au lieu de createExam pour avoir plus de contrôle
-    const response = await fetch('http://localhost:5000/api/exams', {
+    const BASE2 = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+    const response = await fetch(`${BASE2}/api/exams`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(examData),
     });
 
@@ -231,7 +229,7 @@ const AIQuizCreation = () => {
     // Afficher un message plus informatif
     let errorMessage = 'Erreur lors de la sauvegarde';
     if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Impossible de contacter le serveur. Vérifiez que le backend est bien démarré sur http://localhost:5000';
+      errorMessage = 'Impossible de contacter le serveur Render. Vérifiez la connexion.';
     } else if (error.message) {
       errorMessage = error.message;
     }
