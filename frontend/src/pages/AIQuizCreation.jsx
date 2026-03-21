@@ -97,12 +97,14 @@ const AIQuizCreation = () => {
       
       // ✅ Utiliser fetch avec un timeout plus long
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s pour DeepSeek
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
       
-      const BASE = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-      const response = await fetch(`${BASE}/api/generate-questions`, {
+      const RENDER = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+      const response = await fetch(`${RENDER}/api/generate-questions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(requestData),
         signal: controller.signal
       });
@@ -204,10 +206,12 @@ const AIQuizCreation = () => {
     console.log('📦 Sauvegarde de l\'épreuve:', examData);
     
     // Utiliser fetch directement au lieu de createExam pour avoir plus de contrôle
-    const BASE2 = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-    const response = await fetch(`${BASE2}/api/exams`, {
+    const RENDER = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+    const response = await fetch(`${RENDER}/api/exams`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(examData),
     });
 
@@ -229,7 +233,7 @@ const AIQuizCreation = () => {
     // Afficher un message plus informatif
     let errorMessage = 'Erreur lors de la sauvegarde';
     if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Impossible de contacter le serveur Render. Vérifiez la connexion.';
+      errorMessage = 'Impossible de contacter le serveur. Vérifiez la connexion internet.';
     } else if (error.message) {
       errorMessage = error.message;
     }
@@ -627,13 +631,15 @@ const AIQuizCreation = () => {
       </main>
 
       <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        select option {
+          background: #0f172a !important;
+          color: #f8fafc !important;
         }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
+        select:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
+        input:focus  { border-color: #6366f1 !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
+      \`}</style>
     </div>
   );
 };
@@ -781,11 +787,12 @@ const styles = {
   select: {
     width: '100%',
     padding: 12,
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: '#0f172a',
+    border: '1px solid rgba(99,102,241,0.3)',
     borderRadius: 10,
     color: '#f8fafc',
     outline: 'none',
+    cursor: 'pointer',
   },
   input: {
     width: '100%',
