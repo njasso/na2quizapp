@@ -10,17 +10,15 @@
 [functions]
   node_bundler          = "esbuild"
   external_node_modules = [
-    "mongoose",
-    "pdfkit",
-    "bcryptjs",
-    "express",
-    "serverless-http",
-    "cors",
-    "jsonwebtoken",
-    "bcrypt",
-    "node-fetch"
+    "mongoose", "pdfkit", "bcryptjs",
+    "express", "serverless-http", "cors",
+    "jsonwebtoken", "bcrypt", "node-fetch"
   ]
   included_files = ["../netlify/functions/**"]
+
+# Augmenter le timeout pour la génération IA (DeepSeek peut être lent)
+[functions."api"]
+  timeout = 60
 
 [[redirects]]
   from   = "/api/*"
