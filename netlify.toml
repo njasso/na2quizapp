@@ -1,37 +1,38 @@
-# ============================================================
-#  NA²QUIZ — Netlify Configuration
-#  Frontend : Netlify (static CRA)
-#  API REST  : Netlify Functions (serverless)
-#  Socket.IO : Railway/Render (voir socket-server/)
-#  Database  : MongoDB Atlas
-# ============================================================
-
 [build]
-  base    = "frontend"
-  command = "npm run build"
-  publish = "build"
+  base      = "frontend"
+  command   = "npm run build && cd ../netlify/functions && npm install"
+  publish   = "build"
   functions = "../netlify/functions"
 
 [build.environment]
   NODE_VERSION = "18"
 
-# ── Redirects ────────────────────────────────────────────────
-# SPA fallback — toutes les routes React sont servies par index.html
-[[redirects]]
-  from   = "/*"
-  to     = "/index.html"
-  status = 200
-  # Sauf les appels API → Netlify Functions
-  conditions = {Role = ["admin"]}
+[functions]
+  node_bundler          = "esbuild"
+  external_node_modules = [
+    "mongoose",
+    "pdfkit",
+    "bcryptjs",
+    "express",
+    "serverless-http",
+    "cors",
+    "jsonwebtoken",
+    "bcrypt",
+    "node-fetch"
+  ]
+  included_files = ["../netlify/functions/**"]
 
-# API REST → Netlify Functions
 [[redirects]]
   from   = "/api/*"
   to     = "/.netlify/functions/api/:splat"
   status = 200
   force  = true
 
-# ── Headers sécurité ─────────────────────────────────────────
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -44,9 +45,3 @@
   for = "/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
-
-# ── Functions config ─────────────────────────────────────────
-[functions]
-  node_bundler         = "esbuild"
-  external_node_modules = ["mongoose", "pdfkit", "bcryptjs"]
-  included_files        = ["netlify/functions/**"]
