@@ -5,7 +5,7 @@ import { Edit, Trash2, Play, Eye, Plus, Home, RefreshCw, Search, Clock, Layers, 
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
 
 const ExamsPage = () => {
   const navigate = useNavigate();
@@ -15,34 +15,37 @@ const ExamsPage = () => {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchExams = async () => {
       setIsLoading(true);
       try {
-        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams`);
-        console.log('📦 Réponse examens brute:', response.data);
-        
-        // ✅ CORRECTION: Extraire le tableau selon le format de la réponse
+        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams`, {
+          signal: controller.signal,
+        });
+
         let examsData = [];
         if (Array.isArray(response.data)) {
           examsData = response.data;
         } else if (response.data?.data && Array.isArray(response.data.data)) {
           examsData = response.data.data;
-        } else if (response.data?.success && Array.isArray(response.data.data)) {
-          examsData = response.data.data;
         } else {
           examsData = [];
         }
-        
-        console.log(`✅ ${examsData.length} examens chargés`);
+
         setExams(examsData);
       } catch (error) {
-        console.error('Erreur chargement épreuves:', error);
+        // Ignorer les erreurs d'annulation (StrictMode double-mount)
+        if (axios.isCancel(error) || error.name === 'CanceledError' || error.code === 'ERR_CANCELED') return;
+        console.error('Erreur chargement épreuves:', error.message);
         setExams([]);
-      } finally { 
-        setIsLoading(false); 
+      } finally {
+        setIsLoading(false);
       }
     };
+
     fetchExams();
+    return () => controller.abort(); // cleanup si le composant se démonte
   }, []);
 
   const deleteExam = async (examId) => {
@@ -244,7 +247,7 @@ const ExamsPage = () => {
 
                     <div style={{ display: 'flex', gap: '16px', marginBottom: '18px', paddingBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color: '#64748b' }}>
-                        <Clock size={13} /> {exam.duration} min
+                        <Clock size={13} /> {exam.questions?.length || 0} min
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color: '#64748b' }}>
                         <Layers size={13} /> {exam.questions?.length || 0} questions
@@ -253,13 +256,27 @@ const ExamsPage = () => {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <ActionBtn color="#10b981" title="Composer" onClick={() => navigate(`/exam/profile/${exam._id}`)}>
+                        <ActionBtn color="#10b981" title="Composer" onClick={() => {
+                            // Profil enseignant par défaut pour test direct
+                            localStorage.setItem('studentInfoForExam', JSON.stringify({
+                              examId: exam._id,
+                              info: {
+                                firstName: 'Test',
+                                lastName: 'Enseignant',
+                                matricule: 'PROF-001',
+                                level: exam.level || ''
+                              },
+                              examOption: 'C',
+                              terminalSessionId: null
+                            }));
+                            navigate(`/exam/compose/${exam._id}`);
+                          }}>
                           <Play size={15} />
                         </ActionBtn>
                         <ActionBtn color="#3b82f6" title="Prévisualiser" onClick={() => navigate(`/preview/${exam._id}`)}>
                           <Eye size={15} />
                         </ActionBtn>
-                        <ActionBtn color="#f59e0b" title="Modifier" onClick={() => navigate(`/edit/${exam._id}`)}>
+                        <ActionBtn color="#f59e0b" title="Modifier" onClick={() => navigate(`/create/manual`, { state: { editExamId: exam._id, exam } })}>
                           <Edit size={15} />
                         </ActionBtn>
                       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
@@ -16,6 +16,7 @@ import QuizCompositionPage from './pages/QuizCompositionPage';
 import ResultsPage from './pages/ResultsPage';
 import SurveillancePage from './pages/SurveillancePage';
 import ReportsPage from './pages/ReportsPage';
+import PreviewExamPage from './pages/PreviewExamPage';
 
 // ✅ NOUVELLE PAGE D'ATTENTE POUR OPTION B
 import WaitingPage from './pages/WaitingPage';
@@ -28,39 +29,15 @@ const LoadingSpinner = () => (
 );
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const storedUserData = localStorage.getItem('userData');
-    const userToken = localStorage.getItem('userToken');
-
-    if (storedUserData && userToken) {
-      try {
-        const parsedUser = JSON.parse(storedUserData);
-        if (parsedUser && Object.keys(parsedUser).length > 0) {
-          setUser(parsedUser);
-        } else {
-          console.warn('Données utilisateur invalides, suppression des données locales');
-          localStorage.removeItem('userData');
-          localStorage.removeItem('userToken');
-          setUser(null);
-        }
-      } catch (err) {
-        console.error('Erreur lors du parsing des données utilisateur:', err);
-        localStorage.removeItem('userData');
-        localStorage.removeItem('userToken');
-        setUser(null);
-      }
-    } else {
-      setUser(null);
-    }
-    setLoading(false);
-  }, []);
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
+  // Auth simplifiée — mode test sans blocage login
+  const [user, setUser] = useState(() => {
+    try {
+      const data = localStorage.getItem('userData');
+      const token = localStorage.getItem('userToken');
+      if (data && token) return JSON.parse(data);
+    } catch {}
+    return null;
+  });
 
   return (
     <Router
@@ -88,6 +65,7 @@ function App() {
           
           {/* Routes d'examens */}
           <Route path="/exams" element={<ExamsPage />} />
+          <Route path="/preview/:examId" element={<PreviewExamPage />} />
           
           {/* ✅ PARCOURS ÉTUDIANT - Nouveau système */}
           <Route path="/exam/profile/:examId" element={<ProfileExamPage />} />

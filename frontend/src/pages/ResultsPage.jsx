@@ -8,7 +8,7 @@ import QRCode from 'qrcode';
 import logo from '../logo.png';
 import { Download, CheckCircle, XCircle, Award, User, Calendar, FileText, Printer } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
 
 const ResultsPage = () => {
     const { examId } = useParams();

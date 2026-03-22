@@ -18,9 +18,9 @@ import {
   Users
 } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
-const DURATION_PER_QUESTION_SECONDS = 30;
+const DURATION_PER_QUESTION_SECONDS = 60; // 1 minute par question
 
 
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger }) => {

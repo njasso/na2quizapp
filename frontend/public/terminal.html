@@ -252,6 +252,19 @@
             else{ctr.classList.remove('on');}
         });
         socket.on('pong',function(){});
+
+        // ── Fin d'épreuve → réinitialiser le terminal ──────────
+        socket.on('examFinished',function(data){
+            isRedirecting=false;
+            overlay.classList.remove('on');
+            ctr.classList.remove('on');
+            setStatus('connected','✓','Connecté','en attente d\'une nouvelle distribution');
+            addFeed('info','Épreuve terminée','Terminal prêt pour une nouvelle session');
+        });
+
+        // ── Épreuve distribuée pendant reconnexion ──────────────
+        // (isReconnect = true si l'épreuve était déjà active)
+        // Le handler examDistributed gère déjà ce cas via isRedirecting
     }
     reconnBtn.addEventListener('click',function(){reconnBtn.classList.add('hidden');reconnAttempts=0;cleanup();if(socket)socket.disconnect();setTimeout(connect,300);});
     refrBtn.addEventListener('click',function(){window.location.reload();});

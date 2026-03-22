@@ -1,21 +1,36 @@
 // src/pages/ManualQuizCreation.jsx - Version corrigée avec API
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { PlusCircle, Save, ArrowLeft, FileText, User, Award, HelpCircle, XCircle, CheckCircle, Trash2, Loader } from 'lucide-react';
-import { createExam } from '../services/api';
+import { createExam, updateExam } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 const ManualQuizCreation = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
-  
-  const [examTitle, setExamTitle] = useState('');
-  const [teacherName, setTeacherName] = useState('');
-  const [teacherGrade, setTeacherGrade] = useState('');
-  const [description, setDescription] = useState('');
-  const [questions, setQuestions] = useState([]);
+
+  // Mode édition : ExamsPage passe { editExamId, exam } via location.state
+  const editExam = location.state?.exam || null;
+  const isEditMode = !!editExam;
+
+  const [examTitle, setExamTitle]   = useState(editExam?.title || '');
+  const [teacherName, setTeacherName] = useState(editExam?.teacherName || '');
+  const [teacherGrade, setTeacherGrade] = useState(editExam?.teacherGrade || '');
+  const [description, setDescription] = useState(editExam?.description || '');
+  const [questions, setQuestions]   = useState(() => {
+    if (!editExam?.questions) return [];
+    // Normaliser les questions du serveur → format local {text, options, correctAnswer, points, explanation}
+    return editExam.questions.map(q => ({
+      text:          q.question || q.text || '',
+      options:       q.options  || ['', '', '', ''],
+      correctAnswer: q.correctAnswer || q.answer || '',
+      points:        q.points   || 1,
+      explanation:   q.explanation  || '',
+    }));
+  });
   const [currentQuestion, setCurrentQuestion] = useState({
     text: '',
     options: ['', '', '', ''],
@@ -101,13 +116,23 @@ const ManualQuizCreation = () => {
         createdBy: user?._id || user?.id
       };
 
-      const response = await createExam(examData);
-      
-      if (response.success !== false) {
-        toast.success('Épreuve créée avec succès !');
-        navigate('/exams');
+      let response;
+      if (isEditMode && editExam?._id) {
+        response = await updateExam(editExam._id, examData);
+        if (response?.data || response?._id || response?.title) {
+          toast.success('Épreuve mise à jour avec succès !');
+          navigate('/exams');
+        } else {
+          throw new Error(response?.error || 'Erreur lors de la mise à jour');
+        }
       } else {
-        throw new Error(response.error || 'Erreur lors de la création');
+        response = await createExam(examData);
+        if (response.success !== false) {
+          toast.success('Épreuve créée avec succès !');
+          navigate('/exams');
+        } else {
+          throw new Error(response.error || 'Erreur lors de la création');
+        }
       }
     } catch (error) {
       console.error('Erreur création examen:', error);
@@ -146,9 +171,9 @@ const ManualQuizCreation = () => {
           </motion.button>
           <div>
             <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>
-              Création manuelle
+              {isEditMode ? `Modifier l'épreuve` : 'Création manuelle'}
             </h1>
-            <p style={{ color: '#64748b' }}>Créez votre épreuve question par question</p>
+            <p style={{ color: '#64748b' }}>{isEditMode ? `${questions.length} questions chargées — modifiez puis sauvegardez` : 'Créez votre épreuve question par question'}</p>
           </div>
         </div>
 

@@ -695,7 +695,45 @@ io.on('connection', (socket) => {
 
   socket.on('updateStudentProgress', (data) => {
     const s = activeSessions.get(socket.id);
-    if (s?.type === 'student') { activeSessions.set(socket.id, { ...s, progress: data.progress, status: 'composing', score: data.score, totalQuestions: data.totalQuestions, percentage: data.percentage, lastUpdate: Date.now() }); emitSessionUpdate(); }
+    if (s?.type === 'student') {
+      activeSessions.set(socket.id, {
+        ...s, progress: data.progress, status: 'composing',
+        score: data.score, totalQuestions: data.totalQuestions,
+        percentage: data.percentage, lastUpdate: Date.now(),
+      });
+      emitSessionUpdate();
+
+      // ── Calculer et émettre les stats temps réel vers SurveillancePage ──
+      const examId = s.currentExamId || data.examId;
+      if (examId) {
+        const students = Array.from(activeSessions.values()).filter(
+          x => x.type === 'student' && x.currentExamId === examId && x.percentage !== undefined
+        );
+        if (students.length > 0) {
+          const scores      = students.map(x => x.percentage || 0);
+          const avg         = scores.reduce((a, b) => a + b, 0) / scores.length;
+          const sorted      = [...scores].sort((a, b) => a - b);
+          const mid         = Math.floor(sorted.length / 2);
+          const median      = sorted.length % 2 !== 0
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+          const passed      = students.filter(x => (x.percentage || 0) >= 50).length;
+
+          const stats = {
+            examId,
+            activeStudentsCount: students.length,
+            averageScore:   parseFloat(avg.toFixed(1)),
+            medianScore:    parseFloat(median.toFixed(1)),
+            highestScore:   Math.max(...scores),
+            lowestScore:    Math.min(...scores),
+            passRate:       parseFloat(((passed / students.length) * 100).toFixed(1)),
+            lastUpdate:     new Date().toISOString(),
+          };
+          // Émettre aux superviseurs connectés
+          io.to('surveillance').emit('realtimeExamStats', stats);
+        }
+      }
+    }
   });
 
   socket.on('examSubmitted', ({ studentSocketId, examResultId }) => {

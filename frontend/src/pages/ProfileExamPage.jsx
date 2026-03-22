@@ -17,8 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -121,7 +120,7 @@ const ProfileExamPage = () => {
   useEffect(() => {
     console.log('[ProfileExamPage] 🔌 Connexion Socket.IO à:', NODE_BACKEND_URL);
     
-    socketRef.current = io(SOCKET_URL, { 
+    socketRef.current = io(NODE_BACKEND_URL, { 
       path: '/socket.io',
       transports: ['polling', 'websocket'],
       reconnection: true,
