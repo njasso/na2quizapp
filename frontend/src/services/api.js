@@ -37,6 +37,12 @@ export const deleteResult  = (id)     => apiClient.delete(`/api/results/${id}`);
 // ========== CLASSEMENTS ==========
 export const getRankings = (examId) => apiClient.get(`/api/rankings/${examId}`);
 
+// ========== SESSIONS ACTIVES ==========
+export const getActiveSessions = () => apiClient.get('/api/active-sessions');
+
+// ========== SURVEILLANCE DATA ==========
+export const getSurveillanceData = () => apiClient.get('/api/surveillance-data');
+
 // ========== IA — timeout 90s (DeepSeek peut être lent) ==========
 export const generateQuestionsAI = async (data) => {
   const response = await apiClient.post('/api/generate-questions', data, {
