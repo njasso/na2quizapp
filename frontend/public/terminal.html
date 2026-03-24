@@ -71,7 +71,6 @@
         .card-footer{margin-top:14px;padding:10px 18px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.12);}
         .footer-l{font-family:var(--mono);font-size:0.53rem;color:var(--t3);}
         .footer-pill{font-family:var(--mono);font-size:0.53rem;padding:2px 7px;border-radius:20px;border:1px solid rgba(56,189,248,0.2);background:var(--cyan-dim);color:var(--cyan);}
-        /* How to connect */
         .howto{width:100%;max-width:520px;background:rgba(12,20,36,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:12px;overflow:hidden;}
         .howto-hdr{padding:9px 14px;background:rgba(56,189,248,0.05);border-bottom:1px solid rgba(56,189,248,0.1);font-family:var(--mono);font-size:0.58rem;color:var(--cyan);letter-spacing:0.1em;text-transform:uppercase;display:flex;align-items:center;gap:7px;}
         .howto-hdr::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--cyan);animation:bd 1.5s infinite;flex-shrink:0;}
@@ -81,7 +80,6 @@
         .howto-txt{font-size:0.76rem;color:var(--t2);line-height:1.55;padding-top:1px;}
         .howto-txt strong{color:var(--t1);font-weight:500;}
         .howto-txt code{font-family:var(--mono);font-size:0.65rem;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.15);padding:1px 5px;border-radius:4px;color:var(--cyan);}
-        /* Exam overlay */
         .overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(8,14,26,0.97);backdrop-filter:blur(8px);align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:24px;}
         .overlay.on{display:flex;}
         .exam-ring{width:96px;height:96px;border-radius:50%;border:2px solid var(--emerald);display:flex;align-items:center;justify-content:center;position:relative;animation:pr 1.5s ease-in-out infinite;}
@@ -110,7 +108,7 @@
 <div class="shell">
     <div class="identity">
         <div class="identity-logo">NA²QUIZ</div>
-        <div class="identity-badge">Terminal d'Examen · v2.1</div>
+        <div class="identity-badge">Terminal d'Examen · v2.2</div>
     </div>
     <div class="card">
         <div class="card-accent"></div>
@@ -175,6 +173,7 @@
     var reconnBtn=document.getElementById('reconnBtn'),refrBtn=document.getElementById('refrBtn');
     var overlay=document.getElementById('overlay'),ovTitle=document.getElementById('ovTitle'),ovOpt=document.getElementById('ovOpt'),ovCd=document.getElementById('ovCd');
     var COLORS={connecting:'c-cyan',connected:'c-emerald',waiting:'c-violet',exam:'c-emerald',error:'c-red'};
+    
     function setStatus(state,ico,title,desc){
         var c=COLORS[state]||'c-cyan';
         ['c-cyan','c-emerald','c-violet','c-amber','c-red'].forEach(function(x){orbWrap.classList.remove(x);orbInfo.classList.remove(x);});
@@ -186,74 +185,152 @@
             dState.innerHTML='<span class="live-dot"></span>'+title;
         }else{dState.textContent=title;}
     }
+    
     function addFeed(type,title,desc){
         var t=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
         var el=document.createElement('div');el.className='fi '+type;
         el.innerHTML='<div class="fd"></div><div class="fb"><div class="ft">'+title+'</div>'+(desc?'<div class="fs">'+desc+'</div>':'')+'</div><div class="ftime">'+t+'</div>';
         feed.prepend(el);while(feed.children.length>5)feed.lastChild.remove();
     }
+    
     function getOrCreateSession(){
         var id=localStorage.getItem('terminalSessionId');
         if(!id){id='TERMINAL_'+Math.random().toString(36).substr(2,9);localStorage.setItem('terminalSessionId',id);}
         return id;
     }
+    
     function syncPanel(){
         dSession.textContent=sessionId?sessionId.substring(0,22)+'…':'—';
         dSocket.textContent=socket&&socket.id?socket.id.substring(0,20)+'…':'—';
     }
-    function cleanup(){if(hbInterval){clearInterval(hbInterval);hbInterval=null;}if(redirTimeout){clearTimeout(redirTimeout);redirTimeout=null;}}
+    
+    function cleanup(){
+        if(hbInterval){clearInterval(hbInterval);hbInterval=null;}
+        if(redirTimeout){clearTimeout(redirTimeout);redirTimeout=null;}
+    }
+    
     function connect(){
-        if(socket&&socket.connected)return;if(socket)socket.disconnect();
+        if(socket&&socket.connected)return;
+        if(socket)socket.disconnect();
         setStatus('connecting','⬡','Connexion…','tentative '+(reconnAttempts+1)+'/'+MAX_RECONNECT);
-        socket=io(SERVER_URL,{transports:['polling','websocket'],path:'/socket.io',reconnection:true,reconnectionAttempts:MAX_RECONNECT,reconnectionDelay:1000,reconnectionDelayMax:5000,timeout:15000,forceNew:true});
+        socket=io(SERVER_URL,{
+            transports:['polling','websocket'],
+            path:'/socket.io',
+            reconnection:true,
+            reconnectionAttempts:MAX_RECONNECT,
+            reconnectionDelay:1000,
+            reconnectionDelayMax:5000,
+            timeout:15000,
+            forceNew:true
+        });
+        
         socket.on('connect',function(){
-            reconnAttempts=0;reconnBtn.classList.add('hidden');
-            sessionId=getOrCreateSession();syncPanel();
+            reconnAttempts=0;
+            reconnBtn.classList.add('hidden');
+            sessionId=getOrCreateSession();
+            syncPanel();
             setStatus('connected','✓','Connecté','en attente de distribution');
             addFeed('success','Connecté','na2quizapp.onrender.com');
             socket.emit('registerTerminal',{sessionId:sessionId,type:'terminal',socketId:socket.id});
             if(hbInterval)clearInterval(hbInterval);
-            hbInterval=setInterval(function(){if(socket&&socket.connected)socket.emit('ping');},25000);
+            hbInterval=setInterval(function(){
+                if(socket&&socket.connected)socket.emit('ping');
+            },25000);
         });
+        
         socket.on('connect_error',function(){
             reconnAttempts++;
-            if(reconnAttempts>=MAX_RECONNECT){setStatus('error','⚠','Serveur inaccessible','Vérifier la connexion internet');addFeed('error','Connexion échouée','na2quizapp.onrender.com');reconnBtn.classList.remove('hidden');}
+            if(reconnAttempts>=MAX_RECONNECT){
+                setStatus('error','⚠','Serveur inaccessible','Vérifier la connexion internet');
+                addFeed('error','Connexion échouée','na2quizapp.onrender.com');
+                reconnBtn.classList.remove('hidden');
+            }
         });
+        
         socket.on('reconnect',function(n){
-            reconnAttempts=0;reconnBtn.classList.add('hidden');syncPanel();
+            reconnAttempts=0;
+            reconnBtn.classList.add('hidden');
+            syncPanel();
             setStatus('connected','✓','Reconnecté','connexion rétablie');
             addFeed('info','Reconnecté','tentative '+n);
             socket.emit('registerTerminal',{sessionId:sessionId,type:'terminal',socketId:socket.id});
         });
+        
         socket.on('disconnect',function(reason){
-            cleanup();syncPanel();setStatus('error','⚡','Déconnecté',reason);addFeed('warning','Déconnecté',reason);
-            if(reason==='io server disconnect')setTimeout(function(){window.location.reload();},2000);
-        });
-        socket.on('examDistributed',function(data){
-            if(!data||!data.url||isRedirecting)return;
-            var url=data.url;
-            if(url.includes('192.168')||url.includes('localhost')||url.includes(':5')){
-                var examPath=url.split('/exam/')[1]||'';
-                url=FRONTEND_URL+'/exam/'+examPath;
+            cleanup();
+            syncPanel();
+            setStatus('error','⚡','Déconnecté',reason);
+            addFeed('warning','Déconnecté',reason);
+            if(reason==='io server disconnect'){
+                setTimeout(function(){window.location.reload();},2000);
             }
-            isRedirecting=true;cleanup();
-            var OPTS={A:'COLLECTIVE FIGÉE',B:'COLLECTIVE SOUPLE',C:'PERSONNALISÉE',D:'ALÉATOIRE'};
-            setStatus('exam','📋','Épreuve reçue','Option '+data.examOption+' — redirection…');
-            addFeed('success','Épreuve reçue — Option '+data.examOption,'redirection dans 2s…');
-            ovTitle.textContent='Option '+data.examOption+' — Épreuve reçue';
-            ovOpt.textContent=OPTS[data.examOption]||('OPTION '+data.examOption);
-            overlay.classList.add('on');
-            var s=2;var tick=setInterval(function(){s--;ovCd.textContent=s>0?('▋ REDIRECTION DANS '+s+'s…'):'▋ CHARGEMENT…';if(s<=0)clearInterval(tick);},1000);
-            redirTimeout=setTimeout(function(){window.location.href=url;},2000);
         });
+        
+        // ✅ CORRECTION MAJEURE : Ajout de l'option dans l'URL de redirection
+        socket.on('examDistributed',function(data){
+            console.log('📋 examDistributed reçu:', data);
+            if(!data||!data.url||isRedirecting)return;
+            
+            var url=data.url;
+            var option=data.examOption;
+            
+            // Nettoyer l'URL des paramètres existants
+            var baseUrl=url.split('?')[0];
+            var redirectUrl=baseUrl;
+            
+            // ✅ Ajouter l'option dans l'URL si elle existe
+            if(option){
+                redirectUrl=baseUrl+'?option='+option;
+                console.log('🔗 Redirection avec option:', redirectUrl);
+            }else{
+                console.log('🔗 Redirection sans option:', redirectUrl);
+            }
+            
+            // Correction pour les URLs locales
+            if(redirectUrl.includes('192.168')||redirectUrl.includes('localhost')||redirectUrl.includes(':5')){
+                var examPath=redirectUrl.split('/exam/')[1]||'';
+                redirectUrl=FRONTEND_URL+'/exam/'+examPath;
+                if(option){
+                    redirectUrl=redirectUrl+(redirectUrl.includes('?')?'&':'?')+'option='+option;
+                }
+            }
+            
+            isRedirecting=true;
+            cleanup();
+            
+            var OPTS={A:'COLLECTIVE FIGÉE',B:'COLLECTIVE SOUPLE',C:'PERSONNALISÉE',D:'ALÉATOIRE'};
+            setStatus('exam','📋','Épreuve reçue','Option '+option+' — redirection…');
+            addFeed('success','Épreuve reçue — Option '+option,'redirection dans 2s…');
+            ovTitle.textContent='Option '+option+' — Épreuve reçue';
+            ovOpt.textContent=OPTS[option]||('OPTION '+option);
+            overlay.classList.add('on');
+            
+            var s=2;
+            var tick=setInterval(function(){
+                s--;
+                ovCd.textContent=s>0?('▋ REDIRECTION DANS '+s+'s…'):'▋ CHARGEMENT…';
+                if(s<=0)clearInterval(tick);
+            },1000);
+            
+            redirTimeout=setTimeout(function(){
+                window.location.href=redirectUrl;
+            },2000);
+        });
+        
         socket.on('waitingCountUpdate',function(data){
             var n=(data&&data.count)?data.count:0;
-            if(n>0){ctr.classList.add('on');ctrNum.textContent=n;setStatus('waiting','⏳','En attente',n+' candidat'+(n>1?'s':'')+' en salle');}
-            else{ctr.classList.remove('on');}
+            if(n>0){
+                ctr.classList.add('on');
+                ctrNum.textContent=n;
+                setStatus('waiting','⏳','En attente',n+' candidat'+(n>1?'s':'')+' en salle');
+            }else{
+                ctr.classList.remove('on');
+            }
         });
+        
         socket.on('pong',function(){});
-
-        // ── Fin d'épreuve → réinitialiser le terminal ──────────
+        
+        // Fin d'épreuve → réinitialiser le terminal
         socket.on('examFinished',function(data){
             isRedirecting=false;
             overlay.classList.remove('on');
@@ -261,17 +338,40 @@
             setStatus('connected','✓','Connecté','en attente d\'une nouvelle distribution');
             addFeed('info','Épreuve terminée','Terminal prêt pour une nouvelle session');
         });
-
-        // ── Épreuve distribuée pendant reconnexion ──────────────
-        // (isReconnect = true si l'épreuve était déjà active)
-        // Le handler examDistributed gère déjà ce cas via isRedirecting
     }
-    reconnBtn.addEventListener('click',function(){reconnBtn.classList.add('hidden');reconnAttempts=0;cleanup();if(socket)socket.disconnect();setTimeout(connect,300);});
-    refrBtn.addEventListener('click',function(){window.location.reload();});
-    if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});});
-    sessionId=getOrCreateSession();syncPanel();connect();
-    window.addEventListener('beforeunload',function(){cleanup();if(socket)socket.disconnect();});
-    setTimeout(function(){if(!socket||!socket.connected)addFeed('warning','Connexion lente','Vérifier la connexion internet');},4000);
+    
+    reconnBtn.addEventListener('click',function(){
+        reconnBtn.classList.add('hidden');
+        reconnAttempts=0;
+        cleanup();
+        if(socket)socket.disconnect();
+        setTimeout(connect,300);
+    });
+    
+    refrBtn.addEventListener('click',function(){
+        window.location.reload();
+    });
+    
+    if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+            rs.forEach(function(r){r.unregister();});
+        });
+    }
+    
+    sessionId=getOrCreateSession();
+    syncPanel();
+    connect();
+    
+    window.addEventListener('beforeunload',function(){
+        cleanup();
+        if(socket)socket.disconnect();
+    });
+    
+    setTimeout(function(){
+        if(!socket||!socket.connected){
+            addFeed('warning','Connexion lente','Vérifier la connexion internet');
+        }
+    },4000);
 })();
 </script>
 </body>
