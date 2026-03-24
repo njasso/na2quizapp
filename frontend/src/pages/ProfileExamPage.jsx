@@ -17,7 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -49,13 +49,7 @@ const ProfileExamPage = () => {
   const socketRef = useRef(null);
   const isMounted = useRef(true);
 
-  // ✅ FIX CRITIQUE : useEffect fetchExam avec isMounted reset
   useEffect(() => {
-    // ✅ CORRECTION: Réinitialiser isMounted à true à chaque nouvelle invocation
-    // de l'effet. Sans cela, en StrictMode (développement), le cleanup du premier
-    // run met isMounted=false, et le second run ne le remet pas à true — la
-    // requête axios revient, voit isMounted=false, sort prématurément, et
-    // setIsLoading(false) n'est jamais appelé → spinner infini.
     isMounted.current = true;
 
     const fetchExam = async () => {
@@ -174,7 +168,7 @@ const ProfileExamPage = () => {
         level: level.trim()
       };
 
-      // ✅ Inclure terminalSessionId (null ici, mais cohérent avec WaitingPage)
+      // Stocker dans localStorage
       localStorage.setItem('studentInfoForExam', JSON.stringify({
         examId: examId,
         info: studentInfoData,
@@ -187,10 +181,11 @@ const ProfileExamPage = () => {
       if (socketRef.current?.connected) {
         const status = selectedExamOption === 'B' ? 'waiting' : 'composing';
         
+        // ✅ CORRECTION: Ne pas envoyer studentSocketId, utiliser sessionId
         socketRef.current.emit('studentReadyForExam', {
           examId: examId,
           studentInfo: studentInfoData,
-          studentSocketId: socketRef.current.id,
+          sessionId: socketRef.current.id,
           status: status,
           examOption: selectedExamOption
         });
