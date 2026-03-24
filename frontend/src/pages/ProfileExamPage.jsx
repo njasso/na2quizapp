@@ -52,6 +52,15 @@ const ProfileExamPage = () => {
   useEffect(() => {
     isMounted.current = true;
 
+    // ✅ Récupérer l'option depuis l'URL (transmise par le terminal)
+    const searchParams = new URLSearchParams(window.location.search);
+    const urlOption = searchParams.get('option');
+    if (urlOption && ['A', 'B', 'C', 'D'].includes(urlOption)) {
+      console.log('[ProfileExamPage] 📋 Option depuis l\'URL:', urlOption);
+      setSelectedExamOption(urlOption);
+      setIsOptionLocked(true);
+    }
+
     const fetchExam = async () => {
       try {
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
@@ -76,8 +85,13 @@ const ProfileExamPage = () => {
         
         setExam(normalizedExam);
         console.log('[ProfileExamPage] ✅ Examen chargé:', normalizedExam.title);
+        console.log('[ProfileExamPage] 📋 Option dans la base de données:', normalizedExam.examOption);
 
-        if (normalizedExam.examOption) {
+        // ✅ Priorité: URL option > DB option
+        if (urlOption) {
+          // Option déjà définie par l'URL, ne rien faire de plus
+          console.log('[ProfileExamPage] 🔒 Option verrouillée depuis l\'URL:', urlOption);
+        } else if (normalizedExam.examOption) {
           setSelectedExamOption(normalizedExam.examOption);
           setIsOptionLocked(true);
           toast(`Cette épreuve est pré-configurée en Option ${normalizedExam.examOption}.`, { 
@@ -168,7 +182,7 @@ const ProfileExamPage = () => {
         level: level.trim()
       };
 
-      // Stocker dans localStorage
+      // ✅ Stocker dans localStorage avec l'option
       localStorage.setItem('studentInfoForExam', JSON.stringify({
         examId: examId,
         info: studentInfoData,
@@ -181,7 +195,9 @@ const ProfileExamPage = () => {
       if (socketRef.current?.connected) {
         const status = selectedExamOption === 'B' ? 'waiting' : 'composing';
         
-        // ✅ CORRECTION: Ne pas envoyer studentSocketId, utiliser sessionId
+        console.log(`[ProfileExamPage] 📤 Envoi studentReadyForExam: status=${status}, option=${selectedExamOption}`);
+        
+        // ✅ NE PAS envoyer studentSocketId - le serveur utilisera socket.id
         socketRef.current.emit('studentReadyForExam', {
           examId: examId,
           studentInfo: studentInfoData,
@@ -196,9 +212,16 @@ const ProfileExamPage = () => {
           duration: 5000
         });
         
-        setTimeout(() => {
-          navigate(`/exam/waiting/${examId}`);
-        }, 1500);
+        // ✅ Rediriger vers WaitingPage ou directement QuizCompositionPage selon l'option
+        if (selectedExamOption === 'B') {
+          setTimeout(() => {
+            navigate(`/exam/waiting/${examId}`);
+          }, 1500);
+        } else {
+          setTimeout(() => {
+            navigate(`/exam/compose/${examId}`);
+          }, 1500);
+        }
       } else {
         toast.error("Connexion au serveur perdue. Rechargement...");
         setIsSubmitted(false);
@@ -268,6 +291,9 @@ const ProfileExamPage = () => {
       </div>
     );
   }
+
+  // Déterminer si l'option B est sélectionnée pour l'affichage
+  const isOptionB = selectedExamOption === 'B';
 
   return (
     <div style={{
@@ -650,11 +676,22 @@ const ProfileExamPage = () => {
               </>
             ) : (
               <>
-                Rejoindre la salle d'attente
+                {isOptionB ? 'Rejoindre la salle d\'attente' : 'Commencer l\'examen'}
                 <ArrowRight size={18} />
               </>
             )}
           </motion.button>
+          
+          {isOptionB && (
+            <p style={{ 
+              textAlign: 'center', 
+              fontSize: '0.75rem', 
+              color: '#64748b',
+              marginTop: '8px'
+            }}>
+              ⏳ Vous serez mis en attente jusqu'au démarrage par le superviseur
+            </p>
+          )}
         </form>
       </motion.div>
 
