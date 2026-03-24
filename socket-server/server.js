@@ -4,21 +4,21 @@
 //  Déployé sur Render
 //  CORRIGÉ : Option B - Gestion des étudiants en attente
 // ─────────────────────────────────────────────────────────────
-import express          from 'express';
-import cors             from 'cors';
+import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
-import { Server }       from 'socket.io';
-import mongoose         from 'mongoose';
-import bcrypt           from 'bcryptjs';
-import jwt              from 'jsonwebtoken';
-import dotenv           from 'dotenv';
+import { Server } from 'socket.io';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 dotenv.config();
 
-const app    = express();
+const app = express();
 const server = createServer(app);
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const JWT_SECRET   = process.env.JWT_SECRET   || 'na2quiz_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET || 'na2quiz_secret_key';
 
 // ══════════════════════════════════════════════════════════════
 //  CORS
@@ -58,109 +58,114 @@ async function connectDB() {
 connectDB().catch(err => console.error('[DB] ❌', err.message));
 
 // ══════════════════════════════════════════════════════════════
-//  SCHÉMAS MONGOOSE (inchangés)
+//  SCHÉMAS MONGOOSE
 // ══════════════════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema({
-  name:     { type: String, required: true },
+  name: { type: String, required: true },
   username: { type: String, unique: true, sparse: true },
-  email:    { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role:     { type: String, enum: ['student','teacher','admin'], default: 'student' },
-  isAdmin:  { type: Boolean, default: false },
+  role: { type: String, enum: ['student', 'teacher', 'admin'], default: 'student' },
+  isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
-UserSchema.pre('save', async function(next) {
+
+UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10); next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
 });
-UserSchema.methods.matchPassword = function(pwd) { return bcrypt.compare(pwd, this.password); };
+UserSchema.methods.matchPassword = function (pwd) {
+  return bcrypt.compare(pwd, this.password);
+};
 
 const QuestionSchema = new mongoose.Schema({
-  domaine:     { type: String, required: true },
+  domaine: { type: String, required: true },
   sousDomaine: { type: String, default: '' },
-  niveau:      { type: String, required: true },
-  matiere:     { type: String, required: true },
-  question:    { type: String, required: true },
-  options:     [{ type: String, required: true }],
+  niveau: { type: String, required: true },
+  matiere: { type: String, required: true },
+  question: { type: String, required: true },
+  options: [{ type: String, required: true }],
   correctAnswer: { type: mongoose.Schema.Types.Mixed, required: true },
-  points:      { type: Number, default: 1 },
+  points: { type: Number, default: 1 },
   explanation: { type: String, default: '' },
-  type:        { type: String, enum: ['single','multiple'], default: 'single' },
-  difficulty:  { type: String, enum: ['facile','moyen','difficile'], default: 'moyen' },
-  tags:        [String],
+  type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+  difficulty: { type: String, enum: ['facile', 'moyen', 'difficile'], default: 'moyen' },
+  tags: [String],
 }, { timestamps: true });
 
 const ExamQuestionSchema = new mongoose.Schema({
-  question:    { type: String, required: true },
-  text:        String,
-  options:     [{ type: String, required: true }],
+  question: { type: String, required: true },
+  text: String,
+  options: [{ type: String, required: true }],
   correctAnswer: { type: mongoose.Schema.Types.Mixed, required: true },
-  points:      { type: Number, default: 1 },
+  points: { type: Number, default: 1 },
   explanation: { type: String, default: '' },
-  type:        { type: String, default: 'single' },
+  type: { type: String, default: 'single' },
 }, { _id: true });
 
 const ExamSchema = new mongoose.Schema({
-  title:       { type: String, required: true, trim: true },
+  title: { type: String, required: true, trim: true },
   description: { type: String, default: '' },
-  duration:    { type: Number, required: true, min: 1 },
-  domain:      { type: String, required: true, trim: true },
-  category:    { type: String, trim: true },
-  level:       { type: String, required: true, trim: true },
-  subject:     { type: String, required: true, trim: true },
-  questions:   [ExamQuestionSchema],
-  passingScore:  { type: Number, default: 70 },
+  duration: { type: Number, required: true, min: 1 },
+  domain: { type: String, required: true, trim: true },
+  category: { type: String, trim: true },
+  level: { type: String, required: true, trim: true },
+  subject: { type: String, required: true, trim: true },
+  questions: [ExamQuestionSchema],
+  passingScore: { type: Number, default: 70 },
   questionCount: { type: Number, default: 0 },
-  totalPoints:   { type: Number, default: 0 },
-  status:        { type: String, enum: ['draft','published','archived'], default: 'published' },
-  tags:          [String],
+  totalPoints: { type: Number, default: 0 },
+  status: { type: String, enum: ['draft', 'published', 'archived'], default: 'published' },
+  tags: [String],
   isAIgenerated: { type: Boolean, default: false },
-  examOption:    { type: String, enum: ['A','B','C','D',null], default: null },
-  teacherName:   { type: String, default: '' },
-  teacherGrade:  { type: String, default: '' },
-  source:        { type: String, default: 'manual' },
-  createdBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  teacherName: { type: String, default: '' },
+  teacherGrade: { type: String, default: '' },
+  source: { type: String, default: 'manual' },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
-ExamSchema.pre('save', function(next) {
+
+ExamSchema.pre('save', function (next) {
   this.questionCount = this.questions.length;
-  this.totalPoints   = this.questions.reduce((s, q) => s + (q.points || 1), 0);
+  this.totalPoints = this.questions.reduce((s, q) => s + (q.points || 1), 0);
   next();
 });
 
 const ResultSchema = new mongoose.Schema({
-  examId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
+  examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   studentInfo: {
     firstName: { type: String, required: true },
-    lastName:  { type: String, required: true },
+    lastName: { type: String, required: true },
     matricule: String,
-    level:     String,
+    level: String,
   },
-  answers:        { type: Map, of: mongoose.Schema.Types.Mixed, required: true },
-  score:          { type: Number, required: true },
-  percentage:     { type: Number, required: true, set: v => parseFloat(parseFloat(v).toFixed(2)) },
-  passed:         { type: Boolean, required: true },
+  answers: { type: Map, of: mongoose.Schema.Types.Mixed, required: true },
+  score: { type: Number, required: true },
+  percentage: { type: Number, required: true, set: v => parseFloat(parseFloat(v).toFixed(2)) },
+  passed: { type: Boolean, required: true },
   totalQuestions: Number,
-  examTitle:      String,
-  examLevel:      String,
-  domain:         String,
-  subject:        String,
-  category:       String,
-  duration:       Number,
-  passingScore:   Number,
-  examOption:     { type: String, enum: ['A','B','C','D',null], default: null },
-  examQuestions:  [{
-    _id:           mongoose.Schema.Types.ObjectId,
-    question:      String,
-    options:       [String],
+  examTitle: String,
+  examLevel: String,
+  domain: String,
+  subject: String,
+  category: String,
+  duration: Number,
+  passingScore: Number,
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  examQuestions: [{
+    _id: mongoose.Schema.Types.ObjectId,
+    question: String,
+    options: [String],
     correctAnswer: mongoose.Schema.Types.Mixed,
-    type:          { type: String, default: 'single' },
+    type: { type: String, default: 'single' },
   }],
   pdfPath: { type: String, default: null },
 }, { timestamps: true });
 
-const User     = mongoose.models.User     || mongoose.model('User',     UserSchema);
+const User = mongoose.models.User || mongoose.model('User', UserSchema);
 const Question = mongoose.models.Question || mongoose.model('Question', QuestionSchema);
-const Exam     = mongoose.models.Exam     || mongoose.model('Exam',     ExamSchema);
-const Result   = mongoose.models.Result   || mongoose.model('Result',   ResultSchema);
+const Exam = mongoose.models.Exam || mongoose.model('Exam', ExamSchema);
+const Result = mongoose.models.Result || mongoose.model('Result', ResultSchema);
 
 // ══════════════════════════════════════════════════════════════
 //  MIDDLEWARE AUTH
@@ -180,12 +185,16 @@ function protect(req, res, next) {
 //  MIDDLEWARE DB avant chaque requête API
 // ══════════════════════════════════════════════════════════════
 app.use('/api', async (req, res, next) => {
-  try { await connectDB(); next(); }
-  catch (err) { res.status(503).json({ error: 'Base de données indisponible', detail: err.message }); }
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    res.status(503).json({ error: 'Base de données indisponible', detail: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
-//  REDIRECTS — fichiers statiques servis par Netlify
+//  REDIRECTS
 // ══════════════════════════════════════════════════════════════
 app.get('/terminal.html', (req, res) => {
   res.redirect(301, `${FRONTEND_URL}/terminal.html`);
@@ -198,21 +207,22 @@ app.get('/exam/*', (req, res) => {
 // ══════════════════════════════════════════════════════════════
 //  ROUTES SANTÉ
 // ══════════════════════════════════════════════════════════════
-app.get('/',        (_, res) => res.json({ status: 'NA²QUIZ Unified Server', uptime: process.uptime() }));
-app.get('/health',  (_, res) => res.json({ status: 'UP', connections: activeSessions?.size || 0 }));
-app.get('/sessions',(_, res) => res.json({ sessions: Array.from(activeSessions?.values() || []) }));
+app.get('/', (_, res) => res.json({ status: 'NA²QUIZ Unified Server', uptime: process.uptime() }));
+app.get('/health', (_, res) => res.json({ status: 'UP', connections: activeSessions?.size || 0 }));
+app.get('/sessions', (_, res) => res.json({ sessions: Array.from(activeSessions?.values() || []) }));
 
 app.get('/api/health', (_, res) =>
-  res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', ts: new Date() }));
+  res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', ts: new Date() })
+);
 
 app.get('/api/check-config', (_, res) => res.json({
   deepseek: !!process.env.DEEPSEEK_API_KEY,
-  mongodb:  !!process.env.MONGODB_URI,
-  jwt:      !!process.env.JWT_SECRET,
+  mongodb: !!process.env.MONGODB_URI,
+  jwt: !!process.env.JWT_SECRET,
 }));
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH (inchangé)
+//  AUTH
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -227,7 +237,9 @@ app.post('/api/auth/register', async (req, res) => {
     await user.save();
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, message: 'Inscription réussie', name: user.name, email: user.email, role: user.role, _id: user._id });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -239,7 +251,9 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ message: 'Mot de passe incorrect' });
     const token = jwt.sign({ id: user._id, role: user.role, isAdmin: user.isAdmin }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: user.name, email: user.email, username: user.username, role: user.role, isAdmin: user.isAdmin, _id: user._id });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 app.get('/api/auth/me', protect, async (req, res) => {
@@ -247,25 +261,29 @@ app.get('/api/auth/me', protect, async (req, res) => {
     const user = await User.findById(req.user.id).select('-password');
     if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
     res.json(user);
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
-//  QUESTIONS (banque) — inchangé
+//  QUESTIONS (banque)
 // ══════════════════════════════════════════════════════════════
 app.get('/api/questions', async (req, res) => {
   try {
     const { domaine, sousDomaine, niveau, matiere, difficulty, type, limit = 1000 } = req.query;
     const filter = {};
-    if (domaine)     filter.domaine     = domaine;
+    if (domaine) filter.domaine = domaine;
     if (sousDomaine) filter.sousDomaine = sousDomaine;
-    if (niveau)      filter.niveau      = niveau;
-    if (matiere)     filter.matiere     = matiere;
-    if (difficulty)  filter.difficulty  = difficulty;
-    if (type)        filter.type        = type;
+    if (niveau) filter.niveau = niveau;
+    if (matiere) filter.matiere = matiere;
+    if (difficulty) filter.difficulty = difficulty;
+    if (type) filter.type = type;
     const questions = await Question.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit));
     res.json({ success: true, data: questions, count: questions.length });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/questions/:id', async (req, res) => {
@@ -273,7 +291,9 @@ app.get('/api/questions/:id', async (req, res) => {
     const q = await Question.findById(req.params.id);
     if (!q) return res.status(404).json({ success: false, message: 'Question non trouvée' });
     res.json({ success: true, data: q });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/questions/save', async (req, res) => {
@@ -283,7 +303,9 @@ app.post('/api/questions/save', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Tableau de questions requis' });
     const saved = await Question.insertMany(questions, { ordered: false });
     res.json({ success: true, count: saved.length });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.put('/api/questions/:id', async (req, res) => {
@@ -291,7 +313,9 @@ app.put('/api/questions/:id', async (req, res) => {
     const q = await Question.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!q) return res.status(404).json({ success: false, message: 'Question non trouvée' });
     res.json({ success: true, data: q });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.delete('/api/questions/:id', async (req, res) => {
@@ -299,7 +323,9 @@ app.delete('/api/questions/:id', async (req, res) => {
     const q = await Question.findByIdAndDelete(req.params.id);
     if (!q) return res.status(404).json({ success: false, message: 'Question non trouvée' });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -309,7 +335,9 @@ app.get('/api/exams', async (req, res) => {
   try {
     const exams = await Exam.find().sort({ createdAt: -1 });
     res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/exams/:id', async (req, res) => {
@@ -317,14 +345,18 @@ app.get('/api/exams/:id', async (req, res) => {
     const exam = await Exam.findById(req.params.id);
     if (!exam) return res.status(404).json({ error: 'Épreuve introuvable' });
     res.json(exam);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/exams', async (req, res) => {
   try {
     const saved = await new Exam(req.body).save();
     res.status(201).json(saved);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/exams/:id', async (req, res) => {
@@ -332,7 +364,9 @@ app.put('/api/exams/:id', async (req, res) => {
     const updated = await Exam.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updated) return res.status(404).json({ error: 'Épreuve introuvable' });
     res.json(updated);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/exams/:id', async (req, res) => {
@@ -340,7 +374,9 @@ app.delete('/api/exams/:id', async (req, res) => {
     const deleted = await Exam.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Épreuve introuvable' });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -360,11 +396,18 @@ app.post('/api/results', async (req, res) => {
     const totalPoints = exam.questions.reduce((s, q) => s + (q.points || 1), 0);
 
     exam.questions.forEach(q => {
-      const qId       = q._id.toString();
-      const student   = answers[qId];
+      const qId = q._id.toString();
+      const student = answers[qId];
       const isCorrect = student != null && String(student).trim() === String(q.correctAnswer).trim();
       if (isCorrect) score += (q.points || 1);
-      details[qId] = { question: q.question, studentAnswer: student ?? null, correctAnswer: q.correctAnswer, isCorrect, points: q.points || 1, earned: isCorrect ? (q.points || 1) : 0 };
+      details[qId] = {
+        question: q.question,
+        studentAnswer: student ?? null,
+        correctAnswer: q.correctAnswer,
+        isCorrect,
+        points: q.points || 1,
+        earned: isCorrect ? (q.points || 1) : 0
+      };
     });
 
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
@@ -376,11 +419,19 @@ app.post('/api/results', async (req, res) => {
       subject: exam.subject || '', category: exam.category || '',
       duration: exam.duration, passingScore: exam.passingScore || 70,
       examOption: exam.examOption || null,
-      examQuestions: exam.questions.map(q => ({ _id: q._id, question: q.question || q.text, options: q.options, correctAnswer: q.correctAnswer, type: q.type || 'single' })),
+      examQuestions: exam.questions.map(q => ({
+        _id: q._id,
+        question: q.question || q.text,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        type: q.type || 'single'
+      })),
     }).save();
 
     res.status(201).json({ result: saved, details });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/results', async (req, res) => {
@@ -388,7 +439,9 @@ app.get('/api/results', async (req, res) => {
     const results = await Result.find().sort({ createdAt: -1 })
       .populate('examId', 'title questions domain category level subject duration passingScore totalPoints');
     res.json(results);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/results/:id', async (req, res) => {
@@ -396,14 +449,18 @@ app.get('/api/results/:id', async (req, res) => {
     const r = await Result.findById(req.params.id).populate('examId');
     if (!r) return res.status(404).json({ error: 'Résultat introuvable' });
     res.json(r);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/results/:id', async (req, res) => {
   try {
     await Result.findByIdAndDelete(req.params.id);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -420,36 +477,123 @@ app.get('/api/rankings/:examId', async (req, res) => {
       studentInfo: r.studentInfo, score: r.score, percentage: r.percentage,
       passed: r.passed, examOption: r.examOption, totalQuestions: r.totalQuestions,
       submittedAt: r.createdAt,
-      examId: { _id: exam._id, title: exam.title, totalPoints: exam.questions.reduce((s,q) => s+(q.points||1),0), questions: exam.questions },
+      examId: {
+        _id: exam._id,
+        title: exam.title,
+        totalPoints: exam.questions.reduce((s, q) => s + (q.points || 1), 0),
+        questions: exam.questions
+      },
     }));
-    res.json({ rankings, examTitle: exam.title, examDomain: exam.domain||'', examLevel: exam.level||'',
-      total: rankings.length, passed: rankings.filter(r=>r.passed).length,
-      average: rankings.length ? parseFloat((rankings.reduce((s,r)=>s+r.percentage,0)/rankings.length).toFixed(2)) : 0 });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.json({
+      rankings, examTitle: exam.title, examDomain: exam.domain || '', examLevel: exam.level || '',
+      total: rankings.length, passed: rankings.filter(r => r.passed).length,
+      average: rankings.length ? parseFloat((rankings.reduce((s, r) => s + r.percentage, 0) / rankings.length).toFixed(2)) : 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
-//  BULLETIN HTML
+//  BULLETIN HTML (version simplifiée mais fonctionnelle)
 // ══════════════════════════════════════════════════════════════
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId);
     if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
-    const exam      = await Exam.findById(result.examId);
+    const exam = await Exam.findById(result.examId);
     const questions = result.examQuestions?.length ? result.examQuestions : (exam?.questions || []);
-    const answers   = result.answers instanceof Map ? Object.fromEntries(result.answers) : (result.answers || {});
-    const mention   = result.percentage >= 90 ? 'Très Bien' : result.percentage >= 75 ? 'Bien' : result.percentage >= 60 ? 'Assez Bien' : result.percentage >= 50 ? 'Passable' : 'Insuffisant';
-    const mColor    = result.percentage >= 75 ? '#16a34a' : result.percentage >= 50 ? '#d97706' : '#dc2626';
-    const note20    = ((result.percentage / 100) * 20).toFixed(2);
-    const rows = questions.map((q,i) => {
-      const qId = q._id?.toString(); const student = answers[qId] ?? '—';
+    const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : (result.answers || {});
+    const mention = result.percentage >= 90 ? 'Très Bien' : result.percentage >= 75 ? 'Bien' : result.percentage >= 60 ? 'Assez Bien' : result.percentage >= 50 ? 'Passable' : 'Insuffisant';
+    const mColor = result.percentage >= 75 ? '#16a34a' : result.percentage >= 50 ? '#d97706' : '#dc2626';
+    const note20 = ((result.percentage / 100) * 20).toFixed(2);
+
+    let rows = '';
+    questions.forEach((q, i) => {
+      const qId = q._id?.toString();
+      const student = answers[qId] ?? '—';
       const ok = student !== '—' && String(student).trim() === String(q.correctAnswer).trim();
-      return `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:10px 8px;color:#64748b;width:32px">${i+1}<td style="padding:10px 8px;font-size:0.88rem">${q.question||q.text||''}<td style="padding:10px 8px;color:${ok?'#16a34a':'#dc2626'}">${student}<td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}<td style="padding:10px 8px;text-align:center">${ok?'✅':'❌'} </tr>`;
-    }).join('');
-    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>...</style></head><body>...</body></html>`;
+      rows += `<tr style="border-bottom:1px solid #e2e8f0">
+        <td style="padding:10px 8px;color:#64748b;width:32px">${i + 1}</td>
+        <td style="padding:10px 8px;font-size:0.88rem">${q.question || q.text || ''}</td>
+        <td style="padding:10px 8px;color:${ok ? '#16a34a' : '#dc2626'}">${student}</td>
+        <td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}</td>
+        <td style="padding:10px 8px;text-align:center">${ok ? '✅' : '❌'}</td>
+      </tr>`;
+    });
+
+    const html = `<!DOCTYPE html>
+    <html lang="fr">
+    <head>
+      <meta charset="UTF-8">
+      <title>Bulletin</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#1e293b}
+        .page{max-width:860px;margin:0 auto;padding:32px 24px}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #3b82f6}
+        .logo{font-size:1.4rem;font-weight:900;color:#3b82f6}
+        .badge{padding:6px 16px;border-radius:999px;font-weight:800;color:#fff;background:${result.passed ? '#16a34a' : '#dc2626'}}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}
+        .box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+        .lbl{font-size:0.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px}
+        .val{font-size:0.92rem;font-weight:600}
+        .score{background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:14px;padding:22px;text-align:center;margin-bottom:24px;color:#fff}
+        .pct{font-size:2.75rem;font-weight:900;line-height:1}
+        .mention{font-size:1rem;font-weight:700;color:${mColor};background:#fff;display:inline-block;padding:4px 14px;border-radius:999px;margin-top:8px}
+        .detail{font-size:0.82rem;opacity:0.85;margin-top:6px}
+        table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+        thead{background:#f1f5f9}
+        th{padding:10px 8px;text-align:left;font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase}
+        .footer{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:0.72rem;color:#94a3b8}
+        .noprint{margin-top:20px;text-align:center}
+        .noprint button{padding:10px 24px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer}
+        @media print{body{background:#fff}.noprint{display:none}@page{size:A4;margin:12mm}}
+      </style>
+    </head>
+    <body>
+      <div class="page">
+        <div class="header">
+          <div>
+            <div class="logo">NA²QUIZ</div>
+            <div style="font-size:1rem;font-weight:700;margin-top:3px">Bulletin — ${result.examTitle || exam?.title || 'Épreuve'}</div>
+            <div style="font-size:0.78rem;color:#64748b;margin-top:2px">${new Date(result.createdAt).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+          </div>
+          <span class="badge">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</span>
+        </div>
+        <div class="grid">
+          <div class="box"><div class="lbl">Nom complet</div><div class="val">${result.studentInfo?.lastName || ''} ${result.studentInfo?.firstName || ''}</div></div>
+          <div class="box"><div class="lbl">Matricule</div><div class="val">${result.studentInfo?.matricule || '—'}</div></div>
+          <div class="box"><div class="lbl">Niveau</div><div class="val">${result.studentInfo?.level || '—'}</div></div>
+          <div class="box"><div class="lbl">Domaine · Matière</div><div class="val">${result.domain || '—'} · ${result.subject || '—'}</div></div>
+          <div class="box"><div class="lbl">Durée</div><div class="val">${result.duration || '—'} min</div></div>
+          <div class="box"><div class="lbl">Seuil</div><div class="val">${result.passingScore || 50}%</div></div>
+        </div>
+        <div class="score">
+          <div class="pct">${result.percentage}%</div>
+          <div class="detail">${result.score} pt(s) · ${result.totalQuestions || questions.length} questions · Note /20 : ${note20}</div>
+          <div class="mention">${mention}</div>
+        </div>
+        <h3 style="font-size:0.85rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Détail par question</h3>
+        <table>
+          <thead>
+            <tr><th style="width:32px">#</th><th>Question</th><th>Réponse donnée</th><th>Bonne réponse</th><th style="width:40px;text-align:center">Résultat</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="footer">
+          <span>NA²QUIZ — AFRICANUT INDUSTRY</span>
+          <span>Réf : ${result._id}</span>
+        </div>
+        <div class="noprint"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button></div>
+      </div>
+    </body>
+    </html>`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
-  } catch (err) { res.status(500).send(`<h1>Erreur: ${err.message}</h1>`); }
+  } catch (err) {
+    res.status(500).send(`<h1>Erreur: ${err.message}</h1>`);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -458,11 +602,11 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
 app.post('/api/generate-questions', async (req, res) => {
   try {
     const body = req.body;
-    const mat  = body.subject || body.matiere || '';
-    const dom  = body.domain  || body.domaine || '';
+    const mat = body.subject || body.matiere || '';
+    const dom = body.domain || body.domaine || '';
     const sdom = body.subDomain || body.sousDomaine || '';
-    const niv  = body.level   || body.niveau  || '';
-    const nbQ  = body.numQuestions || body.numberOfQuestions || 5;
+    const niv = body.level || body.niveau || '';
+    const nbQ = body.numQuestions || body.numberOfQuestions || 5;
     const mots = body.keywords ? ` Mots-clés : ${body.keywords}.` : '';
     const lang = body.language || 'fr';
 
@@ -472,12 +616,12 @@ app.post('/api/generate-questions', async (req, res) => {
     if (!apiKey) return res.status(503).json({ error: 'Clé API DeepSeek non configurée' });
 
     const prompt = `Tu es un expert en évaluation scolaire (Cameroun).
-Génère exactement ${nbQ} questions QCM en ${lang} sur : "${mat}"${dom?` (${dom})`:''  }${sdom?`, ${sdom}`:''}${niv?`, niveau ${niv}`:''}.${mots}
+Génère exactement ${nbQ} questions QCM en ${lang} sur : "${mat}"${dom ? ` (${dom})` : ''}${sdom ? `, ${sdom}` : ''}${niv ? `, niveau ${niv}` : ''}.${mots}
 Retourne UNIQUEMENT du JSON valide sans texte avant/après ni backticks.
 Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correctAnswer":"A","explanation":"Explication","points":1,"difficulty":"moyen"}]}`;
 
     const ctrl = new AbortController();
-    const tmo  = setTimeout(() => ctrl.abort(), 85000);
+    const tmo = setTimeout(() => ctrl.abort(), 85000);
 
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -492,12 +636,13 @@ Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correct
       return res.status(502).json({ error: 'Erreur API DeepSeek', detail: err.error?.message });
     }
 
-    const data    = await response.json();
+    const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
-    const clean   = content.replace(/```json|```/g, '').trim();
+    const clean = content.replace(/```json|```/g, '').trim();
     let parsed;
-    try { parsed = JSON.parse(clean); }
-    catch (_) {
+    try {
+      parsed = JSON.parse(clean);
+    } catch (_) {
       const m = clean.match(/\{[\s\S]*\}/);
       if (!m) throw new Error('Réponse IA non parseable');
       parsed = JSON.parse(m[0]);
@@ -521,7 +666,7 @@ Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correct
 // ══════════════════════════════════════════════════════════════
 app.get('/api/surveillance-data', (_, res) => {
   const sessions = Array.from(activeSessions.values());
-  const students  = sessions.filter(s => s.type === 'student');
+  const students = sessions.filter(s => s.type === 'student');
   const terminals = sessions.filter(s => s.type === 'terminal');
   const waitingStudents = students.filter(s => s.status === 'waiting');
 
@@ -529,9 +674,9 @@ app.get('/api/surveillance-data', (_, res) => {
   students.forEach(s => {
     if (!s.currentExamId) return;
     if (!byExam[s.currentExamId]) byExam[s.currentExamId] = { waiting: 0, composing: 0, finished: 0 };
-    if (s.status === 'waiting')   byExam[s.currentExamId].waiting++;
+    if (s.status === 'waiting') byExam[s.currentExamId].waiting++;
     if (s.status === 'composing') byExam[s.currentExamId].composing++;
-    if (s.status === 'finished')  byExam[s.currentExamId].finished++;
+    if (s.status === 'finished') byExam[s.currentExamId].finished++;
   });
 
   console.log(`[API] 📊 Surveillance data: ${waitingStudents.length} étudiants en attente, ${students.filter(s => s.status === 'composing').length} en composition`);
@@ -569,12 +714,12 @@ app.get('/api/active-sessions', (_, res) => {
     percentage: s.percentage,
     resultUrl: s.resultUrl
   }));
-  
+
   const waitingCount = sessions.filter(s => s.type === 'student' && s.status === 'waiting').length;
   const composingCount = sessions.filter(s => s.type === 'student' && s.status === 'composing').length;
-  
+
   console.log(`[API] 📊 ${sessions.length} sessions actives (${waitingCount} en attente, ${composingCount} en composition)`);
-  
+
   res.json({
     success: true,
     count: sessions.length,
@@ -593,15 +738,16 @@ app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.p
 //  SOCKET.IO
 // ══════════════════════════════════════════════════════════════
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, methods: ['GET','POST'], credentials: true },
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true },
   allowEIO3: true,
   transports: ['polling', 'websocket'],
-  pingTimeout: 60000, pingInterval: 25000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-const activeSessions         = new Map();
+const activeSessions = new Map();
 const activeDistributedExams = new Map();
-const pendingReconnections   = new Map();
+const pendingReconnections = new Map();
 
 const emitSessionUpdate = () => {
   const sessions = Array.from(activeSessions.values()).filter(s => s.type !== 'surveillance');
@@ -614,7 +760,7 @@ io.on('connection', (socket) => {
   // ==================== REGISTRATION ====================
   socket.on('registerSession', (data) => {
     console.log(`[Socket] 📝 registerSession: type=${data.type}, sessionId=${data.sessionId}`);
-    
+
     const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
     if (existing) {
       const pending = pendingReconnections.get(data.sessionId);
@@ -622,7 +768,7 @@ io.on('connection', (socket) => {
       activeSessions.delete(existing.socketId);
       Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
       activeSessions.set(socket.id, existing);
-      
+
       if (existing.type === 'surveillance') socket.join('surveillance');
       if (existing.type === 'student' && existing.currentExamId) {
         socket.join(`exam:${existing.currentExamId}`);
@@ -633,12 +779,310 @@ io.on('connection', (socket) => {
       emitSessionUpdate();
       return;
     }
-    
-    const session = { 
-      socketId: socket.id, 
-      type: data.type, 
-      sessionId: data.sessionId || socket.id, 
-      status: data.status || 'idle', 
-      currentExamId: data.examId || null, 
-      studentInfo: data.studentInfo || null, 
-      progress:
+
+    const session = {
+      socketId: socket.id,
+      type: data.type,
+      sessionId: data.sessionId || socket.id,
+      status: data.status || 'idle',
+      currentExamId: data.examId || null,
+      studentInfo: data.studentInfo || null,
+      progress: 0,
+      lastUpdate: Date.now(),
+      resultUrl: null,
+      isOnline: true,
+      examOption: data.examOption || null
+    };
+    activeSessions.set(socket.id, session);
+
+    if (data.type === 'surveillance') {
+      socket.join('surveillance');
+    }
+    if (data.type === 'student' && data.examId) {
+      socket.join(`exam:${data.examId}`);
+      socket.join(`exam:${data.examId}:all`);
+      if (data.status === 'waiting') socket.join(`exam:${data.examId}:waiting`);
+      if (data.status === 'composing') socket.join(`exam:${data.examId}:composing`);
+    }
+    emitSessionUpdate();
+  });
+
+  // ==================== STUDENT READY (CORRIGÉ) ====================
+  socket.on('studentReadyForExam', ({ examId, studentInfo, studentSocketId, status = 'composing', sessionId, examOption }) => {
+    const targetId = socket.id;
+    const stableSessionId = sessionId || `STU_${examId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
+    console.log(`[Socket] 👨‍🎓 studentReadyForExam: exam=${examId}, student=${studentInfo?.firstName} ${studentInfo?.lastName}, status=${status}, option=${examOption}, socketId=${targetId}`);
+
+    const existingStudent = Array.from(activeSessions.values()).find(
+      s => s.type === 'student' &&
+        s.studentInfo?.matricule === studentInfo.matricule &&
+        s.currentExamId === examId
+    );
+
+    if (existingStudent && existingStudent.socketId !== targetId) {
+      activeSessions.delete(existingStudent.socketId);
+      console.log(`[Socket] ♻️ Remplacé ancienne session pour ${studentInfo.firstName} ${studentInfo.lastName}`);
+    }
+
+    const session = {
+      socketId: targetId,
+      type: 'student',
+      sessionId: stableSessionId,
+      currentExamId: examId,
+      studentInfo,
+      status: status,
+      progress: 0,
+      examOption: examOption || 'A',
+      lastUpdate: Date.now(),
+      resultUrl: null,
+      isOnline: true
+    };
+
+    activeSessions.set(targetId, session);
+    console.log(`[Socket] ✅ Student ajouté: ${studentInfo.firstName} ${studentInfo.lastName} (status=${status})`);
+    console.log(`[Socket] 📊 Total students actifs: ${Array.from(activeSessions.values()).filter(s => s.type === 'student').length}`);
+
+    const studentSocket = io.sockets.sockets.get(targetId);
+    if (studentSocket) {
+      studentSocket.join(`exam:${examId}`);
+      studentSocket.join(`exam:${examId}:all`);
+
+      if (status === 'waiting') {
+        studentSocket.join(`exam:${examId}:waiting`);
+        console.log(`[Socket] ⏳ [WAITING] ${studentInfo.firstName} ${studentInfo.lastName} - Option ${examOption}`);
+
+        const waitingCount = Array.from(activeSessions.values()).filter(
+          x => x.type === 'student' && x.currentExamId === examId && x.status === 'waiting'
+        ).length;
+        io.emit('waitingCountUpdate', { examId, count: waitingCount });
+
+        io.to('surveillance').emit('studentJoinedWaiting', { examId, studentInfo, waitingCount });
+      } else if (status === 'composing') {
+        studentSocket.join(`exam:${examId}:composing`);
+        console.log(`[Socket] ✍️ [COMPOSING] ${studentInfo.firstName} ${studentInfo.lastName} - Option ${examOption}`);
+      }
+    }
+
+    emitSessionUpdate();
+  });
+
+  // ==================== START EXAM ====================
+  socket.on('startExam', ({ examId, option }) => {
+    console.log(`[Socket] 🚀 DEMANDE DE DÉMARRAGE - Examen: ${examId}, Option: ${option}`);
+
+    if (!examId) {
+      console.log('[Socket] ⚠️ examId manquant');
+      socket.emit('startExamError', { examId, error: 'ID examen manquant' });
+      return;
+    }
+
+    const examInfo = activeDistributedExams.get(examId);
+    if (!examInfo) {
+      console.log(`[Socket] ⚠️ Examen ${examId} non distribué`);
+      socket.emit('startExamError', { examId, error: 'Examen non distribué' });
+      return;
+    }
+
+    if (option === 'B') {
+      const waitingStudents = Array.from(activeSessions.values()).filter(
+        s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
+      );
+
+      console.log(`[Socket] 📋 ${waitingStudents.length} étudiant(s) en attente pour Option B`);
+
+      if (waitingStudents.length === 0) {
+        console.log(`[Socket] ⚠️ Aucun étudiant en attente pour l'examen ${examId}`);
+        socket.emit('noWaitingStudents', { examId });
+        return;
+      }
+
+      let startedCount = 0;
+      const failedStudents = [];
+
+      waitingStudents.forEach(student => {
+        const studentSocket = io.sockets.sockets.get(student.socketId);
+
+        if (studentSocket && studentSocket.connected) {
+          const updatedStudent = {
+            ...student,
+            status: 'composing',
+            lastUpdate: Date.now(),
+            examStartTime: Date.now()
+          };
+          activeSessions.set(student.socketId, updatedStudent);
+
+          studentSocket.leave(`exam:${examId}:waiting`);
+          studentSocket.join(`exam:${examId}:composing`);
+
+          studentSocket.emit('examStartedForOptionB', {
+            examId,
+            questionIndex: 0,
+            timestamp: Date.now(),
+            totalQuestions: examInfo.questionCount || 0
+          });
+
+          startedCount++;
+          console.log(`[Socket] ✅ Examen démarré pour ${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
+        } else {
+          failedStudents.push(`${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
+          console.log(`[Socket] ⚠️ Socket non connecté pour ${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
+        }
+      });
+
+      io.emit('waitingCountUpdate', { examId, count: 0 });
+
+      if (startedCount > 0) {
+        socket.emit('examStartedConfirm', {
+          examId,
+          startedCount,
+          totalWaiting: waitingStudents.length,
+          failedCount: failedStudents.length,
+          failedStudents
+        });
+
+        io.to('surveillance').emit('examStartedSuccess', {
+          examId,
+          startedCount,
+          message: `${startedCount} étudiant(s) ont commencé l'épreuve`
+        });
+      } else {
+        socket.emit('startExamError', { examId, error: 'Aucun étudiant n\'a pu démarrer l\'épreuve' });
+      }
+
+    } else {
+      const students = Array.from(activeSessions.values()).filter(
+        s => s.type === 'student' && s.currentExamId === examId
+      );
+
+      students.forEach(s => {
+        const studentSocket = io.sockets.sockets.get(s.socketId);
+        if (studentSocket && studentSocket.connected) {
+          studentSocket.emit('examStarted', { examId, questionIndex: 0 });
+          activeSessions.set(s.socketId, { ...s, status: 'composing', lastUpdate: Date.now() });
+        }
+      });
+
+      socket.emit('examStartedConfirm', { examId, startedCount: students.length });
+    }
+
+    emitSessionUpdate();
+  });
+
+  // ==================== AUTRES ÉVÉNEMENTS ====================
+  socket.on('distributeExam', (data) => {
+    if (!data.examId || !data.examOption) return;
+    const examData = {
+      option: data.examOption,
+      distributedAt: new Date(),
+      questionCount: data.questionCount || 0
+    };
+    if (data.examOption === 'A') {
+      examData.currentQuestionIndex = 0;
+      io.emit('currentQuestionIndexForOptionA', { examId: data.examId, questionIndex: 0 });
+    }
+    activeDistributedExams.set(data.examId, examData);
+    io.to('terminals').emit('examDistributed', {
+      url: `${FRONTEND_URL}/exam/profile/${data.examId}`,
+      examId: data.examId,
+      examOption: data.examOption
+    });
+    emitSessionUpdate();
+  });
+
+  socket.on('updateStudentProgress', (data) => {
+    const s = activeSessions.get(socket.id);
+    if (s?.type === 'student') {
+      activeSessions.set(socket.id, {
+        ...s, progress: data.progress, status: 'composing',
+        score: data.score, totalQuestions: data.totalQuestions,
+        percentage: data.percentage, lastUpdate: Date.now(),
+      });
+      emitSessionUpdate();
+
+      const examId = s.currentExamId || data.examId;
+      if (examId) {
+        const students = Array.from(activeSessions.values()).filter(
+          x => x.type === 'student' && x.currentExamId === examId && x.percentage !== undefined
+        );
+        if (students.length > 0) {
+          const scores = students.map(x => x.percentage || 0);
+          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+          const passed = students.filter(x => (x.percentage || 0) >= 50).length;
+
+          io.to('surveillance').emit('realtimeExamStats', {
+            examId,
+            activeStudentsCount: students.length,
+            averageScore: parseFloat(avg.toFixed(1)),
+            medianScore: parseFloat([...scores].sort((a, b) => a - b)[Math.floor(scores.length / 2)]?.toFixed(1) || 0),
+            highestScore: Math.max(...scores),
+            lowestScore: Math.min(...scores),
+            passRate: parseFloat(((passed / students.length) * 100).toFixed(1)),
+            lastUpdate: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  });
+
+  socket.on('examSubmitted', ({ studentSocketId, examResultId }) => {
+    const s = activeSessions.get(studentSocketId);
+    if (s?.type === 'student') {
+      activeSessions.set(studentSocketId, { ...s, status: 'finished', resultUrl: `/api/bulletin/${examResultId}`, lastUpdate: Date.now() });
+      emitSessionUpdate();
+    }
+  });
+
+  socket.on('examSubmitting', ({ studentSocketId }) => {
+    const s = activeSessions.get(studentSocketId || socket.id);
+    if (s) activeSessions.set(s.socketId, { ...s, status: 'submitting', lastUpdate: Date.now() });
+  });
+
+  socket.on('finishExam', ({ examId }) => {
+    io.emit('examFinished', { examId });
+    activeDistributedExams.delete(examId);
+    emitSessionUpdate();
+  });
+
+  socket.on('ping', () => {
+    const s = activeSessions.get(socket.id);
+    if (s) { s.lastUpdate = Date.now(); s.isOnline = true; }
+    socket.emit('pong');
+  });
+
+  socket.on('getSurveillanceData', () => {
+    socket.emit('sessionUpdate', { activeSessions: Array.from(activeSessions.values()) });
+  });
+
+  socket.on('disconnect', (reason) => {
+    const session = activeSessions.get(socket.id);
+    if (!session) return;
+
+    console.log(`[Socket] 👋 Déconnexion: ${socket.id}, raison: ${reason}`);
+    session.isOnline = false;
+    session.lastUpdate = Date.now();
+
+    const timeout = setTimeout(() => {
+      const cur = activeSessions.get(socket.id);
+      if (cur && !cur.isOnline) {
+        activeSessions.delete(socket.id);
+        emitSessionUpdate();
+        console.log(`[Socket] 🧹 Session supprimée: ${socket.id}`);
+      }
+      pendingReconnections.delete(session.sessionId);
+    }, 45000);
+
+    pendingReconnections.set(session.sessionId, timeout);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  DÉMARRAGE
+// ══════════════════════════════════════════════════════════════
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[NA²QUIZ] ✅ Serveur unifié démarré sur le port ${PORT}`);
+  console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
+  console.log(`[NA²QUIZ] 🔧 MongoDB: ${process.env.MONGODB_URI ? 'configuré' : '❌ MANQUANT'}`);
+  console.log(`[NA²QUIZ] 🤖 DeepSeek: ${process.env.DEEPSEEK_API_KEY ? 'configuré' : '❌ MANQUANT'}`);
+});
