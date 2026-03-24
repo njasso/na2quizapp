@@ -2,6 +2,8 @@
 // ─────────────────────────────────────────────────────────────
 //  NA²QUIZ — Serveur unifié : Socket.IO + API REST
 //  Déployé sur Render
+//  Variables requises :
+//    MONGODB_URI, JWT_SECRET, DEEPSEEK_API_KEY, FRONTEND_URL
 // ─────────────────────────────────────────────────────────────
 import express          from 'express';
 import cors             from 'cors';
@@ -182,6 +184,7 @@ app.use('/api', async (req, res, next) => {
   try { await connectDB(); next(); }
   catch (err) { res.status(503).json({ error: 'Base de données indisponible', detail: err.message }); }
 });
+
 
 // ══════════════════════════════════════════════════════════════
 //  REDIRECTS — fichiers statiques servis par Netlify
@@ -443,7 +446,7 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
     const rows = questions.map((q,i) => {
       const qId = q._id?.toString(); const student = answers[qId] ?? '—';
       const ok = student !== '—' && String(student).trim() === String(q.correctAnswer).trim();
-      return `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:10px 8px;color:#64748b;width:32px">${i+1}<td style="padding:10px 8px;font-size:0.88rem">${q.question||q.text||''}<td style="padding:10px 8px;color:${ok?'#16a34a':'#dc2626'}">${student}<td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}<td style="padding:10px 8px;text-align:center">${ok?'✅':'❌'}</tr>`;
+      return `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:10px 8px;color:#64748b;width:32px">${i+1}</td><td style="padding:10px 8px;font-size:0.88rem">${q.question||q.text||''}</td><td style="padding:10px 8px;color:${ok?'#16a34a':'#dc2626'}">${student}</td><td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}</td><td style="padding:10px 8px;text-align:center">${ok?'✅':'❌'}</td></tr>`;
     }).join('');
     const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#1e293b}.page{max-width:860px;margin:0 auto;padding:32px 24px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #3b82f6}.logo{font-size:1.4rem;font-weight:900;color:#3b82f6}.badge{padding:6px 16px;border-radius:999px;font-weight:800;color:#fff;background:${result.passed?'#16a34a':'#dc2626'}}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}.box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}.lbl{font-size:0.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px}.val{font-size:0.92rem;font-weight:600}.score{background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:14px;padding:22px;text-align:center;margin-bottom:24px;color:#fff}.pct{font-size:2.75rem;font-weight:900;line-height:1}.mention{font-size:1rem;font-weight:700;color:${mColor};background:#fff;display:inline-block;padding:4px 14px;border-radius:999px;margin-top:8px}.detail{font-size:0.82rem;opacity:0.85;margin-top:6px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)}thead{background:#f1f5f9}th{padding:10px 8px;text-align:left;font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase}.footer{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:0.72rem;color:#94a3b8}.noprint{margin-top:20px;text-align:center}.noprint button{padding:10px 24px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer}@media print{body{background:#fff}.noprint{display:none}@page{size:A4;margin:12mm}}</style></head><body><div class="page">
 <div class="header"><div><div class="logo">NA²QUIZ</div><div style="font-size:1rem;font-weight:700;margin-top:3px">Bulletin — ${result.examTitle||exam?.title||'Épreuve'}</div><div style="font-size:0.78rem;color:#64748b;margin-top:2px">${new Date(result.createdAt).toLocaleDateString('fr-FR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div><span class="badge">${result.passed?'✓ REÇU':'✗ AJOURNÉ'}</span></div>
@@ -460,7 +463,7 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  IA — DEEPSEEK
+//  IA — DEEPSEEK (timeout 90s, Render n'a pas de limite stricte)
 // ══════════════════════════════════════════════════════════════
 app.post('/api/generate-questions', async (req, res) => {
   try {
@@ -484,7 +487,7 @@ Retourne UNIQUEMENT du JSON valide sans texte avant/après ni backticks.
 Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correctAnswer":"A","explanation":"Explication","points":1,"difficulty":"moyen"}]}`;
 
     const ctrl = new AbortController();
-    const tmo  = setTimeout(() => ctrl.abort(), 85000);
+    const tmo  = setTimeout(() => ctrl.abort(), 85000); // 85s
 
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -523,8 +526,9 @@ Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correct
   }
 });
 
+
 // ══════════════════════════════════════════════════════════════
-//  SURVEILLANCE DATA
+//  SURVEILLANCE DATA (polling SurveillancePage)
 // ══════════════════════════════════════════════════════════════
 app.get('/api/surveillance-data', (_, res) => {
   const sessions = Array.from(activeSessions.values());
@@ -558,7 +562,7 @@ app.get('/api/surveillance-data', (_, res) => {
 app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} introuvable` }));
 
 // ══════════════════════════════════════════════════════════════
-//  SOCKET.IO
+//  SOCKET.IO (identique à l'original)
 // ══════════════════════════════════════════════════════════════
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET','POST'], credentials: true },
@@ -577,12 +581,9 @@ const emitSessionUpdate = () => {
 };
 
 io.on('connection', (socket) => {
-  console.log(`[Socket] 🔌 Nouvelle connexion: ${socket.id}`);
+  console.log(`[Socket] 🔌 ${socket.id}`);
 
-  // ==================== REGISTRATION ====================
   socket.on('registerSession', (data) => {
-    console.log(`[Socket] 📝 registerSession: type=${data.type}, sessionId=${data.sessionId}`);
-    
     const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
     if (existing) {
       const pending = pendingReconnections.get(data.sessionId);
@@ -590,297 +591,106 @@ io.on('connection', (socket) => {
       activeSessions.delete(existing.socketId);
       Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
       activeSessions.set(socket.id, existing);
-      
       if (existing.type === 'surveillance') socket.join('surveillance');
       if (existing.type === 'student' && existing.currentExamId) {
         socket.join(`exam:${existing.currentExamId}`);
-        socket.join(`exam:${existing.currentExamId}:all`);
-        if (existing.status === 'waiting') socket.join(`exam:${existing.currentExamId}:waiting`);
+        if (existing.status === 'waiting')   socket.join(`exam:${existing.currentExamId}:waiting`);
         if (existing.status === 'composing') socket.join(`exam:${existing.currentExamId}:composing`);
       }
-      emitSessionUpdate();
-      return;
+      emitSessionUpdate(); return;
     }
-    
-    const session = { 
-      socketId: socket.id, 
-      type: data.type, 
-      sessionId: data.sessionId || socket.id, 
-      status: data.status || 'idle', 
-      currentExamId: data.examId || null, 
-      studentInfo: data.studentInfo || null, 
-      progress: 0, 
-      lastUpdate: Date.now(), 
-      resultUrl: null, 
-      isOnline: true,
-      examOption: data.examOption || null
-    };
+    const session = { socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id, status: data.status || 'idle', currentExamId: data.examId || null, studentInfo: data.studentInfo || null, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true };
     activeSessions.set(socket.id, session);
-    
     if (data.type === 'surveillance') {
       socket.join('surveillance');
+      activeDistributedExams.forEach((info, examId) => {
+        if (info.option === 'A' && info.currentQuestionIndex !== undefined)
+          socket.emit('currentQuestionIndexForOptionA', { examId, questionIndex: info.currentQuestionIndex });
+      });
     }
     if (data.type === 'student' && data.examId) {
       socket.join(`exam:${data.examId}`);
-      socket.join(`exam:${data.examId}:all`);
-      if (data.status === 'waiting') socket.join(`exam:${data.examId}:waiting`);
+      if (data.status === 'waiting')   socket.join(`exam:${data.examId}:waiting`);
       if (data.status === 'composing') socket.join(`exam:${data.examId}:composing`);
     }
     emitSessionUpdate();
   });
 
-  // ==================== STUDENT READY ====================
-  socket.on('studentReadyForExam', ({ examId, studentInfo, studentSocketId, status = 'composing', sessionId, examOption }) => {
-    const targetId = studentSocketId || socket.id;
-    const stableSessionId = sessionId || `STU_${examId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    
-    console.log(`[Socket] 👨‍🎓 studentReadyForExam: exam=${examId}, student=${studentInfo?.firstName} ${studentInfo?.lastName}, status=${status}, option=${examOption}`);
-    
-    // Vérifier si l'étudiant existe déjà
-    const existingStudent = Array.from(activeSessions.values()).find(
-      s => s.type === 'student' && 
-      s.studentInfo?.matricule === studentInfo.matricule && 
-      s.currentExamId === examId
-    );
-    
-    if (existingStudent && existingStudent.socketId !== targetId) {
-      activeSessions.delete(existingStudent.socketId);
-      console.log(`[Socket] ♻️ Remplacé ancienne session pour ${studentInfo.firstName} ${studentInfo.lastName}`);
+  socket.on('registerTerminal', (data) => {
+    const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === 'terminal');
+    if (existing) {
+      const pending = pendingReconnections.get(data.sessionId);
+      if (pending) { clearTimeout(pending); pendingReconnections.delete(data.sessionId); }
+      activeSessions.delete(existing.socketId);
+      Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
+      activeSessions.set(socket.id, existing);
+      socket.join('terminals');
+      activeDistributedExams.forEach((info, examId) => {
+        socket.emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${examId}`, examId, examOption: info.option, isReconnect: true });
+      });
+      emitSessionUpdate(); return;
     }
-    
-    const session = { 
-      socketId: targetId, 
-      type: 'student', 
-      sessionId: stableSessionId,
-      currentExamId: examId, 
-      studentInfo, 
-      status, 
-      progress: 0, 
-      examOption: examOption || 'A',
-      lastUpdate: Date.now(), 
-      resultUrl: null, 
-      isOnline: true 
-    };
-    
-    activeSessions.set(targetId, session);
-    
-    const studentSocket = io.sockets.sockets.get(targetId);
-    if (studentSocket) {
-      studentSocket.join(`exam:${examId}`);
-      studentSocket.join(`exam:${examId}:all`);
-      
-      if (status === 'waiting') {
-        studentSocket.join(`exam:${examId}:waiting`);
-        console.log(`[Socket] ⏳ [WAITING] ${studentInfo.firstName} ${studentInfo.lastName} - Option ${examOption}`);
-        
-        // Émettre le compteur mis à jour
-        const waitingCount = Array.from(activeSessions.values()).filter(
-          x => x.type === 'student' && x.currentExamId === examId && x.status === 'waiting'
-        ).length;
-        io.emit('waitingCountUpdate', { examId, count: waitingCount });
-        
-        // Notifier les superviseurs
-        io.to('surveillance').emit('studentJoinedWaiting', { examId, studentInfo, waitingCount });
-      } else if (status === 'composing') {
-        studentSocket.join(`exam:${examId}:composing`);
-        console.log(`[Socket] ✍️ [COMPOSING] ${studentInfo.firstName} ${studentInfo.lastName} - Option ${examOption}`);
-      }
-    }
-    
+    activeSessions.set(socket.id, { socketId: socket.id, type: 'terminal', sessionId: data.sessionId || `TERM_${Date.now()}`, status: 'connected', currentExamId: null, studentInfo: null, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true });
+    socket.join('terminals');
     emitSessionUpdate();
   });
 
-  // ==================== START EXAM ====================
-  socket.on('startExam', ({ examId, option }) => {
-    console.log(`[Socket] 🚀 DEMANDE DE DÉMARRAGE - Examen: ${examId}, Option: ${option}`);
-    
-    if (!examId) {
-      console.log('[Socket] ⚠️ examId manquant');
-      socket.emit('startExamError', { examId, error: 'ID examen manquant' });
-      return;
-    }
-    
-    const examInfo = activeDistributedExams.get(examId);
-    if (!examInfo) {
-      console.log(`[Socket] ⚠️ Examen ${examId} non distribué`);
-      socket.emit('startExamError', { examId, error: 'Examen non distribué' });
-      return;
-    }
-    
-    if (option === 'B') {
-      // Récupérer TOUS les étudiants en attente
-      const waitingStudents = Array.from(activeSessions.values()).filter(
-        s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-      );
-      
-      console.log(`[Socket] 📋 ${waitingStudents.length} étudiant(s) en attente pour Option B`);
-      
-      if (waitingStudents.length === 0) {
-        console.log(`[Socket] ⚠️ Aucun étudiant en attente pour l'examen ${examId}`);
-        socket.emit('noWaitingStudents', { examId });
-        return;
-      }
-      
-      let startedCount = 0;
-      const failedStudents = [];
-      
-      waitingStudents.forEach(student => {
-        const studentSocket = io.sockets.sockets.get(student.socketId);
-        
-        if (studentSocket && studentSocket.connected) {
-          const updatedStudent = { 
-            ...student, 
-            status: 'composing', 
-            lastUpdate: Date.now(),
-            examStartTime: Date.now()
-          };
-          activeSessions.set(student.socketId, updatedStudent);
-          
-          studentSocket.leave(`exam:${examId}:waiting`);
-          studentSocket.join(`exam:${examId}:composing`);
-          
-          studentSocket.emit('examStartedForOptionB', { 
-            examId, 
-            questionIndex: 0,
-            timestamp: Date.now(),
-            totalQuestions: examInfo.questionCount || 0
-          });
-          
-          startedCount++;
-          console.log(`[Socket] ✅ Examen démarré pour ${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
-        } else {
-          failedStudents.push(`${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
-          console.log(`[Socket] ⚠️ Socket non connecté pour ${student.studentInfo?.firstName} ${student.studentInfo?.lastName}`);
-        }
-      });
-      
-      // Mettre à jour le compteur
-      io.emit('waitingCountUpdate', { examId, count: 0 });
-      
-      // Confirmer au superviseur
-      if (startedCount > 0) {
-        socket.emit('examStartedConfirm', { 
-          examId, 
-          startedCount,
-          totalWaiting: waitingStudents.length,
-          failedCount: failedStudents.length,
-          failedStudents
-        });
-        
-        io.to('surveillance').emit('examStartedSuccess', { 
-          examId, 
-          startedCount,
-          message: `${startedCount} étudiant(s) ont commencé l'épreuve`
-        });
-      } else {
-        socket.emit('startExamError', { examId, error: 'Aucun étudiant n\'a pu démarrer l\'épreuve' });
-      }
-      
-    } else {
-      // Option A, C ou D
-      const students = Array.from(activeSessions.values()).filter(
-        s => s.type === 'student' && s.currentExamId === examId
-      );
-      
-      students.forEach(s => {
-        const studentSocket = io.sockets.sockets.get(s.socketId);
-        if (studentSocket && studentSocket.connected) {
-          studentSocket.emit('examStarted', { examId, questionIndex: 0 });
-          activeSessions.set(s.socketId, { ...s, status: 'composing', lastUpdate: Date.now() });
-        }
-      });
-      
-      socket.emit('examStartedConfirm', { examId, startedCount: students.length });
-    }
-    
-    emitSessionUpdate();
-  });
-
-  // ==================== RECONNECTION ====================
-  socket.on('reconnectStudent', ({ examId, studentInfo, sessionId, examOption }, callback) => {
-    console.log(`[Socket] 🔄 Tentative de reconnexion - ${studentInfo?.firstName} ${studentInfo?.lastName}`);
-    
-    const existingStudent = Array.from(activeSessions.values()).find(
-      s => s.type === 'student' && 
-      s.studentInfo?.matricule === studentInfo?.matricule && 
-      s.currentExamId === examId
-    );
-    
-    if (existingStudent) {
-      activeSessions.delete(existingStudent.socketId);
-      
-      const newSession = {
-        ...existingStudent,
-        socketId: socket.id,
-        isOnline: true,
-        lastUpdate: Date.now()
-      };
-      
-      activeSessions.set(socket.id, newSession);
-      
-      socket.join(`exam:${examId}`);
-      socket.join(`exam:${examId}:all`);
-      
-      if (newSession.status === 'waiting') {
-        socket.join(`exam:${examId}:waiting`);
-        console.log(`[Socket] 🔄 RECONNECTÉ EN ATTENTE: ${studentInfo?.firstName} ${studentInfo?.lastName}`);
-        
-        const waitingCount = Array.from(activeSessions.values()).filter(
-          s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-        ).length;
-        io.emit('waitingCountUpdate', { examId, count: waitingCount });
-        
-        if (callback) callback({ status: 'waiting', waitingCount });
-      } else if (newSession.status === 'composing') {
-        socket.join(`exam:${examId}:composing`);
-        console.log(`[Socket] 🔄 RECONNECTÉ EN COMPOSITION: ${studentInfo?.firstName} ${studentInfo?.lastName}`);
-        
-        if (callback) callback({ status: 'composing', progress: newSession.progress });
-      }
-      
-      emitSessionUpdate();
-    } else {
-      console.log(`[Socket] ⚠️ Aucun étudiant trouvé pour reconnexion`);
-      if (callback) callback({ status: 'not_found' });
-    }
-  });
-
-  // ==================== GET WAITING STUDENTS ====================
-  socket.on('getWaitingStudents', ({ examId }, callback) => {
-    const waitingStudents = Array.from(activeSessions.values()).filter(
-      s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-    ).map(s => ({
-      name: `${s.studentInfo?.firstName} ${s.studentInfo?.lastName}`,
-      matricule: s.studentInfo?.matricule,
-      socketId: s.socketId,
-      isOnline: s.isOnline,
-      joinedAt: s.lastUpdate
-    }));
-    
-    if (callback) {
-      callback({ waitingStudents, count: waitingStudents.length });
-    }
-  });
-
-  // ==================== AUTRES ÉVÉNEMENTS ====================
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) return;
-    const examData = { 
-      option: data.examOption, 
-      distributedAt: new Date(), 
-      questionCount: data.questionCount || 0 
-    };
-    if (data.examOption === 'A') { 
-      examData.currentQuestionIndex = 0; 
-      io.emit('currentQuestionIndexForOptionA', { examId: data.examId, questionIndex: 0 }); 
-    }
+    const examData = { option: data.examOption, distributedAt: new Date(), questionCount: 0 };
+    if (data.examOption === 'A') { examData.currentQuestionIndex = 0; io.emit('currentQuestionIndexForOptionA', { examId: data.examId, questionIndex: 0 }); }
     activeDistributedExams.set(data.examId, examData);
-    io.to('terminals').emit('examDistributed', { 
-      url: `${FRONTEND_URL}/exam/profile/${data.examId}`, 
-      examId: data.examId, 
-      examOption: data.examOption 
-    });
+    io.to('terminals').emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${data.examId}`, examId: data.examId, examOption: data.examOption });
     emitSessionUpdate();
+  });
+
+  socket.on('startExam', ({ examId, option }) => {
+    if (!examId) return;
+    const examInfo = activeDistributedExams.get(examId);
+    if (!examInfo) return;
+    if (option === 'B') {
+      const waiting = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');
+      waiting.forEach(s => { activeSessions.set(s.socketId, { ...s, status: 'composing', lastUpdate: Date.now() }); io.to(s.socketId).emit('examStartedForOptionB', { examId, questionIndex: 0 }); });
+      io.emit('waitingCountUpdate', { examId, count: 0 });
+    } else {
+      Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
+        .forEach(s => io.to(s.socketId).emit('examStarted', { examId, questionIndex: 0 }));
+    }
+    emitSessionUpdate();
+  });
+
+  socket.on('studentReadyForExam', ({ examId, studentInfo, studentSocketId, status = 'composing', sessionId }) => {
+    const targetId = studentSocketId || socket.id;
+    const session = { socketId: targetId, type: 'student', sessionId: sessionId || targetId, currentExamId: examId, studentInfo, status, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true };
+    activeSessions.set(targetId, session);
+    const s = io.sockets.sockets.get(targetId);
+    if (s) {
+      s.join(`exam:${examId}`);
+      if (status === 'waiting')   s.join(`exam:${examId}:waiting`);
+      if (status === 'composing') s.join(`exam:${examId}:composing`);
+    }
+    if (status === 'waiting') {
+      const count = Array.from(activeSessions.values()).filter(x => x.type === 'student' && x.currentExamId === examId && x.status === 'waiting').length;
+      io.emit('waitingCountUpdate', { examId, count });
+    }
+    emitSessionUpdate();
+  });
+
+  socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
+    const info = activeDistributedExams.get(examId);
+    if (!info) return;
+    info.currentQuestionIndex = nextQuestionIndex;
+    activeDistributedExams.set(examId, info);
+    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
+      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex }));
+    io.emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
+  });
+
+  socket.on('displayQuestion', ({ examId, questionIndex }) => {
+    const info = activeDistributedExams.get(examId);
+    if (info) { info.currentQuestionIndex = questionIndex; activeDistributedExams.set(examId, info); }
+    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
+      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex }));
   });
 
   socket.on('updateStudentProgress', (data) => {
@@ -892,25 +702,35 @@ io.on('connection', (socket) => {
         percentage: data.percentage, lastUpdate: Date.now(),
       });
       emitSessionUpdate();
-      
-      // Stats temps réel
+
+      // ── Calculer et émettre les stats temps réel vers SurveillancePage ──
       const examId = s.currentExamId || data.examId;
       if (examId) {
         const students = Array.from(activeSessions.values()).filter(
           x => x.type === 'student' && x.currentExamId === examId && x.percentage !== undefined
         );
         if (students.length > 0) {
-          const scores = students.map(x => x.percentage || 0);
-          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-          const passed = students.filter(x => (x.percentage || 0) >= 50).length;
-          
-          io.to('surveillance').emit('realtimeExamStats', {
+          const scores      = students.map(x => x.percentage || 0);
+          const avg         = scores.reduce((a, b) => a + b, 0) / scores.length;
+          const sorted      = [...scores].sort((a, b) => a - b);
+          const mid         = Math.floor(sorted.length / 2);
+          const median      = sorted.length % 2 !== 0
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+          const passed      = students.filter(x => (x.percentage || 0) >= 50).length;
+
+          const stats = {
             examId,
             activeStudentsCount: students.length,
-            averageScore: parseFloat(avg.toFixed(1)),
-            passRate: parseFloat(((passed / students.length) * 100).toFixed(1)),
-            lastUpdate: new Date().toISOString(),
-          });
+            averageScore:   parseFloat(avg.toFixed(1)),
+            medianScore:    parseFloat(median.toFixed(1)),
+            highestScore:   Math.max(...scores),
+            lowestScore:    Math.min(...scores),
+            passRate:       parseFloat(((passed / students.length) * 100).toFixed(1)),
+            lastUpdate:     new Date().toISOString(),
+          };
+          // Émettre aux superviseurs connectés
+          io.to('surveillance').emit('realtimeExamStats', stats);
         }
       }
     }
@@ -918,10 +738,7 @@ io.on('connection', (socket) => {
 
   socket.on('examSubmitted', ({ studentSocketId, examResultId }) => {
     const s = activeSessions.get(studentSocketId);
-    if (s?.type === 'student') {
-      activeSessions.set(studentSocketId, { ...s, status: 'finished', resultUrl: `/api/bulletin/${examResultId}`, lastUpdate: Date.now() });
-      emitSessionUpdate();
-    }
+    if (s?.type === 'student') { activeSessions.set(studentSocketId, { ...s, status: 'finished', resultUrl: `/api/bulletin/${examResultId}`, lastUpdate: Date.now() }); emitSessionUpdate(); }
   });
 
   socket.on('examSubmitting', ({ studentSocketId }) => {
@@ -929,40 +746,19 @@ io.on('connection', (socket) => {
     if (s) activeSessions.set(s.socketId, { ...s, status: 'submitting', lastUpdate: Date.now() });
   });
 
-  socket.on('finishExam', ({ examId }) => {
-    io.emit('examFinished', { examId });
-    activeDistributedExams.delete(examId);
-    emitSessionUpdate();
-  });
-
-  socket.on('ping', () => {
-    const s = activeSessions.get(socket.id);
-    if (s) { s.lastUpdate = Date.now(); s.isOnline = true; }
-    socket.emit('pong');
-  });
-
-  socket.on('getSurveillanceData', () => {
-    socket.emit('sessionUpdate', { activeSessions: Array.from(activeSessions.values()) });
-  });
+  socket.on('finishExam', ({ examId }) => { io.emit('examFinished', { examId }); activeDistributedExams.delete(examId); emitSessionUpdate(); });
+  socket.on('ping', () => { const s = activeSessions.get(socket.id); if (s) { s.lastUpdate = Date.now(); s.isOnline = true; } socket.emit('pong'); });
+  socket.on('getSurveillanceData', () => socket.emit('sessionUpdate', { activeSessions: Array.from(activeSessions.values()) }));
 
   socket.on('disconnect', (reason) => {
     const session = activeSessions.get(socket.id);
     if (!session) return;
-    
-    console.log(`[Socket] 👋 Déconnexion: ${socket.id}, raison: ${reason}`);
-    session.isOnline = false;
-    session.lastUpdate = Date.now();
-    
+    session.isOnline = false; session.lastUpdate = Date.now();
     const timeout = setTimeout(() => {
       const cur = activeSessions.get(socket.id);
-      if (cur && !cur.isOnline) {
-        activeSessions.delete(socket.id);
-        emitSessionUpdate();
-        console.log(`[Socket] 🧹 Session supprimée: ${socket.id}`);
-      }
+      if (cur && !cur.isOnline) { activeSessions.delete(socket.id); emitSessionUpdate(); }
       pendingReconnections.delete(session.sessionId);
     }, 45000);
-    
     pendingReconnections.set(session.sessionId, timeout);
   });
 });
