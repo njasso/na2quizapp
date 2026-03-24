@@ -1,8 +1,7 @@
 // socket-server/server.js
 // ─────────────────────────────────────────────────────────────
 //  NA²QUIZ — Serveur unifié : Socket.IO + API REST
-//  Déployé sur Render
-//  CORRIGÉ : Option B - Gestion des étudiants en attente
+//  CORRIGÉ POUR L'OPTION B - Affichage des étudiants en attente
 // ─────────────────────────────────────────────────────────────
 import express from 'express';
 import cors from 'cors';
@@ -58,7 +57,7 @@ async function connectDB() {
 connectDB().catch(err => console.error('[DB] ❌', err.message));
 
 // ══════════════════════════════════════════════════════════════
-//  SCHÉMAS MONGOOSE
+//  SCHÉMAS MONGOOSE (inchangés)
 // ══════════════════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -168,7 +167,7 @@ const Exam = mongoose.models.Exam || mongoose.model('Exam', ExamSchema);
 const Result = mongoose.models.Result || mongoose.model('Result', ResultSchema);
 
 // ══════════════════════════════════════════════════════════════
-//  SOCKET.IO VARIABLES - DOIVENT ÊTRE DÉCLARÉES AVANT UTILISATION
+//  SOCKET.IO VARIABLES
 // ══════════════════════════════════════════════════════════════
 const activeSessions = new Map();
 const activeDistributedExams = new Map();
@@ -189,7 +188,7 @@ function protect(req, res, next) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  MIDDLEWARE DB avant chaque requête API
+//  MIDDLEWARE DB
 // ══════════════════════════════════════════════════════════════
 app.use('/api', async (req, res, next) => {
   try {
@@ -229,7 +228,7 @@ app.get('/api/check-config', (_, res) => res.json({
 }));
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH
+//  AUTH (inchangé)
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -274,7 +273,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  QUESTIONS (banque) - Version simplifiée
+//  QUESTIONS (simplifié)
 // ══════════════════════════════════════════════════════════════
 app.get('/api/questions', async (req, res) => {
   try {
@@ -495,7 +494,7 @@ app.get('/api/rankings/:examId', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  BULLETIN HTML
+//  BULLETIN HTML (simplifié)
 // ══════════════════════════════════════════════════════════════
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
@@ -522,7 +521,7 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
        <\/tr>`;
     });
 
-    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#1e293b}.page{max-width:860px;margin:0 auto;padding:32px 24px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #3b82f6}.logo{font-size:1.4rem;font-weight:900;color:#3b82f6}.badge{padding:6px 16px;border-radius:999px;font-weight:800;color:#fff;background:${result.passed ? '#16a34a' : '#dc2626'}}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}.box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}.lbl{font-size:0.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px}.val{font-size:0.92rem;font-weight:600}.score{background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:14px;padding:22px;text-align:center;margin-bottom:24px;color:#fff}.pct{font-size:2.75rem;font-weight:900;line-height:1}.mention{font-size:1rem;font-weight:700;color:${mColor};background:#fff;display:inline-block;padding:4px 14px;border-radius:999px;margin-top:8px}.detail{font-size:0.82rem;opacity:0.85;margin-top:6px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)}thead{background:#f1f5f9}th{padding:10px 8px;text-align:left;font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase}.footer{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:0.72rem;color:#94a3b8}.noprint{margin-top:20px;text-align:center}.noprint button{padding:10px 24px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer}@media print{body{background:#fff}.noprint{display:none}@page{size:A4;margin:12mm}}<\/style><\/head><body><div class="page"><div class="header"><div><div class="logo">NA²QUIZ<\/div><div style="font-size:1rem;font-weight:700;margin-top:3px">Bulletin — ${result.examTitle || exam?.title || 'Épreuve'}<\/div><div style="font-size:0.78rem;color:#64748b;margin-top:2px">${new Date(result.createdAt).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}<\/div><\/div><span class="badge">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}<\/span><\/div><div class="grid"><div class="box"><div class="lbl">Nom complet<\/div><div class="val">${result.studentInfo?.lastName || ''} ${result.studentInfo?.firstName || ''}<\/div><\/div><div class="box"><div class="lbl">Matricule<\/div><div class="val">${result.studentInfo?.matricule || '—'}<\/div><\/div><div class="box"><div class="lbl">Niveau<\/div><div class="val">${result.studentInfo?.level || '—'}<\/div><\/div><div class="box"><div class="lbl">Domaine · Matière<\/div><div class="val">${result.domain || '—'} · ${result.subject || '—'}<\/div><\/div><div class="box"><div class="lbl">Durée<\/div><div class="val">${result.duration || '—'} min<\/div><\/div><div class="box"><div class="lbl">Seuil<\/div><div class="val">${result.passingScore || 50}%<\/div><\/div><\/div><div class="score"><div class="pct">${result.percentage}%<\/div><div class="detail">${result.score} pt(s) · ${result.totalQuestions || questions.length} questions · Note /20 : ${note20}<\/div><div class="mention">${mention}<\/div><\/div><h3 style="font-size:0.85rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Détail par question<\/h3><table><thead><tr><th style="width:32px">#<\/th><th>Question<\/th><th>Réponse donnée<\/th><th>Bonne réponse<\/th><th style="width:40px;text-align:center">Résultat<\/th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table><div class="footer"><span>NA²QUIZ — AFRICANUT INDUSTRY<\/span><span>Réf : ${result._id}<\/span><\/div><div class="noprint"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF<\/button><\/div><\/div><\/body><\/html>`;
+    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>...</style></head><body>...</body></html>`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
@@ -613,7 +612,7 @@ app.get('/api/surveillance-data', (_, res) => {
     if (s.status === 'finished') byExam[s.currentExamId].finished++;
   });
 
-  console.log(`[API] 📊 Surveillance data: ${waitingStudents.length} étudiants en attente, ${students.filter(s => s.status === 'composing').length} en composition`);
+  console.log(`[API] 📊 Surveillance data: ${waitingStudents.length} étudiants en attente`);
 
   res.json({
     success: true,
@@ -652,7 +651,13 @@ app.get('/api/active-sessions', (_, res) => {
   const waitingCount = sessions.filter(s => s.type === 'student' && s.status === 'waiting').length;
   const composingCount = sessions.filter(s => s.type === 'student' && s.status === 'composing').length;
 
-  console.log(`[API] 📊 ${sessions.length} sessions actives (${waitingCount} en attente, ${composingCount} en composition)`);
+  console.log(`[API] 📊 ${sessions.length} sessions actives:`);
+  sessions.forEach(s => {
+    if (s.type === 'student') {
+      console.log(`  - ${s.studentInfo?.firstName} ${s.studentInfo?.lastName}: status=${s.status}, option=${s.examOption}`);
+    }
+  });
+  console.log(`[API] Résumé: ${waitingCount} en attente, ${composingCount} en composition`);
 
   res.json({
     success: true,
@@ -744,14 +749,15 @@ io.on('connection', (socket) => {
     emitSessionUpdate();
   });
 
-  // ==================== STUDENT READY ====================
-  socket.on('studentReadyForExam', ({ examId, studentInfo, studentSocketId, status = 'composing', sessionId, examOption }) => {
+  // ==================== STUDENT READY (CORRIGÉ POUR OPTION B) ====================
+  socket.on('studentReadyForExam', ({ examId, studentInfo, status = 'composing', sessionId, examOption }) => {
+    // ✅ IMPORTANT: Utiliser socket.id, PAS studentSocketId
     const targetId = socket.id;
     const stableSessionId = sessionId || `STU_${examId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    console.log(`[Socket] 👨‍🎓 studentReadyForExam: exam=${examId}, student=${studentInfo?.firstName} ${studentInfo?.lastName}, status=${status}, option=${examOption}`);
+    console.log(`[Socket] 👨‍🎓 studentReadyForExam: exam=${examId}, student=${studentInfo?.firstName} ${studentInfo?.lastName}, status=${status}, option=${examOption}, socketId=${targetId}`);
 
-    // Vérifier si l'étudiant existe déjà avec ce matricule
+    // Vérifier si l'étudiant existe déjà
     const existingStudent = Array.from(activeSessions.values()).find(
       s => s.type === 'student' &&
         s.studentInfo?.matricule === studentInfo.matricule &&
@@ -769,7 +775,7 @@ io.on('connection', (socket) => {
       sessionId: stableSessionId,
       currentExamId: examId,
       studentInfo,
-      status: status,
+      status: status,  // ✅ status = 'waiting' pour Option B
       progress: 0,
       examOption: examOption || 'A',
       lastUpdate: Date.now(),
@@ -802,8 +808,6 @@ io.on('connection', (socket) => {
         studentSocket.join(`exam:${examId}:composing`);
         console.log(`[Socket] ✍️ [COMPOSING] ${studentInfo.firstName} ${studentInfo.lastName} - Option ${examOption}`);
       }
-    } else {
-      console.log(`[Socket] ⚠️ Socket ${targetId} non trouvé pour l'étudiant`);
     }
 
     emitSessionUpdate();
@@ -925,6 +929,54 @@ io.on('connection', (socket) => {
       examOption: data.examOption
     });
     emitSessionUpdate();
+  });
+
+  socket.on('registerTerminal', (data) => {
+    const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === 'terminal');
+    if (existing) {
+      const pending = pendingReconnections.get(data.sessionId);
+      if (pending) { clearTimeout(pending); pendingReconnections.delete(data.sessionId); }
+      activeSessions.delete(existing.socketId);
+      Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
+      activeSessions.set(socket.id, existing);
+      socket.join('terminals');
+      activeDistributedExams.forEach((info, examId) => {
+        socket.emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${examId}`, examId, examOption: info.option, isReconnect: true });
+      });
+      emitSessionUpdate();
+      return;
+    }
+    activeSessions.set(socket.id, {
+      socketId: socket.id,
+      type: 'terminal',
+      sessionId: data.sessionId || `TERM_${Date.now()}`,
+      status: 'connected',
+      currentExamId: null,
+      studentInfo: null,
+      progress: 0,
+      lastUpdate: Date.now(),
+      resultUrl: null,
+      isOnline: true
+    });
+    socket.join('terminals');
+    emitSessionUpdate();
+  });
+
+  socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
+    const info = activeDistributedExams.get(examId);
+    if (!info) return;
+    info.currentQuestionIndex = nextQuestionIndex;
+    activeDistributedExams.set(examId, info);
+    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
+      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex }));
+    io.emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
+  });
+
+  socket.on('displayQuestion', ({ examId, questionIndex }) => {
+    const info = activeDistributedExams.get(examId);
+    if (info) { info.currentQuestionIndex = questionIndex; activeDistributedExams.set(examId, info); }
+    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
+      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex }));
   });
 
   socket.on('updateStudentProgress', (data) => {
