@@ -15,13 +15,13 @@ import {
   ArrowRight,
   AlertTriangle,
   Loader,
-  Users
+  Users,
+  RefreshCw
 } from 'lucide-react';
 
 const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
-const DURATION_PER_QUESTION_SECONDS = 60; // 1 minute par question
-
+const DURATION_PER_QUESTION_SECONDS = 60;
 
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
@@ -145,10 +145,7 @@ const QuizCompositionPage = () => {
   const redirectTimeoutRef = useRef(null);
   const pingIntervalRef = useRef(null);
 
-  // ✅ REFS MIROIR — permettent aux handlers socket d'accéder à l'état
-  // courant SANS être dans les dépendances du useEffect socket.
-  // Ceci est le fix principal de l'infinite re-render loop :
-  // le useEffect socket ne dépend plus de l'état qui change fréquemment.
+  // REFS MIROIR
   const examRef = useRef(null);
   const quizFinishedRef = useRef(false);
   const waitingForStartRef = useRef(false);
@@ -157,7 +154,7 @@ const QuizCompositionPage = () => {
   const examOptionRef = useRef('A');
   const studentInfoRef = useRef(null);
   const terminalSessionIdRef = useRef(null);
-  const stableSessionIdRef = useRef(null); // ✅ sessionId stable par onglet
+  const stableSessionIdRef = useRef(null);
 
   const shuffleArray = (array) => {
     let currentIndex = array.length, randomIndex;
@@ -184,23 +181,26 @@ const QuizCompositionPage = () => {
       clearTimeout(redirectTimeoutRef.current);
       redirectTimeoutRef.current = null;
     }
-  }, []); // ✅ Aucune dépendance — jamais recréé
+  }, []);
 
-  // ✅ sendProgressUpdate lit depuis les refs → stable, jamais recréé
   const sendProgressUpdate = useCallback((questionIndex) => {
     const currentExam = examRef.current;
     if (currentExam && !quizFinishedRef.current && !waitingForStartRef.current && socketRef.current?.connected) {
-      const progress = Math.round(((questionIndex + 1) / currentExam.questions.length) * 100);
+      const answeredCount = Object.keys(answersRef.current).length;
+      const totalQuestions = currentExam.questions.length;
+      const progress = Math.round(((questionIndex + 1) / totalQuestions) * 100);
+      const percentage = Math.round((answeredCount / totalQuestions) * 100);
+      
       socketRef.current.emit('updateStudentProgress', {
         examId: currentExam._id,
         progress,
         currentQuestion: questionIndex + 1,
-        totalQuestions: currentExam.questions.length,
-        score: Object.keys(answersRef.current).length,
-        percentage: Math.round((Object.keys(answersRef.current).length / currentExam.questions.length) * 100)
+        totalQuestions: totalQuestions,
+        score: answeredCount,
+        percentage: percentage
       });
     }
-  }, []); // ✅ Stable — lit les refs, pas le state
+  }, []);
 
   const handleSubmitExam = useCallback(async (isManual = false) => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -283,7 +283,7 @@ const QuizCompositionPage = () => {
       setIsSubmitting(false);
       toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
     }
-  }, [navigate]); // ✅ Seul navigate est une vraie dépendance externe
+  }, [navigate]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -310,7 +310,7 @@ const QuizCompositionPage = () => {
       });
       handleSubmitExam(false);
     }
-  }, [handleSubmitExam, sendProgressUpdate]); // ✅ Stable — lit les refs
+  }, [handleSubmitExam, sendProgressUpdate]);
 
   const handleManualSubmit = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -319,7 +319,7 @@ const QuizCompositionPage = () => {
       return;
     }
     handleSubmitExam(true);
-  }, [handleSubmitExam]); // ✅ Stable
+  }, [handleSubmitExam]);
 
   const handleNextQuestion = useCallback(() => {
     const exam = examRef.current;
@@ -330,7 +330,7 @@ const QuizCompositionPage = () => {
       setCurrentQuestionIndex(nextIndex);
       setTimeout(() => sendProgressUpdate(nextIndex), 50);
     }
-  }, [sendProgressUpdate]); // ✅ Stable
+  }, [sendProgressUpdate]);
 
   const handlePrevQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
@@ -340,11 +340,9 @@ const QuizCompositionPage = () => {
       setCurrentQuestionIndex(prevIndex);
       setTimeout(() => sendProgressUpdate(prevIndex), 50);
     }
-  }, [sendProgressUpdate]); // ✅ Stable
+  }, [sendProgressUpdate]);
 
-  // ✅ Sync des refs miroir à chaque changement d'état
-  // Ces useEffects sont légers (pas de side-effects lourds) et maintiennent
-  // les refs à jour pour les callbacks stables
+  // Sync des refs miroir
   useEffect(() => { examRef.current = exam; }, [exam]);
   useEffect(() => { quizFinishedRef.current = quizFinished; }, [quizFinished]);
   useEffect(() => { waitingForStartRef.current = waitingForStart; }, [waitingForStart]);
@@ -354,23 +352,33 @@ const QuizCompositionPage = () => {
   useEffect(() => { studentInfoRef.current = studentInfo; }, [studentInfo]);
   useEffect(() => { terminalSessionIdRef.current = terminalSessionId; }, [terminalSessionId]);
 
-  // ✅ Envoyer la progression à chaque changement de question (via refs)
+  // ✅ CORRECTION: Utiliser answersRef.current pour la progression
   useEffect(() => {
     if (exam && quizStarted && !quizFinished && !waitingForStart) {
-      sendProgressUpdate(currentQuestionIndex);
+      const answeredCount = Object.keys(answersRef.current).length;
+      const totalQuestions = exam.questions.length;
+      const progressPercentage = Math.round((answeredCount / totalQuestions) * 100);
+      
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('updateStudentProgress', {
+          examId: exam._id,
+          progress: progressPercentage,
+          currentQuestion: currentQuestionIndex + 1,
+          totalQuestions: totalQuestions,
+          score: answeredCount,
+          percentage: progressPercentage
+        });
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQuestionIndex]); // ✅ Seule vraie dépendance déclenchante
+  }, [currentQuestionIndex, exam, quizStarted, quizFinished, waitingForStart]);
 
-  // ✅ Ping régulier pour maintenir la connexion
   useEffect(() => {
     if (socketRef.current?.connected && !quizFinished) {
       pingIntervalRef.current = setInterval(() => {
         if (socketRef.current?.connected) {
           socketRef.current.emit('ping');
-          console.log('🏓 Ping envoyé');
         }
-      }, 25000); // Toutes les 25 secondes
+      }, 25000);
     }
     
     return () => {
@@ -401,7 +409,6 @@ const QuizCompositionPage = () => {
         return;
       }
       
-      // ✅ Initialiser le state et les refs miroir
       setStudentInfo(parsed.info);
       studentInfoRef.current = parsed.info;
       setTerminalSessionId(parsed.terminalSessionId || null);
@@ -410,8 +417,6 @@ const QuizCompositionPage = () => {
       setExamOption(option);
       examOptionRef.current = option;
 
-      // ✅ SessionId STABLE par onglet (sessionStorage = per-tab, pas per-browser)
-      // Ceci résout la collision quand deux étudiants utilisent le même navigateur
       const stableKey = `studentSessionId_${examId}`;
       let stableId = sessionStorage.getItem(stableKey);
       if (!stableId) {
@@ -438,7 +443,6 @@ const QuizCompositionPage = () => {
       window.addEventListener('popstate', handlePopState);
       window.history.pushState(null, '', window.location.href);
 
-      // ✅ Socket initialisé UNE SEULE FOIS — reconnection gérée par Socket.IO
       socketRef.current = io(SOCKET_URL, {
         reconnection: true,
         reconnectionAttempts: 20,
@@ -449,7 +453,6 @@ const QuizCompositionPage = () => {
         forceNew: false,
       });
 
-      // ── Ping keep-alive ───────────────────────────────────
       pingIntervalRef.current = setInterval(() => {
         if (socketRef.current?.connected) socketRef.current.emit('ping');
       }, 25000);
@@ -465,7 +468,6 @@ const QuizCompositionPage = () => {
         socketRef.current.emit('studentReadyForExam', {
           examId,
           studentInfo: studentInfoRef.current,
-          studentSocketId: socketRef.current.id,
           sessionId: stableSessionIdRef.current,
           status: currentStatus,
           terminalSessionId: terminalSessionIdRef.current,
@@ -477,13 +479,32 @@ const QuizCompositionPage = () => {
           waitingForStartRef.current = true;
         }
         
-        // Progression si déjà en cours (reconnexion pendant composition)
         if (examRef.current && !waitingForStartRef.current && !quizFinishedRef.current) {
           sendProgressUpdate(currentQuestionIndexRef.current);
         }
       });
 
-      // ── Handlers d'événements métier — lisent les refs, PAS le state ──
+      const onExamStartedForOptionB = (data) => {
+        if (data.examId !== examId) return;
+        console.log('🚀 Option B démarré, question:', data.questionIndex);
+        
+        waitingForStartRef.current = false;
+        setWaitingForStart(false);
+        
+        const qIdx = data.questionIndex || 0;
+        currentQuestionIndexRef.current = qIdx;
+        setCurrentQuestionIndex(qIdx);
+        setTimerResetTrigger(prev => prev + 1);
+        
+        toast.success("L'examen commence maintenant !", { icon: '🚀', duration: 3000 });
+        
+        if (examRef.current) {
+          const totalQuestions = examRef.current.questions.length;
+          setQuizDurationSeconds(totalQuestions * DURATION_PER_QUESTION_SECONDS);
+        }
+        
+        setTimeout(() => sendProgressUpdate(qIdx), 500);
+      };
 
       const onExamStarted = (data) => {
         if (data.examId !== examId) return;
@@ -498,9 +519,27 @@ const QuizCompositionPage = () => {
         setTimeout(() => sendProgressUpdate(qIdx), 500);
       };
 
+      const onReconnectSuccess = ({ status, progress, waitingCount: count }) => {
+        console.log('🔄 Reconnecté avec succès, status:', status);
+        if (status === 'composing') {
+          waitingForStartRef.current = false;
+          setWaitingForStart(false);
+          if (progress !== undefined) {
+            currentQuestionIndexRef.current = progress;
+            setCurrentQuestionIndex(progress);
+          }
+          toast.success("Reconnexion réussie ! Reprise de l'examen.");
+        } else if (status === 'waiting') {
+          setWaitingForStart(true);
+          waitingForStartRef.current = true;
+          if (count !== undefined) setWaitingCount(count);
+          toast.success("Reconnecté à la salle d'attente.");
+        }
+      };
+
+      socketRef.current.on('examStartedForOptionB', onExamStartedForOptionB);
       socketRef.current.on('examStarted', onExamStarted);
-      socketRef.current.on('examStartedForOptionA', onExamStarted);
-      socketRef.current.on('examStartedForOptionB', onExamStarted);
+      socketRef.current.on('reconnectSuccess', onReconnectSuccess);
 
       socketRef.current.on('waitingCountUpdate', (data) => {
         if (data.examId === examId) setWaitingCount(data.count);
@@ -551,7 +590,6 @@ const QuizCompositionPage = () => {
         socketRef.current.emit('studentReadyForExam', {
           examId,
           studentInfo: studentInfoRef.current,
-          studentSocketId: socketRef.current.id,
           sessionId: stableSessionIdRef.current,
           status: currentStatus,
           terminalSessionId: terminalSessionIdRef.current,
@@ -576,10 +614,7 @@ const QuizCompositionPage = () => {
       console.error("Erreur:", error);
       navigate(`/exam/profile/${examId}`, { replace: true });
     }
-  // ✅ DÉPENDANCES MINIMALES : examId change si navigation, navigate est stable,
-  // handleSubmitExam est stable (ne dépend que de navigate).
-  // Aucun état fréquemment modifié → ZÉRO re-création de socket en cours d'examen.
-  }, [examId, navigate, handleSubmitExam, sendProgressUpdate]);
+  }, [examId, navigate, handleSubmitExam, sendProgressUpdate, cleanupBeforeRedirect]);
 
   useEffect(() => {
     const fetchExam = async () => {
@@ -604,6 +639,7 @@ const QuizCompositionPage = () => {
           questions: fetchedQuestions
         };
         setExam(data);
+        examRef.current = data;
 
         let durationForTimer;
         const totalQuestions = data.questions.length;
@@ -645,15 +681,22 @@ const QuizCompositionPage = () => {
       return;
     }
 
-    // ✅ Mettre à jour le state ET la ref miroir
+    // ✅ Mettre à jour la REF et le STATE
     const newAnswers = { ...answersRef.current, [questionId]: option };
     answersRef.current = newAnswers;
     setAnswers(newAnswers);
+    
     toast.success("Réponse enregistrée.");
 
     const opt = examOptionRef.current;
     if (opt === 'A' || opt === 'B' || opt === 'D') {
       setLockedAnswers(prev => ({ ...prev, [questionId]: true }));
+      
+      // Pour Option B, ne pas passer automatiquement à la question suivante
+      if (opt === 'B') {
+        // Attendre que le superviseur avance
+        return;
+      }
       
       const exam = examRef.current;
       const idx = currentQuestionIndexRef.current;
@@ -676,6 +719,17 @@ const QuizCompositionPage = () => {
       currentQuestionIndexRef.current = index;
       setCurrentQuestionIndex(index);
       sendProgressUpdate(index);
+    }
+  };
+
+  const handleRefreshWaitingCount = () => {
+    if (socketRef.current?.connected && examId) {
+      socketRef.current.emit('getWaitingStudents', { examId }, (response) => {
+        if (response) {
+          setWaitingCount(response.count);
+          toast.success(`${response.count} participant(s) en attente`);
+        }
+      });
     }
   };
 
@@ -735,15 +789,33 @@ const QuizCompositionPage = () => {
           </p>
           {examOption === 'B' && (
             <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '12px 20px', borderRadius: '12px',
               background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
               marginBottom: '16px',
             }}>
-              <Users size={20} color="#3b82f6" />
-              <span style={{ color: '#f8fafc', fontSize: '1rem', fontWeight: 600 }}>
-                {waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Users size={20} color="#3b82f6" />
+                <span style={{ color: '#f8fafc', fontSize: '1rem', fontWeight: 600 }}>
+                  {waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente
+                </span>
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleRefreshWaitingCount}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '6px 12px', borderRadius: '8px',
+                  background: 'rgba(59,130,246,0.2)',
+                  border: '1px solid rgba(59,130,246,0.3)',
+                  color: '#3b82f6', fontSize: '0.75rem', fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                <RefreshCw size={12} />
+                Rafraîchir
+              </motion.button>
             </div>
           )}
           <div style={{
@@ -778,7 +850,8 @@ const QuizCompositionPage = () => {
   }
 
   const currentQuestion = exam.questions[currentQuestionIndex];
-  const answeredQuestions = Object.keys(answers).length;
+  // ✅ Utiliser answersRef.current pour compter les réponses
+  const answeredQuestions = Object.keys(answersRef.current).length;
   const progressPercentage = (answeredQuestions / exam.questions.length) * 100;
 
   const disablePrevButton = quizFinished || currentQuestionIndex === 0 || examOption === 'A' || examOption === 'B' || examOption === 'D';
@@ -876,7 +949,7 @@ const QuizCompositionPage = () => {
                       marginTop: '4px',
                       textAlign: 'center',
                     }}>
-                      TEMPS GLOBAL ({exam.questions.length} × 30s)
+                      TEMPS GLOBAL ({exam.questions.length} × 60s)
                     </span>
                   )}
                 </div>
@@ -924,16 +997,16 @@ const QuizCompositionPage = () => {
                       justifyContent: 'center',
                       background: index === currentQuestionIndex
                         ? '#3b82f6'
-                        : answers[q._id]
+                        : answersRef.current[q._id]
                           ? 'rgba(16,185,129,0.2)'
                           : 'rgba(255,255,255,0.05)',
                       border: index === currentQuestionIndex
                         ? 'none'
-                        : answers[q._id]
+                        : answersRef.current[q._id]
                           ? '1px solid #10b981'
                           : '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '8px',
-                      color: index === currentQuestionIndex ? '#fff' : answers[q._id] ? '#10b981' : '#94a3b8',
+                      color: index === currentQuestionIndex ? '#fff' : answersRef.current[q._id] ? '#10b981' : '#94a3b8',
                       fontSize: '0.875rem',
                       fontWeight: 600,
                       cursor: quizFinished ? 'not-allowed' : 'pointer',
@@ -974,7 +1047,7 @@ const QuizCompositionPage = () => {
                   }}>
                     Question {currentQuestionIndex + 1}
                   </span>
-                  {answers[currentQuestion._id] && (
+                  {answersRef.current[currentQuestion._id] && (
                     <span style={{
                       background: 'rgba(16,185,129,0.2)',
                       color: '#10b981',
@@ -999,10 +1072,10 @@ const QuizCompositionPage = () => {
                         display: 'flex',
                         alignItems: 'center',
                         padding: '14px 16px',
-                        background: answers[currentQuestion._id] === opt
+                        background: answersRef.current[currentQuestion._id] === opt
                           ? 'rgba(59,130,246,0.15)'
                           : 'rgba(255,255,255,0.02)',
-                        border: `2px solid ${answers[currentQuestion._id] === opt
+                        border: `2px solid ${answersRef.current[currentQuestion._id] === opt
                           ? '#3b82f6'
                           : 'rgba(59,130,246,0.15)'}`,
                         borderRadius: '12px',
@@ -1018,7 +1091,7 @@ const QuizCompositionPage = () => {
                       <input
                         type="radio"
                         name={`q-${currentQuestion._id}`}
-                        checked={answers[currentQuestion._id] === opt}
+                        checked={answersRef.current[currentQuestion._id] === opt}
                         onChange={() => handleOptionChange(currentQuestion._id, opt)}
                         disabled={quizFinished || submittingRef.current || ((examOption === 'A' || examOption === 'B' || examOption === 'D') && lockedAnswers[currentQuestion._id])}
                         style={{ marginRight: '12px', accentColor: '#3b82f6', width: '18px', height: '18px' }}
@@ -1140,7 +1213,7 @@ const QuizCompositionPage = () => {
                 borderRadius: '10px', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600,
               }}>
                 <Clock size={14} />
-                Soumission automatique (30s/question)
+                Soumission automatique (60s/question)
               </div>
             )}
             {!quizFinished && examOption === 'B' && (
@@ -1199,7 +1272,7 @@ const QuizCompositionPage = () => {
               Confirmer la soumission ?
             </h3>
             <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '8px', lineHeight: 1.6 }}>
-              Vous avez répondu à <strong style={{ color: '#f8fafc' }}>{Object.keys(answers).length}/{exam.questions.length}</strong> questions.
+              Vous avez répondu à <strong style={{ color: '#f8fafc' }}>{Object.keys(answersRef.current).length}/{exam.questions.length}</strong> questions.
             </p>
             <p style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '28px' }}>
               Cette action est irréversible. Voulez-vous vraiment terminer l'examen ?
@@ -1230,20 +1303,30 @@ const QuizCompositionPage = () => {
         </div>
       )}
 
-      <Toaster />
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#1e293b',
+            color: '#f8fafc',
+            border: '1px solid #3b82f6',
+            borderRadius: '10px',
+          },
+        }}
+      />
       <style>{`
         @font-face {
-  font-family: 'Sora';
-  font-style: normal;
-  font-weight: 400 800;
-  src: local('Segoe UI'), local('Ubuntu'), local('Cantarell'), local('Arial');
-}
-@font-face {
-  font-family: 'DM Sans';
-  font-style: normal;
-  font-weight: 400 700;
-  src: local('Segoe UI'), local('Ubuntu'), local('Cantarell'), local('Arial');
-}
+          font-family: 'Sora';
+          font-style: normal;
+          font-weight: 400 800;
+          src: local('Segoe UI'), local('Ubuntu'), local('Cantarell'), local('Arial');
+        }
+        @font-face {
+          font-family: 'DM Sans';
+          font-style: normal;
+          font-weight: 400 700;
+          src: local('Segoe UI'), local('Ubuntu'), local('Cantarell'), local('Arial');
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
