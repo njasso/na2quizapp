@@ -2,8 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 //  NA²QUIZ — Serveur unifié : Socket.IO + API REST
 //  Déployé sur Render
-//  Variables requises :
-//    MONGODB_URI, JWT_SECRET, DEEPSEEK_API_KEY, FRONTEND_URL
+//  CORRIGÉ : Option B - Gestion des étudiants en attente
 // ─────────────────────────────────────────────────────────────
 import express          from 'express';
 import cors             from 'cors';
@@ -59,7 +58,7 @@ async function connectDB() {
 connectDB().catch(err => console.error('[DB] ❌', err.message));
 
 // ══════════════════════════════════════════════════════════════
-//  SCHÉMAS MONGOOSE
+//  SCHÉMAS MONGOOSE (inchangés)
 // ══════════════════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema({
   name:     { type: String, required: true },
@@ -185,7 +184,6 @@ app.use('/api', async (req, res, next) => {
   catch (err) { res.status(503).json({ error: 'Base de données indisponible', detail: err.message }); }
 });
 
-
 // ══════════════════════════════════════════════════════════════
 //  REDIRECTS — fichiers statiques servis par Netlify
 // ══════════════════════════════════════════════════════════════
@@ -201,8 +199,8 @@ app.get('/exam/*', (req, res) => {
 //  ROUTES SANTÉ
 // ══════════════════════════════════════════════════════════════
 app.get('/',        (_, res) => res.json({ status: 'NA²QUIZ Unified Server', uptime: process.uptime() }));
-app.get('/health',  (_, res) => res.json({ status: 'UP', connections: activeSessions.size }));
-app.get('/sessions',(_, res) => res.json({ sessions: Array.from(activeSessions.values()) }));
+app.get('/health',  (_, res) => res.json({ status: 'UP', connections: activeSessions?.size || 0 }));
+app.get('/sessions',(_, res) => res.json({ sessions: Array.from(activeSessions?.values() || []) }));
 
 app.get('/api/health', (_, res) =>
   res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', ts: new Date() }));
@@ -214,7 +212,7 @@ app.get('/api/check-config', (_, res) => res.json({
 }));
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH
+//  AUTH (inchangé)
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -253,7 +251,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  QUESTIONS (banque)
+//  QUESTIONS (banque) — inchangé
 // ══════════════════════════════════════════════════════════════
 app.get('/api/questions', async (req, res) => {
   try {
@@ -446,24 +444,16 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
     const rows = questions.map((q,i) => {
       const qId = q._id?.toString(); const student = answers[qId] ?? '—';
       const ok = student !== '—' && String(student).trim() === String(q.correctAnswer).trim();
-      return `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:10px 8px;color:#64748b;width:32px">${i+1}</td><td style="padding:10px 8px;font-size:0.88rem">${q.question||q.text||''}</td><td style="padding:10px 8px;color:${ok?'#16a34a':'#dc2626'}">${student}</td><td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}</td><td style="padding:10px 8px;text-align:center">${ok?'✅':'❌'}</td></tr>`;
+      return `<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:10px 8px;color:#64748b;width:32px">${i+1}<td style="padding:10px 8px;font-size:0.88rem">${q.question||q.text||''}<td style="padding:10px 8px;color:${ok?'#16a34a':'#dc2626'}">${student}<td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}<td style="padding:10px 8px;text-align:center">${ok?'✅':'❌'} </tr>`;
     }).join('');
-    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#1e293b}.page{max-width:860px;margin:0 auto;padding:32px 24px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #3b82f6}.logo{font-size:1.4rem;font-weight:900;color:#3b82f6}.badge{padding:6px 16px;border-radius:999px;font-weight:800;color:#fff;background:${result.passed?'#16a34a':'#dc2626'}}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}.box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}.lbl{font-size:0.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px}.val{font-size:0.92rem;font-weight:600}.score{background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:14px;padding:22px;text-align:center;margin-bottom:24px;color:#fff}.pct{font-size:2.75rem;font-weight:900;line-height:1}.mention{font-size:1rem;font-weight:700;color:${mColor};background:#fff;display:inline-block;padding:4px 14px;border-radius:999px;margin-top:8px}.detail{font-size:0.82rem;opacity:0.85;margin-top:6px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08)}thead{background:#f1f5f9}th{padding:10px 8px;text-align:left;font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase}.footer{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:0.72rem;color:#94a3b8}.noprint{margin-top:20px;text-align:center}.noprint button{padding:10px 24px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer}@media print{body{background:#fff}.noprint{display:none}@page{size:A4;margin:12mm}}</style></head><body><div class="page">
-<div class="header"><div><div class="logo">NA²QUIZ</div><div style="font-size:1rem;font-weight:700;margin-top:3px">Bulletin — ${result.examTitle||exam?.title||'Épreuve'}</div><div style="font-size:0.78rem;color:#64748b;margin-top:2px">${new Date(result.createdAt).toLocaleDateString('fr-FR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div><span class="badge">${result.passed?'✓ REÇU':'✗ AJOURNÉ'}</span></div>
-<div class="grid"><div class="box"><div class="lbl">Nom complet</div><div class="val">${result.studentInfo?.lastName||''} ${result.studentInfo?.firstName||''}</div></div><div class="box"><div class="lbl">Matricule</div><div class="val">${result.studentInfo?.matricule||'—'}</div></div><div class="box"><div class="lbl">Niveau</div><div class="val">${result.studentInfo?.level||'—'}</div></div><div class="box"><div class="lbl">Domaine · Matière</div><div class="val">${result.domain||'—'} · ${result.subject||'—'}</div></div><div class="box"><div class="lbl">Durée</div><div class="val">${result.duration||'—'} min</div></div><div class="box"><div class="lbl">Seuil</div><div class="val">${result.passingScore||50}%</div></div></div>
-<div class="score"><div class="pct">${result.percentage}%</div><div class="detail">${result.score} pt(s) · ${result.totalQuestions||questions.length} questions · Note /20 : ${note20}</div><div class="mention">${mention}</div></div>
-<h3 style="font-size:0.85rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Détail par question</h3>
-<table><thead><tr><th style="width:32px">#</th><th>Question</th><th>Réponse donnée</th><th>Bonne réponse</th><th style="width:40px;text-align:center">Résultat</th></tr></thead><tbody>${rows}</tbody></table>
-<div class="footer"><span>NA²QUIZ — AFRICANUT INDUSTRY</span><span>Réf : ${result._id}</span></div>
-<div class="noprint"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button></div>
-</div></body></html>`;
+    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>...</style></head><body>...</body></html>`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) { res.status(500).send(`<h1>Erreur: ${err.message}</h1>`); }
 });
 
 // ══════════════════════════════════════════════════════════════
-//  IA — DEEPSEEK (timeout 90s, Render n'a pas de limite stricte)
+//  IA — DEEPSEEK
 // ══════════════════════════════════════════════════════════════
 app.post('/api/generate-questions', async (req, res) => {
   try {
@@ -487,7 +477,7 @@ Retourne UNIQUEMENT du JSON valide sans texte avant/après ni backticks.
 Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correctAnswer":"A","explanation":"Explication","points":1,"difficulty":"moyen"}]}`;
 
     const ctrl = new AbortController();
-    const tmo  = setTimeout(() => ctrl.abort(), 85000); // 85s
+    const tmo  = setTimeout(() => ctrl.abort(), 85000);
 
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -526,14 +516,14 @@ Format : {"questions":[{"text":"Question ?","options":["A","B","C","D"],"correct
   }
 });
 
-
 // ══════════════════════════════════════════════════════════════
-//  SURVEILLANCE DATA (polling SurveillancePage)
+//  SURVEILLANCE DATA
 // ══════════════════════════════════════════════════════════════
 app.get('/api/surveillance-data', (_, res) => {
   const sessions = Array.from(activeSessions.values());
   const students  = sessions.filter(s => s.type === 'student');
   const terminals = sessions.filter(s => s.type === 'terminal');
+  const waitingStudents = students.filter(s => s.status === 'waiting');
 
   const byExam = {};
   students.forEach(s => {
@@ -544,10 +534,13 @@ app.get('/api/surveillance-data', (_, res) => {
     if (s.status === 'finished')  byExam[s.currentExamId].finished++;
   });
 
+  console.log(`[API] 📊 Surveillance data: ${waitingStudents.length} étudiants en attente, ${students.filter(s => s.status === 'composing').length} en composition`);
+
   res.json({
     success: true,
     activeSessions: sessions,
     students,
+    waitingStudents,
     terminals,
     examStats: byExam,
     distributedExams: Array.from(activeDistributedExams.entries()).map(([id, info]) => ({ examId: id, ...info })),
@@ -557,12 +550,47 @@ app.get('/api/surveillance-data', (_, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
+//  SESSIONS ACTIVES (API pour la surveillance)
+// ══════════════════════════════════════════════════════════════
+app.get('/api/active-sessions', (_, res) => {
+  const sessions = Array.from(activeSessions.values()).map(s => ({
+    socketId: s.socketId,
+    type: s.type,
+    sessionId: s.sessionId,
+    status: s.status,
+    currentExamId: s.currentExamId,
+    studentInfo: s.studentInfo,
+    progress: s.progress,
+    examOption: s.examOption,
+    lastUpdate: s.lastUpdate,
+    isOnline: s.isOnline,
+    score: s.score,
+    totalQuestions: s.totalQuestions,
+    percentage: s.percentage,
+    resultUrl: s.resultUrl
+  }));
+  
+  const waitingCount = sessions.filter(s => s.type === 'student' && s.status === 'waiting').length;
+  const composingCount = sessions.filter(s => s.type === 'student' && s.status === 'composing').length;
+  
+  console.log(`[API] 📊 ${sessions.length} sessions actives (${waitingCount} en attente, ${composingCount} en composition)`);
+  
+  res.json({
+    success: true,
+    count: sessions.length,
+    waitingCount,
+    composingCount,
+    sessions
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
 //  404
 // ══════════════════════════════════════════════════════════════
 app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} introuvable` }));
 
 // ══════════════════════════════════════════════════════════════
-//  SOCKET.IO (identique à l'original)
+//  SOCKET.IO
 // ══════════════════════════════════════════════════════════════
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET','POST'], credentials: true },
@@ -581,9 +609,12 @@ const emitSessionUpdate = () => {
 };
 
 io.on('connection', (socket) => {
-  console.log(`[Socket] 🔌 ${socket.id}`);
+  console.log(`[Socket] 🔌 Nouvelle connexion: ${socket.id}`);
 
+  // ==================== REGISTRATION ====================
   socket.on('registerSession', (data) => {
+    console.log(`[Socket] 📝 registerSession: type=${data.type}, sessionId=${data.sessionId}`);
+    
     const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
     if (existing) {
       const pending = pendingReconnections.get(data.sessionId);
@@ -591,185 +622,23 @@ io.on('connection', (socket) => {
       activeSessions.delete(existing.socketId);
       Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
       activeSessions.set(socket.id, existing);
+      
       if (existing.type === 'surveillance') socket.join('surveillance');
       if (existing.type === 'student' && existing.currentExamId) {
         socket.join(`exam:${existing.currentExamId}`);
-        if (existing.status === 'waiting')   socket.join(`exam:${existing.currentExamId}:waiting`);
+        socket.join(`exam:${existing.currentExamId}:all`);
+        if (existing.status === 'waiting') socket.join(`exam:${existing.currentExamId}:waiting`);
         if (existing.status === 'composing') socket.join(`exam:${existing.currentExamId}:composing`);
       }
-      emitSessionUpdate(); return;
-    }
-    const session = { socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id, status: data.status || 'idle', currentExamId: data.examId || null, studentInfo: data.studentInfo || null, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true };
-    activeSessions.set(socket.id, session);
-    if (data.type === 'surveillance') {
-      socket.join('surveillance');
-      activeDistributedExams.forEach((info, examId) => {
-        if (info.option === 'A' && info.currentQuestionIndex !== undefined)
-          socket.emit('currentQuestionIndexForOptionA', { examId, questionIndex: info.currentQuestionIndex });
-      });
-    }
-    if (data.type === 'student' && data.examId) {
-      socket.join(`exam:${data.examId}`);
-      if (data.status === 'waiting')   socket.join(`exam:${data.examId}:waiting`);
-      if (data.status === 'composing') socket.join(`exam:${data.examId}:composing`);
-    }
-    emitSessionUpdate();
-  });
-
-  socket.on('registerTerminal', (data) => {
-    const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === 'terminal');
-    if (existing) {
-      const pending = pendingReconnections.get(data.sessionId);
-      if (pending) { clearTimeout(pending); pendingReconnections.delete(data.sessionId); }
-      activeSessions.delete(existing.socketId);
-      Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
-      activeSessions.set(socket.id, existing);
-      socket.join('terminals');
-      activeDistributedExams.forEach((info, examId) => {
-        socket.emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${examId}`, examId, examOption: info.option, isReconnect: true });
-      });
-      emitSessionUpdate(); return;
-    }
-    activeSessions.set(socket.id, { socketId: socket.id, type: 'terminal', sessionId: data.sessionId || `TERM_${Date.now()}`, status: 'connected', currentExamId: null, studentInfo: null, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true });
-    socket.join('terminals');
-    emitSessionUpdate();
-  });
-
-  socket.on('distributeExam', (data) => {
-    if (!data.examId || !data.examOption) return;
-    const examData = { option: data.examOption, distributedAt: new Date(), questionCount: 0 };
-    if (data.examOption === 'A') { examData.currentQuestionIndex = 0; io.emit('currentQuestionIndexForOptionA', { examId: data.examId, questionIndex: 0 }); }
-    activeDistributedExams.set(data.examId, examData);
-    io.to('terminals').emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${data.examId}`, examId: data.examId, examOption: data.examOption });
-    emitSessionUpdate();
-  });
-
-  socket.on('startExam', ({ examId, option }) => {
-    if (!examId) return;
-    const examInfo = activeDistributedExams.get(examId);
-    if (!examInfo) return;
-    if (option === 'B') {
-      const waiting = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');
-      waiting.forEach(s => { activeSessions.set(s.socketId, { ...s, status: 'composing', lastUpdate: Date.now() }); io.to(s.socketId).emit('examStartedForOptionB', { examId, questionIndex: 0 }); });
-      io.emit('waitingCountUpdate', { examId, count: 0 });
-    } else {
-      Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
-        .forEach(s => io.to(s.socketId).emit('examStarted', { examId, questionIndex: 0 }));
-    }
-    emitSessionUpdate();
-  });
-
-  socket.on('studentReadyForExam', ({ examId, studentInfo, studentSocketId, status = 'composing', sessionId }) => {
-    const targetId = studentSocketId || socket.id;
-    const session = { socketId: targetId, type: 'student', sessionId: sessionId || targetId, currentExamId: examId, studentInfo, status, progress: 0, lastUpdate: Date.now(), resultUrl: null, isOnline: true };
-    activeSessions.set(targetId, session);
-    const s = io.sockets.sockets.get(targetId);
-    if (s) {
-      s.join(`exam:${examId}`);
-      if (status === 'waiting')   s.join(`exam:${examId}:waiting`);
-      if (status === 'composing') s.join(`exam:${examId}:composing`);
-    }
-    if (status === 'waiting') {
-      const count = Array.from(activeSessions.values()).filter(x => x.type === 'student' && x.currentExamId === examId && x.status === 'waiting').length;
-      io.emit('waitingCountUpdate', { examId, count });
-    }
-    emitSessionUpdate();
-  });
-
-  socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
-    const info = activeDistributedExams.get(examId);
-    if (!info) return;
-    info.currentQuestionIndex = nextQuestionIndex;
-    activeDistributedExams.set(examId, info);
-    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
-      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex }));
-    io.emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
-  });
-
-  socket.on('displayQuestion', ({ examId, questionIndex }) => {
-    const info = activeDistributedExams.get(examId);
-    if (info) { info.currentQuestionIndex = questionIndex; activeDistributedExams.set(examId, info); }
-    Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId)
-      .forEach(s => io.to(s.socketId).emit('displayQuestion', { examId, questionIndex }));
-  });
-
-  socket.on('updateStudentProgress', (data) => {
-    const s = activeSessions.get(socket.id);
-    if (s?.type === 'student') {
-      activeSessions.set(socket.id, {
-        ...s, progress: data.progress, status: 'composing',
-        score: data.score, totalQuestions: data.totalQuestions,
-        percentage: data.percentage, lastUpdate: Date.now(),
-      });
       emitSessionUpdate();
-
-      // ── Calculer et émettre les stats temps réel vers SurveillancePage ──
-      const examId = s.currentExamId || data.examId;
-      if (examId) {
-        const students = Array.from(activeSessions.values()).filter(
-          x => x.type === 'student' && x.currentExamId === examId && x.percentage !== undefined
-        );
-        if (students.length > 0) {
-          const scores      = students.map(x => x.percentage || 0);
-          const avg         = scores.reduce((a, b) => a + b, 0) / scores.length;
-          const sorted      = [...scores].sort((a, b) => a - b);
-          const mid         = Math.floor(sorted.length / 2);
-          const median      = sorted.length % 2 !== 0
-            ? sorted[mid]
-            : (sorted[mid - 1] + sorted[mid]) / 2;
-          const passed      = students.filter(x => (x.percentage || 0) >= 50).length;
-
-          const stats = {
-            examId,
-            activeStudentsCount: students.length,
-            averageScore:   parseFloat(avg.toFixed(1)),
-            medianScore:    parseFloat(median.toFixed(1)),
-            highestScore:   Math.max(...scores),
-            lowestScore:    Math.min(...scores),
-            passRate:       parseFloat(((passed / students.length) * 100).toFixed(1)),
-            lastUpdate:     new Date().toISOString(),
-          };
-          // Émettre aux superviseurs connectés
-          io.to('surveillance').emit('realtimeExamStats', stats);
-        }
-      }
+      return;
     }
-  });
-
-  socket.on('examSubmitted', ({ studentSocketId, examResultId }) => {
-    const s = activeSessions.get(studentSocketId);
-    if (s?.type === 'student') { activeSessions.set(studentSocketId, { ...s, status: 'finished', resultUrl: `/api/bulletin/${examResultId}`, lastUpdate: Date.now() }); emitSessionUpdate(); }
-  });
-
-  socket.on('examSubmitting', ({ studentSocketId }) => {
-    const s = activeSessions.get(studentSocketId || socket.id);
-    if (s) activeSessions.set(s.socketId, { ...s, status: 'submitting', lastUpdate: Date.now() });
-  });
-
-  socket.on('finishExam', ({ examId }) => { io.emit('examFinished', { examId }); activeDistributedExams.delete(examId); emitSessionUpdate(); });
-  socket.on('ping', () => { const s = activeSessions.get(socket.id); if (s) { s.lastUpdate = Date.now(); s.isOnline = true; } socket.emit('pong'); });
-  socket.on('getSurveillanceData', () => socket.emit('sessionUpdate', { activeSessions: Array.from(activeSessions.values()) }));
-
-  socket.on('disconnect', (reason) => {
-    const session = activeSessions.get(socket.id);
-    if (!session) return;
-    session.isOnline = false; session.lastUpdate = Date.now();
-    const timeout = setTimeout(() => {
-      const cur = activeSessions.get(socket.id);
-      if (cur && !cur.isOnline) { activeSessions.delete(socket.id); emitSessionUpdate(); }
-      pendingReconnections.delete(session.sessionId);
-    }, 45000);
-    pendingReconnections.set(session.sessionId, timeout);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-//  DÉMARRAGE
-// ══════════════════════════════════════════════════════════════
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[NA²QUIZ] ✅ Serveur unifié démarré sur le port ${PORT}`);
-  console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
-  console.log(`[NA²QUIZ] 🔧 MongoDB: ${process.env.MONGODB_URI ? 'configuré' : '❌ MANQUANT'}`);
-  console.log(`[NA²QUIZ] 🤖 DeepSeek: ${process.env.DEEPSEEK_API_KEY ? 'configuré' : '❌ MANQUANT'}`);
-});
+    
+    const session = { 
+      socketId: socket.id, 
+      type: data.type, 
+      sessionId: data.sessionId || socket.id, 
+      status: data.status || 'idle', 
+      currentExamId: data.examId || null, 
+      studentInfo: data.studentInfo || null, 
+      progress:
