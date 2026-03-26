@@ -21,7 +21,7 @@ const NODE_BACKEND_URL =
 
 const PAGE_SIZE = 12;
 
-// Fonction utilitaire pour échapper le HTML
+// ── Fonction utilitaire pour échapper le HTML ─────────────────
 const escapeHtml = (str) => {
   if (!str) return '';
   return String(str)
@@ -346,7 +346,214 @@ const ReportsPage = () => {
       .finally(() => setRankLoading(false));
   }, [rankExamId]);
 
-  // ── Impression du classement (PDF sans liens) ─────────────────
+  // ── Impression du classement d'une session (PDF sans liens) ───
+  const printSessionRankingPDF = useCallback((session) => {
+    if (!session || !session.rankings.length) {
+      toast.error('Aucune donnée à imprimer');
+      return;
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const passed = session.rankings.filter(r => r.passed || r.percentage >= 50).length;
+    const avg = session.rankings.length
+      ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
+      : '0';
+    const highest = Math.max(...session.rankings.map(r => r.percentage || 0));
+    const lowest = Math.min(...session.rankings.map(r => r.percentage || 0));
+    const dateLabel = session.dateStr !== 'sans-date'
+      ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+      : 'Date inconnue';
+
+    const rows = session.rankings.map((r, idx) => {
+      const note20Val = ((r.percentage || 0) / 100 * 20).toFixed(2);
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#f8fafc' : '#fff'}">
+          <td style="padding: 12px 15px; font-weight: 700; text-align: center; width: 60px;">${idx < 3 ? medals[idx] : r.rank}<\/td>
+          <td style="padding: 12px 15px; font-weight: 600;">${escapeHtml(r.studentInfo?.firstName || '')} ${escapeHtml(r.studentInfo?.lastName || '')}<\/td>
+          <td style="padding: 12px 15px; color: #475569; font-family: monospace;">${escapeHtml(r.studentInfo?.matricule || '—')}<\/td>
+          <td style="padding: 12px 15px; text-align: center;">${r.score ?? '—'}<\/td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: ${(r.percentage || 0) >= 50 ? '#15803d' : '#dc2626'};">${r.percentage ?? 0}%<\/td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${note20Val}/20<\/td>
+        <\/tr>
+      `;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Classement - ${escapeHtml(session.examTitle)}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: 'Segoe UI', 'Roboto', system-ui, sans-serif;
+          margin: 40px;
+          background: white;
+          color: #1e293b;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 {
+          color: #1e293b;
+          border-bottom: 3px solid #f59e0b;
+          display: inline-block;
+          padding-bottom: 8px;
+          margin-bottom: 20px;
+          font-size: 1.8rem;
+        }
+        .header-info {
+          margin: 20px 0;
+          background: linear-gradient(135deg, #fef3c7, #fde68a);
+          padding: 20px 24px;
+          border-radius: 16px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 30px;
+        }
+        .info-group {
+          flex: 1;
+          min-width: 180px;
+        }
+        .info-group h3 {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #92400e;
+          margin-bottom: 8px;
+        }
+        .info-group p {
+          font-size: 1.2rem;
+          font-weight: 700;
+          color: #1e293b;
+        }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 15px;
+          margin: 20px 0;
+        }
+        .stat-card {
+          background: #f1f5f9;
+          border-radius: 12px;
+          padding: 12px 16px;
+          text-align: center;
+        }
+        .stat-card .label {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          color: #64748b;
+          margin-bottom: 6px;
+        }
+        .stat-card .value {
+          font-size: 1.5rem;
+          font-weight: 800;
+          color: #f59e0b;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th {
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          color: white;
+          padding: 14px 15px;
+          text-align: left;
+          font-weight: 700;
+          text-transform: uppercase;
+          font-size: 0.75rem;
+          letter-spacing: 0.05em;
+        }
+        td { padding: 12px 15px; }
+        .footer {
+          margin-top: 30px;
+          text-align: center;
+          font-size: 0.7rem;
+          color: #64748b;
+          border-top: 1px solid #e2e8f0;
+          padding-top: 20px;
+        }
+        @media print {
+          body { margin: 0; padding: 20px; }
+          th { background: #f59e0b !important; }
+        }
+      <\/style>
+    <\/head>
+    <body>
+      <div class="container">
+        <h1>📊 ${escapeHtml(session.examTitle)}</h1>
+        
+        <div class="header-info">
+          <div class="info-group">
+            <h3>📅 Date de la session<\/h3>
+            <p>${dateLabel}<\/p>
+          <\/div>
+          <div class="info-group">
+            <h3>📚 Domaine / Niveau<\/h3>
+            <p>${escapeHtml(session.examDomain || '—')} · ${escapeHtml(session.examLevel || '—')}<\/p>
+          <\/div>
+          <div class="info-group">
+            <h3>👥 Nombre de candidats<\/h3>
+            <p>${session.rankings.length}<\/p>
+          <\/div>
+        <\/div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="label">Moyenne<\/div>
+            <div class="value">${avg}%<\/div>
+          <\/div>
+          <div class="stat-card">
+            <div class="label">Note moyenne /20<\/div>
+            <div class="value">${(parseFloat(avg) / 5).toFixed(1)}/20<\/div>
+          <\/div>
+          <div class="stat-card">
+            <div class="label">Taux de réussite<\/div>
+            <div class="value">${((passed / session.rankings.length) * 100).toFixed(1)}%<\/div>
+          <\/div>
+          <div class="stat-card">
+            <div class="label">Meilleur score<\/div>
+            <div class="value">${highest}%<\/div>
+          <\/div>
+          <div class="stat-card">
+            <div class="label">Plus faible score<\/div>
+            <div class="value">${lowest}%<\/div>
+          <\/div>
+        <\/div>
+
+        <h3 style="margin: 20px 0 10px 0;">🏆 Classement par ordre de mérite<\/h3>
+        
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 60px;">Rang<\/th>
+              <th>Étudiant<\/th>
+              <th>Matricule<\/th>
+              <th style="text-align: center;">Score<\/th>
+              <th style="text-align: center;">%<\/th>
+              <th style="text-align: center;">Note /20<\/th>
+            <\/tr>
+          <\/thead>
+          <tbody>
+            ${rows}
+          <\/tbody>
+        <\/table>
+        
+        <div class="footer">
+          Document généré par NA²QUIZ · ${new Date().toLocaleString()}<br>
+          Ce document présente le classement des candidats par ordre de mérite.
+        <\/div>
+      <\/div>
+    <\/body>
+    <\/html>`;
+
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+    win.print();
+  }, []);
+
+  // ── Impression du classement pour une épreuve (PDF sans liens) ──
   const printRankingPDF = useCallback(() => {
     if (!rankings.length) {
       toast.error('Aucun classement à imprimer');
@@ -362,18 +569,17 @@ const ReportsPage = () => {
     const lowest = Math.min(...rankings.map(r => r.percentage || 0));
     const dateLabel = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
-    // Génération des lignes SANS liens de bulletins
     const rows = rankings.map((r, idx) => {
       const note20Val = ((r.percentage || 0) / 100 * 20).toFixed(2);
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#f8fafc' : '#fff'}">
-          <td style="padding: 12px 15px; font-weight: 700; text-align: center; width: 60px;">${idx < 3 ? medals[idx] : r.rank}</td>
-          <td style="padding: 12px 15px; font-weight: 600;">${escapeHtml(r.studentInfo?.firstName || '')} ${escapeHtml(r.studentInfo?.lastName || '')}</td>
-          <td style="padding: 12px 15px; color: #475569; font-family: monospace;">${escapeHtml(r.studentInfo?.matricule || '—')}</td>
-          <td style="padding: 12px 15px; text-align: center;">${r.score ?? '—'}</td>
-          <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: ${(r.percentage || 0) >= 50 ? '#15803d' : '#dc2626'};">${r.percentage ?? 0}%</td>
-          <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${note20Val}/20</td>
-        </tr>
+          <td style="padding: 12px 15px; font-weight: 700; text-align: center; width: 60px;">${idx < 3 ? medals[idx] : r.rank}<\/td>
+          <td style="padding: 12px 15px; font-weight: 600;">${escapeHtml(r.studentInfo?.firstName || '')} ${escapeHtml(r.studentInfo?.lastName || '')}<\/td>
+          <td style="padding: 12px 15px; color: #475569; font-family: monospace;">${escapeHtml(r.studentInfo?.matricule || '—')}<\/td>
+          <td style="padding: 12px 15px; text-align: center;">${r.score ?? '—'}<\/td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: ${(r.percentage || 0) >= 50 ? '#15803d' : '#dc2626'};">${r.percentage ?? 0}%<\/td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${note20Val}/20<\/td>
+        <\/tr>
       `;
     }).join('');
 
@@ -476,75 +682,75 @@ const ReportsPage = () => {
           body { margin: 0; padding: 20px; }
           th { background: #f59e0b !important; }
         }
-      </style>
-    </head>
+      <\/style>
+    <\/head>
     <body>
       <div class="container">
         <h1>📊 ${escapeHtml(examTitle)}</h1>
         
         <div class="header-info">
           <div class="info-group">
-            <h3>📅 Date du classement</h3>
-            <p>${dateLabel}</p>
-          </div>
+            <h3>📅 Date du classement<\/h3>
+            <p>${dateLabel}<\/p>
+          <\/div>
           <div class="info-group">
-            <h3>📚 Domaine / Niveau</h3>
-            <p>${escapeHtml(exam?.domain || '—')} · ${escapeHtml(exam?.level || '—')}</p>
-          </div>
+            <h3>📚 Domaine / Niveau<\/h3>
+            <p>${escapeHtml(exam?.domain || '—')} · ${escapeHtml(exam?.level || '—')}<\/p>
+          <\/div>
           <div class="info-group">
-            <h3>👥 Nombre de candidats</h3>
-            <p>${rankings.length}</p>
-          </div>
-        </div>
+            <h3>👥 Nombre de candidats<\/h3>
+            <p>${rankings.length}<\/p>
+          <\/div>
+        <\/div>
 
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="label">Moyenne</div>
-            <div class="value">${avg}%</div>
-          </div>
+            <div class="label">Moyenne<\/div>
+            <div class="value">${avg}%<\/div>
+          <\/div>
           <div class="stat-card">
-            <div class="label">Note moyenne /20</div>
-            <div class="value">${(parseFloat(avg) / 5).toFixed(1)}/20</div>
-          </div>
+            <div class="label">Note moyenne /20<\/div>
+            <div class="value">${(parseFloat(avg) / 5).toFixed(1)}/20<\/div>
+          <\/div>
           <div class="stat-card">
-            <div class="label">Taux de réussite</div>
-            <div class="value">${((passed / rankings.length) * 100).toFixed(1)}%</div>
-          </div>
+            <div class="label">Taux de réussite<\/div>
+            <div class="value">${((passed / rankings.length) * 100).toFixed(1)}%<\/div>
+          <\/div>
           <div class="stat-card">
-            <div class="label">Meilleur score</div>
-            <div class="value">${highest}%</div>
-          </div>
+            <div class="label">Meilleur score<\/div>
+            <div class="value">${highest}%<\/div>
+          <\/div>
           <div class="stat-card">
-            <div class="label">Plus faible score</div>
-            <div class="value">${lowest}%</div>
-          </div>
-        </div>
+            <div class="label">Plus faible score<\/div>
+            <div class="value">${lowest}%<\/div>
+          <\/div>
+        <\/div>
 
-        <h3 style="margin: 20px 0 10px 0;">🏆 Classement par ordre de mérite</h3>
+        <h3 style="margin: 20px 0 10px 0;">🏆 Classement par ordre de mérite<\/h3>
         
         <table>
           <thead>
             <tr>
-              <th style="width: 60px;">Rang</th>
-              <th>Étudiant</th>
-              <th>Matricule</th>
-              <th style="text-align: center;">Score</th>
-              <th style="text-align: center;">%</th>
-              <th style="text-align: center;">Note /20</th>
-            </tr>
-          </thead>
+              <th style="width: 60px;">Rang<\/th>
+              <th>Étudiant<\/th>
+              <th>Matricule<\/th>
+              <th style="text-align: center;">Score<\/th>
+              <th style="text-align: center;">%<\/th>
+              <th style="text-align: center;">Note /20<\/th>
+            <\/tr>
+          <\/thead>
           <tbody>
             ${rows}
-          </tbody>
-        </table>
+          <\/tbody>
+        <\/table>
         
         <div class="footer">
           Document généré par NA²QUIZ · ${new Date().toLocaleString()}<br>
           Ce document présente le classement des candidats par ordre de mérite.
-        </div>
-      </div>
-    </body>
-    </html>`;
+        <\/div>
+      <\/div>
+    <\/body>
+    <\/html>`;
 
     const win = window.open('', '_blank');
     win.document.write(html);
@@ -776,13 +982,31 @@ const ReportsPage = () => {
                           {s.rankings[0] && <span>🥇 <span style={{ color: '#f59e0b', fontWeight: 700 }}>{s.rankings[0].percentage}%</span></span>}
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {/* Bouton pour imprimer le classement COMPLET de la session */}
                         <button
-                          onClick={e => { e.stopPropagation(); window.open(`${NODE_BACKEND_URL}/api/bulletin/${s.rankings[0]?._id}`, '_blank'); }}
-                          style={{ padding: '4px 10px', borderRadius: 7, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Printer size={11}/> Classement
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            printSessionRankingPDF(s);
+                          }}
+                          style={{ 
+                            padding: '5px 12px', 
+                            borderRadius: 7, 
+                            background: 'linear-gradient(135deg, #f59e0b, #d97706)', 
+                            border: 'none', 
+                            color: '#fff', 
+                            cursor: 'pointer', 
+                            fontSize: '0.72rem', 
+                            fontWeight: 600, 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 5 
+                          }}>
+                          <Printer size={12}/> Imprimer classement
                         </button>
-                        <span style={{ color: '#f59e0b' }}>{isOpen ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}</span>
+                        <span style={{ color: '#f59e0b' }}>
+                          {isOpen ? <ChevronUp size={18}/> : <ChevronDown size={18}/>}
+                        </span>
                       </div>
                     </div>
 
@@ -797,7 +1021,7 @@ const ReportsPage = () => {
                                   {['Rang','Candidat','Matricule','Score','%','/20','Bulletin'].map(h => (
                                     <th key={h} style={{ padding: '7px 10px', textAlign: 'left', color: '#64748b', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{h}</th>
                                   ))}
-                                 </tr>
+                                </tr>
                               </thead>
                               <tbody>
                                 {s.rankings.map((r, i) => (
@@ -806,7 +1030,7 @@ const ReportsPage = () => {
                                       <span style={{ width: 24, height: 24, borderRadius: '50%', background: i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : 'rgba(255,255,255,0.06)', color: i < 3 ? '#000' : '#94a3b8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>
                                         {i < 3 ? ['🥇','🥈','🥉'][i] : r.rank}
                                       </span>
-                                     </td>
+                                    </td>
                                     <td style={{ padding: '8px 10px', color: '#f1f5f9', fontSize: '0.85rem', fontWeight: 500 }}>{r.studentInfo?.firstName} {r.studentInfo?.lastName}</td>
                                     <td style={{ padding: '8px 10px', color: '#64748b', fontFamily: 'monospace', fontSize: '0.78rem' }}>{r.studentInfo?.matricule || '—'}</td>
                                     <td style={{ padding: '8px 10px', color: '#f1f5f9', fontSize: '0.85rem', fontWeight: 600 }}>{r.score ?? '—'}</td>
@@ -814,18 +1038,18 @@ const ReportsPage = () => {
                                       <span style={{ padding: '2px 7px', borderRadius: 999, background: (r.percentage||0)>=50?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)', color:(r.percentage||0)>=50?'#10b981':'#ef4444', fontWeight:700, fontSize:'0.78rem', border:`1px solid ${(r.percentage||0)>=50?'rgba(16,185,129,0.25)':'rgba(239,68,68,0.25)'}` }}>
                                         {r.percentage??0}%
                                       </span>
-                                     </td>
+                                    </td>
                                     <td style={{ padding: '8px 10px', color: '#8b5cf6', fontWeight: 700, fontSize: '0.85rem' }}>{note20(r.percentage||0)}</td>
                                     <td style={{ padding: '8px 10px' }}>
                                       <button onClick={() => setSelectedReport(r)}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>
                                         <Eye size={10}/> Voir
                                       </button>
-                                     </td>
-                                   </tr>
+                                    </td>
+                                  </tr>
                                 ))}
                               </tbody>
-                             </table>
+                            </table>
                           </div>
                         </motion.div>
                       )}
@@ -907,7 +1131,7 @@ const ReportsPage = () => {
                             {['Rang','Candidat','Matricule','Score','Résultat','/20','Bulletin'].map(h => (
                               <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{h}</th>
                             ))}
-                           </tr>
+                          </tr>
                         </thead>
                         <tbody>
                           {rankings.map((r, i) => (
@@ -918,7 +1142,7 @@ const ReportsPage = () => {
                                 <span style={{ width: 28, height: 28, borderRadius: '50%', background: i===0?'#fbbf24':i===1?'#94a3b8':i===2?'#b45309':'rgba(255,255,255,0.06)', color:i<3?'#000':'#94a3b8', display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:'0.85rem',fontWeight:700 }}>
                                   {i<3?['🥇','🥈','🥉'][i]:r.rank}
                                 </span>
-                               </td>
+                              </td>
                               <td style={{ padding:'10px 14px',color:'#f1f5f9',fontWeight:500,fontSize:'0.88rem' }}>{r.studentInfo?.firstName} {r.studentInfo?.lastName}</td>
                               <td style={{ padding:'10px 14px',color:'#64748b',fontFamily:'monospace',fontSize:'0.82rem' }}>{r.studentInfo?.matricule||'—'}</td>
                               <td style={{ padding:'10px 14px',color:'#f1f5f9',fontWeight:600 }}>{r.score}</td>
@@ -926,7 +1150,7 @@ const ReportsPage = () => {
                                 <span style={{padding:'3px 9px',borderRadius:999,background:r.percentage>=50?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)',color:r.percentage>=50?'#10b981':'#ef4444',fontWeight:700,fontSize:'0.82rem',border:`1px solid ${r.percentage>=50?'rgba(16,185,129,0.25)':'rgba(239,68,68,0.25)'}`}}>
                                   {r.percentage}%
                                 </span>
-                               </td>
+                              </td>
                               <td style={{ padding:'10px 14px',color:'#8b5cf6',fontWeight:700 }}>{note20(r.percentage||0)}</td>
                               <td style={{ padding:'10px 14px' }}>
                                 {r.resultUrl && (
@@ -935,11 +1159,11 @@ const ReportsPage = () => {
                                     <Eye size={11}/> Voir
                                   </button>
                                 )}
-                               </td>
+                              </td>
                             </motion.tr>
                           ))}
                         </tbody>
-                       </table>
+                      </table>
                     </div>
                   </div>
                 </>
