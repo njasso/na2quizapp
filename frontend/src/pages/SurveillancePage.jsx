@@ -3,6 +3,7 @@
  * Version restaurée avec bouton unique "COMMENCER" pour toutes les options
  * CORRIGÉ : Gestion des erreurs de connexion + filtrage des doublons
  * CORRIGÉ : Option B - Affichage des étudiants en attente
+ * AJOUT : Classement par session d'examen avec impression complète
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -19,7 +20,7 @@ import {
   Monitor, Home, Download, Users, Radio, BarChart3,
   Terminal, Clock, AlertCircle,
   Eye, ArrowRight, RefreshCw,
-  Trophy, Printer, Play, Calendar
+  Trophy, Printer, Play, Calendar, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { getExams, getResults, getActiveSessions, getSurveillanceData } from '../services/api';
 
@@ -28,6 +29,17 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 // ✅ URL du backend avec fallback
 const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
+
+// Fonction utilitaire pour échapper le HTML
+const escapeHtml = (str) => {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
 
 // ══════════════════════════════════════════════════════════════
 //  SOUS-COMPOSANTS
@@ -55,7 +67,7 @@ const ConnectionBadge = ({ connected, error }) => (
   </div>
 );
 
-/* Carte terminal (en attente ou épreuve envoyée) */
+/* Carte terminal */
 const TerminalCard = ({ terminal }) => {
   const colors = {
     connected:       { bg: 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.25)', dot: '#10b981', label: 'En attente' },
@@ -462,7 +474,7 @@ const SurveillancePage = () => {
     toast.success(`Question ${nextIdx + 1} affichée sur tous les terminaux.`);
   }, [selectedExamId, currentQIdx, selectedExamOption]);
 
-  // ✅ HANDLER START EXAM CORRIGÉ
+  // HANDLER START EXAM CORRIGÉ
   const handleStartExam = useCallback(() => {
     if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
     if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
@@ -588,28 +600,171 @@ const SurveillancePage = () => {
     fetchRankings(rankingExamId);
   }, [rankingExamId, fetchRankings]);
 
-  // ── Impression classement ─────────────────────────────────
-  const printRankings = useCallback(() => {
-    if (!rankingsData.length) return toast.error('Aucun classement à imprimer.');
-    const examTitle = getExamTitle(rankingExamId);
-    const medals = ['🥇', '🥈', '🥉'];
-    const passed  = rankingsData.filter(e => e.percentage >= 50).length;
-    const avg     = (rankingsData.reduce((a, e) => a + (e.percentage || 0), 0) / rankingsData.length).toFixed(1);
+  // ── Impression classement par session ─────────────────────────────────
+  const printSessionRanking = useCallback((session) => {
+    if (!session || !session.rankings.length) {
+      toast.error('Aucune donnée à imprimer');
+      return;
+    }
 
-    const rows = rankingsData.map((entry, i) => `
-      <tr style="border-bottom:1px solid #e2e8f0; background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
-        <td style="padding:8px 12px; font-weight:700; text-align:center; font-size:1.1rem;">${i < 3 ? medals[i] : entry.rank}<\/td>
-        <td style="padding:8px 12px; font-weight:600;">${entry.studentInfo?.firstName || ''} ${entry.studentInfo?.lastName || ''}<\/td>
-        <td style="padding:8px 12px; color:#64748b; font-family:monospace;">${entry.studentInfo?.matricule || 'N/A'}<\/td>
-        <td style="padding:8px 12px; text-align:center;">${entry.score}<\/td>
-        <td style="padding:8px 12px; text-align:center; font-weight:700; color:${entry.percentage >= 50 ? '#15803d' : '#dc2626'};">${entry.percentage}%<\/td>
-        <td style="padding:8px 12px; text-align:center;">${entry.resultUrl ? `<a href="${NODE_BACKEND_URL}${entry.resultUrl}" target="_blank" style="color:#7c3aed;font-weight:600;">PDF</a>` : '—'}<\/td>
-       <\/tr>`).join('');
+    const medals = ['🥇', '🥈', '🥉'];
+    const rows = session.rankings.map((r, idx) => {
+      const bulletinUrl = `${NODE_BACKEND_URL}/api/bulletin/${r._id}`;
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#f8fafc' : '#fff'}">
+          <td style="padding: 12px 15px; font-weight: 700; text-align: center; width: 60px;">${idx < 3 ? medals[idx] : r.rank}</td>
+          <td style="padding: 12px 15px; font-weight: 600;">${escapeHtml(r.studentInfo?.firstName || '')} ${escapeHtml(r.studentInfo?.lastName || '')}</td>
+          <td style="padding: 12px 15px; color: #475569; font-family: monospace;">${escapeHtml(r.studentInfo?.matricule || '—')}</td>
+          <td style="padding: 12px 15px; text-align: center;">${r.score ?? '—'}</td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: ${(r.percentage || 0) >= 50 ? '#15803d' : '#dc2626'};">${r.percentage ?? 0}%</td>
+          <td style="padding: 12px 15px; text-align: center;">
+            <a href="${bulletinUrl}" target="_blank" style="color: #7c3aed; text-decoration: none; font-weight: 600;">📄 Voir bulletin</a>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const passed = session.rankings.filter(r => (r.percentage || 0) >= 50).length;
+    const avg = session.rankings.length
+      ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
+      : '0';
+    const dateLabel = session.dateStr !== 'sans-date'
+      ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+      : 'Date inconnue';
+
+    const html = `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Classement - ${escapeHtml(session.examTitle)}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: 'Segoe UI', 'Roboto', system-ui, sans-serif;
+          margin: 40px;
+          background: white;
+          color: #1e293b;
+        }
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        h1 {
+          color: #1e293b;
+          border-bottom: 3px solid #f59e0b;
+          display: inline-block;
+          padding-bottom: 8px;
+          margin-bottom: 20px;
+          font-size: 1.8rem;
+        }
+        .info {
+          margin: 20px 0;
+          background: #f1f5f9;
+          padding: 16px 24px;
+          border-radius: 12px;
+          display: flex;
+          gap: 30px;
+          flex-wrap: wrap;
+        }
+        .info-item {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .info-label {
+          font-weight: 600;
+          color: #475569;
+        }
+        .info-value {
+          font-weight: 700;
+          color: #0f172a;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th {
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          color: white;
+          padding: 14px 15px;
+          text-align: left;
+          font-weight: 700;
+          text-transform: uppercase;
+          font-size: 0.75rem;
+          letter-spacing: 0.05em;
+        }
+        td {
+          padding: 12px 15px;
+        }
+        .footer {
+          margin-top: 30px;
+          text-align: center;
+          font-size: 0.7rem;
+          color: #64748b;
+          border-top: 1px solid #e2e8f0;
+          padding-top: 20px;
+        }
+        @media print {
+          body { margin: 0; padding: 20px; }
+          .no-print { display: none; }
+          th { background: #f59e0b !important; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>📊 ${escapeHtml(session.examTitle)}</h1>
+        <div class="info">
+          <div class="info-item">
+            <span class="info-label">📅 Date :</span>
+            <span class="info-value">${dateLabel}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">👥 Candidats :</span>
+            <span class="info-value">${session.rankings.length}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">📊 Moyenne :</span>
+            <span class="info-value">${avg}%</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">✅ Reçus :</span>
+            <span class="info-value">${passed}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">❌ Échoués :</span>
+            <span class="info-value">${session.rankings.length - passed}</span>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 60px;">Rang</th>
+              <th>Étudiant</th>
+              <th>Matricule</th>
+              <th style="text-align: center;">Score</th>
+              <th style="text-align: center;">%</th>
+              <th style="text-align: center;">Bulletin</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+        <div class="footer">
+          Document généré par NA²QUIZ · ${new Date().toLocaleString()}
+        </div>
+      </div>
+    </body>
+    </html>`;
 
     const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head><title>Classement — ${examTitle}</title><style>...</style></head><body>...</body></html>`);
+    win.document.write(html);
     win.document.close();
-  }, [rankingsData, rankingExamId, getExamTitle]);
+    win.print();
+  }, [NODE_BACKEND_URL]);
 
   // ══════════════════════════════════════════════════════════════
   // CLASSEMENT PAR SESSION
@@ -627,7 +782,7 @@ const SurveillancePage = () => {
           key,
           examId,
           dateStr,
-          examTitle:  r.examId?.title  || 'Épreuve inconnue',
+          examTitle:  r.examId?.title  || r.examTitle || 'Épreuve inconnue',
           examDomain: r.examId?.domain || '',
           examLevel:  r.examId?.level  || '',
           results: [],
@@ -647,13 +802,6 @@ const SurveillancePage = () => {
 
   const toggleSessionExpand = useCallback((key) => {
     setExpandedSessionKeys(prev => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  const printSessionRanking = useCallback((session) => {
-    // Fonction d'impression simplifiée
-    const win = window.open('', '_blank');
-    win.document.write(`<h1>${session.examTitle}</h1><p>Classement de session</p>`);
-    win.document.close();
   }, []);
 
   // ✅ Application du filtre unique
@@ -1191,99 +1339,222 @@ const SurveillancePage = () => {
           )}
         </motion.div>
 
-        {/* ── LIGNE 3 : Classement des Compétiteurs ──────── */}
+        {/* ── LIGNE 3 : Sessions d'examen (classement complet) ──────── */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
-          style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '20px', padding: '22px', marginTop: '20px' }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          style={{
+            background: 'rgba(15,23,42,0.75)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(139,92,246,0.2)',
+            borderRadius: '20px',
+            padding: '22px',
+            marginTop: '20px',
+          }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
               <Trophy size={18} color="#f59e0b" />
-              Classement des Compétiteurs
-              {rankingsData.length > 0 && (
+              Sessions d'examen
+              {computedSessions.length > 0 && (
                 <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>
-                  {rankingsData.length} candidats
+                  {computedSessions.length} session{computedSessions.length > 1 ? 's' : ''}
                 </span>
               )}
             </h2>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {rankingsData.length > 0 && (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                    onClick={() => fetchRankings(rankingExamId)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    <RefreshCw size={13} /> Actualiser
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                    onClick={printRankings}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', border: 'none', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    <Printer size={13} /> Imprimer PDF
-                  </motion.button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Sélecteur d'épreuve */}
-          <div style={{ marginBottom: '18px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: '#64748b', marginBottom: '7px' }}>Sélectionner une épreuve</label>
-            <select
-              value={rankingExamId}
-              onChange={e => setRankingExamId(e.target.value)}
-              style={{ width: '100%', maxWidth: '520px', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '10px', color: rankingExamId ? '#f8fafc' : '#64748b', fontSize: '0.88rem', outline: 'none' }}
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                getResults()
+                  .then(r => {
+                    const results = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+                    setResultsData(results);
+                    toast.success('Sessions actualisées');
+                  })
+                  .catch(() => toast.error('Erreur de chargement'));
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '7px 14px', borderRadius: '8px',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer',
+              }}
             >
-              <option value="" style={{ background: '#1e293b' }}>-- Choisir une épreuve --</option>
-              {Array.isArray(exams) && exams.map(e => (
-                <option key={e._id} value={e._id} style={{ background: '#1e293b' }}>
-                  {e.title} · {new Date(e.createdAt || Date.now()).toLocaleDateString('fr-FR')} ({e.level || e.metadata?.level || e.domain})
-                </option>
-              ))}
-            </select>
+              <RefreshCw size={13} /> Actualiser
+            </motion.button>
           </div>
 
-          {/* Contenu classement simplifié */}
-          {!rankingExamId ? (
-            <div style={{ textAlign: 'center', padding: '36px 0' }}>
-              <Trophy size={36} color="#1e293b" style={{ marginBottom: '12px' }} />
-              <p style={{ color: '#475569', fontSize: '0.85rem' }}>Sélectionnez une épreuve pour afficher le classement.</p>
-            </div>
-          ) : isLoadingRankings ? (
-            <div style={{ textAlign: 'center', padding: '36px 0' }}>
-              <RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1s linear infinite', marginBottom: '10px' }} />
-              <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Chargement…</p>
-            </div>
-          ) : rankingsData.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '36px 0', color: '#475569', fontSize: '0.85rem' }}>
-              Aucun résultat enregistré pour cette épreuve.
+          {computedSessions.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Calendar size={36} color="#1e293b" style={{ marginBottom: '12px' }} />
+              <p style={{ color: '#475569', fontSize: '0.85rem' }}>Aucune session d'examen enregistrée.</p>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid rgba(139,92,246,0.3)' }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Rang</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Étudiant</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Score</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankingsData.slice(0, 10).map((entry, index) => (
-                    <tr key={entry.resultId || index} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '10px 12px' }}>{index + 1}</td>
-                      <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{entry.studentInfo?.firstName} {entry.studentInfo?.lastName}</td>
-                      <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{entry.score}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span style={{ color: entry.percentage >= 50 ? '#10b981' : '#ef4444' }}>{entry.percentage}%</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {computedSessions.map(session => {
+                const isOpen = expandedSessionKeys[session.key];
+                const passed = session.rankings.filter(r => r.passed || r.percentage >= 50).length;
+                const avg = session.rankings.length
+                  ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
+                  : '0';
+                const dateLabel = session.dateStr !== 'sans-date'
+                  ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                  : 'Date inconnue';
+
+                return (
+                  <motion.div
+                    key={session.key}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    style={{
+                      background: 'rgba(0,0,0,0.3)',
+                      border: `1px solid ${isOpen ? 'rgba(139,92,246,0.4)' : 'rgba(139,92,246,0.2)'}`,
+                      borderRadius: '14px',
+                      overflow: 'hidden',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {/* En-tête de session (cliquable) */}
+                    <div
+                      onClick={() => toggleSessionExpand(session.key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '14px 20px', cursor: 'pointer', userSelect: 'none',
+                        background: isOpen ? 'rgba(139,92,246,0.05)' : 'transparent',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          <span style={{
+                            padding: '2px 10px', borderRadius: '999px',
+                            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
+                            color: '#f59e0b', fontSize: '0.7rem', fontWeight: 700,
+                          }}>
+                            📅 {dateLabel}
+                          </span>
+                          <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.95rem' }}>
+                            {session.examTitle}
+                          </span>
+                          {session.examLevel && (
+                            <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{session.examLevel}</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.75rem', color: '#64748b' }}>
+                          <span><span style={{ color: '#3b82f6', fontWeight: 700 }}>{session.results.length}</span> candidats</span>
+                          <span>Moy. <span style={{ color: '#8b5cf6', fontWeight: 700 }}>{avg}%</span></span>
+                          <span>✓ <span style={{ color: '#10b981', fontWeight: 700 }}>{passed}</span> reçus</span>
+                          <span>✗ <span style={{ color: '#ef4444', fontWeight: 700 }}>{session.results.length - passed}</span> échoués</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                        {/* Bouton d'impression de la session */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            printSessionRanking(session);
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '6px 14px', borderRadius: '8px',
+                            background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                            border: 'none', color: '#fff', fontSize: '0.75rem', fontWeight: 600,
+                            cursor: 'pointer', transition: 'all 0.2s',
+                          }}
+                        >
+                          <Printer size={12} /> Imprimer
+                        </button>
+                        <span style={{ color: '#f59e0b' }}>
+                          {isOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Contenu de la session (déplié) */}
+                    <AnimatePresence>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                        >
+                          <div style={{ overflowX: 'auto', padding: '16px 20px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '2px solid rgba(139,92,246,0.3)' }}>
+                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rang</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Étudiant</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Matricule</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Score</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>%</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bulletin</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {session.rankings.map((r, idx) => {
+                                  const bulletinUrl = `${NODE_BACKEND_URL}/api/bulletin/${r._id}`;
+                                  return (
+                                    <tr key={r._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '10px 12px' }}>
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          width: 28, height: 28, borderRadius: '50%',
+                                          background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(255,255,255,0.06)',
+                                          color: idx < 3 ? '#000' : '#94a3b8', fontWeight: 700, fontSize: '0.75rem',
+                                        }}>
+                                          {idx < 3 ? ['🥇', '🥈', '🥉'][idx] : r.rank}
+                                        </span>
+                                       </td>
+                                      <td style={{ padding: '10px 12px', color: '#f1f5f9', fontWeight: 500 }}>
+                                        {r.studentInfo?.firstName} {r.studentInfo?.lastName}
+                                       </td>
+                                      <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                        {r.studentInfo?.matricule || '—'}
+                                       </td>
+                                      <td style={{ padding: '10px 12px', textAlign: 'center', color: '#f1f5f9', fontWeight: 600 }}>
+                                        {r.score ?? '—'}
+                                       </td>
+                                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                        <span style={{
+                                          padding: '2px 8px', borderRadius: '999px',
+                                          background: (r.percentage || 0) >= 50 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                                          color: (r.percentage || 0) >= 50 ? '#10b981' : '#ef4444',
+                                          fontWeight: 700, fontSize: '0.78rem',
+                                          border: `1px solid ${(r.percentage || 0) >= 50 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                        }}>
+                                          {r.percentage ?? 0}%
+                                        </span>
+                                       </td>
+                                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                        <a
+                                          href={bulletinUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                            padding: '4px 10px', borderRadius: '6px',
+                                            background: 'rgba(99,102,241,0.1)',
+                                            border: '1px solid rgba(99,102,241,0.25)',
+                                            color: '#a5b4fc', textDecoration: 'none', fontSize: '0.7rem', fontWeight: 600,
+                                          }}
+                                        >
+                                          <Eye size={10} /> Voir
+                                        </a>
+                                       </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </motion.div>
