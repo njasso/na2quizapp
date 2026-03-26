@@ -1,6 +1,8 @@
 /**
  * SurveillancePage.jsx — Page de surveillance NA² QuizApp
- * Version avec liste déroulante pour les sessions et impression sans liens
+ * Version avec liste déroulante pour les sessions
+ * Interface web : colonne Bulletin avec liens individuels
+ * Impression PDF : document professionnel sans liens
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -790,21 +792,21 @@ const SurveillancePage = () => {
 
         <h3 style="margin: 20px 0 10px 0;">🏆 Classement par ordre de mérite</h3>
         
-        <table>
+         <table>
           <thead>
-            <tr>
+             <tr>
               <th style="width: 60px;">Rang</th>
               <th>Étudiant</th>
               <th>Matricule</th>
               <th style="text-align: center;">Score</th>
               <th style="text-align: center;">%</th>
               <th style="text-align: center;">Note /20</th>
-            </tr>
+             </tr>
           </thead>
           <tbody>
             ${rows}
           </tbody>
-        </table>
+         </table>
         
         <div class="footer">
           Document généré par NA²QUIZ · ${new Date().toLocaleString()}<br>
@@ -1315,7 +1317,7 @@ const SurveillancePage = () => {
           )}
         </motion.div>
 
-        {/* ── LIGNE 3 : Liste déroulante des sessions et classement ──────── */}
+        {/* ── LIGNE 3 : Liste déroulante des sessions et classement AVEC LIENS ──────── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1383,7 +1385,7 @@ const SurveillancePage = () => {
             </select>
           </div>
 
-          {/* Affichage du classement sélectionné */}
+          {/* Affichage du classement sélectionné AVEC liens individuels */}
           {selectedSessionData ? (
             <div>
               {/* Statistiques de la session */}
@@ -1406,7 +1408,7 @@ const SurveillancePage = () => {
                 ))}
               </div>
 
-              {/* Tableau du classement SANS liens de bulletins */}
+              {/* Tableau du classement AVEC liens de bulletins individuels */}
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
@@ -1417,11 +1419,13 @@ const SurveillancePage = () => {
                       <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>Score</th>
                       <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>%</th>
                       <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>Note /20</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>Bulletin</th>
                     </tr>
                   </thead>
                   <tbody>
                     {selectedSessionData.rankings.map((r, idx) => {
                       const note20 = ((r.percentage || 0) / 100 * 20).toFixed(2);
+                      const bulletinUrl = `${NODE_BACKEND_URL}/api/bulletin/${r._id}`;
                       return (
                         <tr key={r._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <td style={{ padding: '12px 15px' }}>
@@ -1433,16 +1437,16 @@ const SurveillancePage = () => {
                             }}>
                               {idx < 3 ? ['🥇', '🥈', '🥉'][idx] : r.rank}
                             </span>
-                           </td>
+                          </td>
                           <td style={{ padding: '12px 15px', color: '#f1f5f9', fontWeight: 500 }}>
                             {r.studentInfo?.firstName} {r.studentInfo?.lastName}
-                           </td>
+                          </td>
                           <td style={{ padding: '12px 15px', color: '#64748b', fontFamily: 'monospace' }}>
                             {r.studentInfo?.matricule || '—'}
-                           </td>
+                          </td>
                           <td style={{ padding: '12px 15px', textAlign: 'center', color: '#f1f5f9', fontWeight: 600 }}>
                             {r.score ?? '—'}
-                           </td>
+                          </td>
                           <td style={{ padding: '12px 15px', textAlign: 'center' }}>
                             <span style={{
                               padding: '3px 10px', borderRadius: '999px',
@@ -1452,10 +1456,26 @@ const SurveillancePage = () => {
                             }}>
                               {r.percentage ?? 0}%
                             </span>
-                           </td>
+                          </td>
                           <td style={{ padding: '12px 15px', textAlign: 'center', color: '#8b5cf6', fontWeight: 700 }}>
                             {note20}/20
-                           </td>
+                          </td>
+                          <td style={{ padding: '12px 15px', textAlign: 'center' }}>
+                            <a
+                              href={bulletinUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '4px 10px', borderRadius: '6px',
+                                background: 'rgba(99,102,241,0.1)',
+                                border: '1px solid rgba(99,102,241,0.25)',
+                                color: '#a5b4fc', textDecoration: 'none', fontSize: '0.7rem', fontWeight: 600,
+                              }}
+                            >
+                              <Eye size={10} /> Voir bulletin
+                            </a>
+                          </td>
                         </tr>
                       );
                     })}
