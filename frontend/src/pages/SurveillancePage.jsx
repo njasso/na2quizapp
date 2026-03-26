@@ -1,9 +1,6 @@
 /**
  * SurveillancePage.jsx — Page de surveillance NA² QuizApp
- * Version restaurée avec bouton unique "COMMENCER" pour toutes les options
- * CORRIGÉ : Gestion des erreurs de connexion + filtrage des doublons
- * CORRIGÉ : Option B - Affichage des étudiants en attente
- * AJOUT : Classement par session d'examen avec impression complète
+ * Version avec liste déroulante pour les sessions et impression sans liens
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -26,7 +23,7 @@ import { getExams, getResults, getActiveSessions, getSurveillanceData } from '..
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// ✅ URL du backend avec fallback
+// URL du backend avec fallback
 const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
 
@@ -231,31 +228,25 @@ const StudentCard = ({ student, examTitle, backendUrl }) => {
 //  COMPOSANT PRINCIPAL
 // ══════════════════════════════════════════════════════════════
 const SurveillancePage = () => {
-  const [exams, setExams]                   = useState([]);
+  const [exams, setExams] = useState([]);
   const [activeSessions, setActiveSessions] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState('');
   const [selectedExamOption, setSelectedExamOption] = useState('A');
-  const [realtimeStats, setRealtimeStats]   = useState(null);
-  const [currentQIdx, setCurrentQIdx]       = useState({});
-  const [isConnected, setIsConnected]       = useState(false);
-  const [socketError, setSocketError]       = useState(null);
+  const [realtimeStats, setRealtimeStats] = useState(null);
+  const [currentQIdx, setCurrentQIdx] = useState({});
+  const [isConnected, setIsConnected] = useState(false);
+  const [socketError, setSocketError] = useState(null);
   const [isStartingExam, setIsStartingExam] = useState(false);
 
-  // ── Classement en temps réel ────────────────────────────────
-  const [rankingExamId, setRankingExamId]   = useState('');
-  const [rankingsData, setRankingsData]     = useState([]);
-  const [isLoadingRankings, setIsLoadingRankings] = useState(false);
+  // ── Classement par session (liste déroulante) ────────────────
+  const [resultsData, setResultsData] = useState([]);
+  const [selectedSessionKey, setSelectedSessionKey] = useState('');
+  const [selectedSessionData, setSelectedSessionData] = useState(null);
 
-  // ── Classements par Session ────────────────────────────────
-  const [resultsData, setResultsData]           = useState([]);
-  const [expandedSessionKeys, setExpandedSessionKeys] = useState({});
-  const [showSessionRankings, setShowSessionRankings] = useState(false);
+  const socketRef = useRef(null);
+  const navigate = useNavigate();
 
-  const socketRef     = useRef(null);
-  const rankingPrintRef = useRef(null);
-  const navigate      = useNavigate();
-
-  // ✅ Fonction de filtrage des doublons
+  // Fonction de filtrage des doublons
   const getUniqueSessions = useCallback((sessions) => {
     const terminalMap = new Map();
     const studentMap = new Map();
@@ -441,6 +432,47 @@ const SurveillancePage = () => {
     return () => clearInterval(pollInterval);
   }, []);
 
+  // ── Calcul des sessions groupées pour la liste déroulante ───
+  const sessionOptions = useMemo(() => {
+    const groups = {};
+    resultsData.forEach(r => {
+      const examId = r.examId?._id || r.examId || 'unknown';
+      const dateStr = r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : 'sans-date';
+      const key = `${examId}__${dateStr}`;
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          examId,
+          dateStr,
+          examTitle: r.examId?.title || r.examTitle || 'Épreuve inconnue',
+          examDomain: r.examId?.domain || '',
+          examLevel: r.examId?.level || '',
+          results: [],
+        };
+      }
+      groups[key].results.push(r);
+    });
+    
+    return Object.values(groups)
+      .map(session => ({
+        ...session,
+        rankings: [...session.results]
+          .sort((a, b) => (b.percentage || 0) - (a.percentage || 0))
+          .map((r, i) => ({ ...r, rank: i + 1 })),
+      }))
+      .sort((a, b) => b.dateStr.localeCompare(a.dateStr));
+  }, [resultsData]);
+
+  // ── Mise à jour de la session sélectionnée ───────────────────
+  useEffect(() => {
+    if (selectedSessionKey) {
+      const session = sessionOptions.find(s => s.key === selectedSessionKey);
+      setSelectedSessionData(session || null);
+    } else {
+      setSelectedSessionData(null);
+    }
+  }, [selectedSessionKey, sessionOptions]);
+
   // ── Handlers ─────────────────────────────────────────────────
   const handleDistributeExam = useCallback(() => {
     if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
@@ -474,7 +506,6 @@ const SurveillancePage = () => {
     toast.success(`Question ${nextIdx + 1} affichée sur tous les terminaux.`);
   }, [selectedExamId, currentQIdx, selectedExamOption]);
 
-  // HANDLER START EXAM CORRIGÉ
   const handleStartExam = useCallback(() => {
     if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
     if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
@@ -580,27 +611,7 @@ const SurveillancePage = () => {
     return exam?.title || 'Examen inconnu';
   }, [exams]);
 
-  // ── Chargement classement ─────────────────────────────────
-  const fetchRankings = useCallback(async (examId) => {
-    if (!examId) { setRankingsData([]); return; }
-    setIsLoadingRankings(true);
-    try {
-      const res = await fetch(`${NODE_BACKEND_URL}/api/rankings/${examId}`);
-      const data = await res.json();
-      setRankingsData(data?.rankings || []);
-    } catch {
-      setRankingsData([]);
-      toast.error('Impossible de charger le classement.');
-    } finally {
-      setIsLoadingRankings(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchRankings(rankingExamId);
-  }, [rankingExamId, fetchRankings]);
-
-  // ── Impression classement par session ─────────────────────────────────
+  // ── Fonction d'impression SANS liens de bulletins ───────────
   const printSessionRanking = useCallback((session) => {
     if (!session || !session.rankings.length) {
       toast.error('Aucune donnée à imprimer');
@@ -608,8 +619,19 @@ const SurveillancePage = () => {
     }
 
     const medals = ['🥇', '🥈', '🥉'];
+    const passed = session.rankings.filter(r => (r.percentage || 0) >= 50).length;
+    const avg = session.rankings.length
+      ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
+      : '0';
+    const highest = Math.max(...session.rankings.map(r => r.percentage || 0));
+    const lowest = Math.min(...session.rankings.map(r => r.percentage || 0));
+    const dateLabel = session.dateStr !== 'sans-date'
+      ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+      : 'Date inconnue';
+
+    // Génération des lignes SANS liens de bulletins
     const rows = session.rankings.map((r, idx) => {
-      const bulletinUrl = `${NODE_BACKEND_URL}/api/bulletin/${r._id}`;
+      const note20 = ((r.percentage || 0) / 100 * 20).toFixed(2);
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#f8fafc' : '#fff'}">
           <td style="padding: 12px 15px; font-weight: 700; text-align: center; width: 60px;">${idx < 3 ? medals[idx] : r.rank}</td>
@@ -617,20 +639,10 @@ const SurveillancePage = () => {
           <td style="padding: 12px 15px; color: #475569; font-family: monospace;">${escapeHtml(r.studentInfo?.matricule || '—')}</td>
           <td style="padding: 12px 15px; text-align: center;">${r.score ?? '—'}</td>
           <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: ${(r.percentage || 0) >= 50 ? '#15803d' : '#dc2626'};">${r.percentage ?? 0}%</td>
-          <td style="padding: 12px 15px; text-align: center;">
-            <a href="${bulletinUrl}" target="_blank" style="color: #7c3aed; text-decoration: none; font-weight: 600;">📄 Voir bulletin</a>
-          </td>
+          <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${note20}/20</td>
         </tr>
       `;
     }).join('');
-
-    const passed = session.rankings.filter(r => (r.percentage || 0) >= 50).length;
-    const avg = session.rankings.length
-      ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
-      : '0';
-    const dateLabel = session.dateStr !== 'sans-date'
-      ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
-      : 'Date inconnue';
 
     const html = `<!DOCTYPE html>
     <html>
@@ -645,10 +657,7 @@ const SurveillancePage = () => {
           background: white;
           color: #1e293b;
         }
-        .container {
-          max-width: 1200px;
-          margin: 0 auto;
-        }
+        .container { max-width: 1200px; margin: 0 auto; }
         h1 {
           color: #1e293b;
           border-bottom: 3px solid #f59e0b;
@@ -657,27 +666,53 @@ const SurveillancePage = () => {
           margin-bottom: 20px;
           font-size: 1.8rem;
         }
-        .info {
+        .header-info {
           margin: 20px 0;
-          background: #f1f5f9;
-          padding: 16px 24px;
-          border-radius: 12px;
+          background: linear-gradient(135deg, #fef3c7, #fde68a);
+          padding: 20px 24px;
+          border-radius: 16px;
           display: flex;
-          gap: 30px;
           flex-wrap: wrap;
+          gap: 30px;
         }
-        .info-item {
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
+        .info-group {
+          flex: 1;
+          min-width: 180px;
         }
-        .info-label {
-          font-weight: 600;
-          color: #475569;
+        .info-group h3 {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #92400e;
+          margin-bottom: 8px;
         }
-        .info-value {
+        .info-group p {
+          font-size: 1.2rem;
           font-weight: 700;
-          color: #0f172a;
+          color: #1e293b;
+        }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 15px;
+          margin: 20px 0;
+        }
+        .stat-card {
+          background: #f1f5f9;
+          border-radius: 12px;
+          padding: 12px 16px;
+          text-align: center;
+        }
+        .stat-card .label {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          color: #64748b;
+          margin-bottom: 6px;
+        }
+        .stat-card .value {
+          font-size: 1.5rem;
+          font-weight: 800;
+          color: #f59e0b;
         }
         table {
           width: 100%;
@@ -695,9 +730,7 @@ const SurveillancePage = () => {
           font-size: 0.75rem;
           letter-spacing: 0.05em;
         }
-        td {
-          padding: 12px 15px;
-        }
+        td { padding: 12px 15px; }
         .footer {
           margin-top: 30px;
           text-align: center;
@@ -708,36 +741,55 @@ const SurveillancePage = () => {
         }
         @media print {
           body { margin: 0; padding: 20px; }
-          .no-print { display: none; }
           th { background: #f59e0b !important; }
+          .no-print { display: none; }
         }
       </style>
     </head>
     <body>
       <div class="container">
         <h1>📊 ${escapeHtml(session.examTitle)}</h1>
-        <div class="info">
-          <div class="info-item">
-            <span class="info-label">📅 Date :</span>
-            <span class="info-value">${dateLabel}</span>
+        
+        <div class="header-info">
+          <div class="info-group">
+            <h3>📅 Date de la session</h3>
+            <p>${dateLabel}</p>
           </div>
-          <div class="info-item">
-            <span class="info-label">👥 Candidats :</span>
-            <span class="info-value">${session.rankings.length}</span>
+          <div class="info-group">
+            <h3>📚 Domaine / Niveau</h3>
+            <p>${escapeHtml(session.examDomain || '—')} · ${escapeHtml(session.examLevel || '—')}</p>
           </div>
-          <div class="info-item">
-            <span class="info-label">📊 Moyenne :</span>
-            <span class="info-value">${avg}%</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">✅ Reçus :</span>
-            <span class="info-value">${passed}</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">❌ Échoués :</span>
-            <span class="info-value">${session.rankings.length - passed}</span>
+          <div class="info-group">
+            <h3>👥 Nombre de candidats</h3>
+            <p>${session.rankings.length}</p>
           </div>
         </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="label">Moyenne</div>
+            <div class="value">${avg}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Note moyenne /20</div>
+            <div class="value">${(parseFloat(avg) / 5).toFixed(1)}/20</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Taux de réussite</div>
+            <div class="value">${((passed / session.rankings.length) * 100).toFixed(1)}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Meilleur score</div>
+            <div class="value">${highest}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Plus faible score</div>
+            <div class="value">${lowest}%</div>
+          </div>
+        </div>
+
+        <h3 style="margin: 20px 0 10px 0;">🏆 Classement par ordre de mérite</h3>
+        
         <table>
           <thead>
             <tr>
@@ -746,15 +798,17 @@ const SurveillancePage = () => {
               <th>Matricule</th>
               <th style="text-align: center;">Score</th>
               <th style="text-align: center;">%</th>
-              <th style="text-align: center;">Bulletin</th>
+              <th style="text-align: center;">Note /20</th>
             </tr>
           </thead>
           <tbody>
             ${rows}
           </tbody>
         </table>
+        
         <div class="footer">
-          Document généré par NA²QUIZ · ${new Date().toLocaleString()}
+          Document généré par NA²QUIZ · ${new Date().toLocaleString()}<br>
+          Ce document présente le classement des candidats par ordre de mérite.
         </div>
       </div>
     </body>
@@ -764,66 +818,17 @@ const SurveillancePage = () => {
     win.document.write(html);
     win.document.close();
     win.print();
-  }, [NODE_BACKEND_URL]);
-
-  // ══════════════════════════════════════════════════════════════
-  // CLASSEMENT PAR SESSION
-  // ══════════════════════════════════════════════════════════════
-  const computedSessions = useMemo(() => {
-    const groups = {};
-    resultsData.forEach(r => {
-      const examId  = r.examId?._id || r.examId || 'unknown';
-      const dateStr = r.createdAt
-        ? new Date(r.createdAt).toISOString().slice(0, 10)
-        : 'sans-date';
-      const key = `${examId}__${dateStr}`;
-      if (!groups[key]) {
-        groups[key] = {
-          key,
-          examId,
-          dateStr,
-          examTitle:  r.examId?.title  || r.examTitle || 'Épreuve inconnue',
-          examDomain: r.examId?.domain || '',
-          examLevel:  r.examId?.level  || '',
-          results: [],
-        };
-      }
-      groups[key].results.push(r);
-    });
-    return Object.values(groups)
-      .map(session => ({
-        ...session,
-        rankings: [...session.results]
-          .sort((a, b) => (b.percentage || 0) - (a.percentage || 0))
-          .map((r, i) => ({ ...r, rank: i + 1 })),
-      }))
-      .sort((a, b) => b.dateStr.localeCompare(a.dateStr));
-  }, [resultsData]);
-
-  const toggleSessionExpand = useCallback((key) => {
-    setExpandedSessionKeys(prev => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   // ✅ Application du filtre unique
   const uniqueSessions = useMemo(() => getUniqueSessions(activeSessions), [activeSessions, getUniqueSessions]);
 
   // ── Filtres de sessions ────────────
-  const terminalsWaiting = uniqueSessions.filter(
-    s => s.type === 'terminal' && s.status === 'connected'
-  );
-  const terminalsWithExam = uniqueSessions.filter(
-    s => s.type === 'terminal' && s.status === 'exam_distributed'
-  );
-  
-  const studentsWaitingForStart = uniqueSessions.filter(
-    s => s.type === 'student' && s.status === 'waiting'
-  );
-  const studentsReady = uniqueSessions.filter(
-    s => s.type === 'student' && s.status === 'composing'
-  );
-  const studentsActive = uniqueSessions.filter(
-    s => s.type === 'student' && ['composing', 'finished', 'forced-finished'].includes(s.status)
-  );
+  const terminalsWaiting = uniqueSessions.filter(s => s.type === 'terminal' && s.status === 'connected');
+  const terminalsWithExam = uniqueSessions.filter(s => s.type === 'terminal' && s.status === 'exam_distributed');
+  const studentsWaitingForStart = uniqueSessions.filter(s => s.type === 'student' && s.status === 'waiting');
+  const studentsReady = uniqueSessions.filter(s => s.type === 'student' && s.status === 'composing');
+  const studentsActive = uniqueSessions.filter(s => s.type === 'student' && ['composing', 'finished', 'forced-finished'].includes(s.status));
 
   const totalTerminals = terminalsWaiting.length + terminalsWithExam.length;
   const totalStudents = studentsWaitingForStart.length + studentsReady.length + studentsActive.length;
@@ -837,7 +842,7 @@ const SurveillancePage = () => {
         ? [realtimeStats.averageScore, realtimeStats.medianScore, realtimeStats.highestScore, realtimeStats.lowestScore]
         : [0, 0, 0, 0],
       backgroundColor: ['rgba(59,130,246,0.65)', 'rgba(139,92,246,0.65)', 'rgba(16,185,129,0.65)', 'rgba(239,68,68,0.65)'],
-      borderColor:     ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444'],
+      borderColor: ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444'],
       borderWidth: 2, borderRadius: 6,
     }],
   };
@@ -896,7 +901,6 @@ const SurveillancePage = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <ConnectionBadge connected={isConnected} error={socketError} />
           
-          {/* Bouton Rafraîchir */}
           <motion.button
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
@@ -977,7 +981,6 @@ const SurveillancePage = () => {
               <Radio size={18} color="#3b82f6" /> Gestion des Épreuves
             </h2>
 
-            {/* Sélecteur d'examen */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '7px' }}>Épreuve à distribuer</label>
               <select
@@ -994,7 +997,6 @@ const SurveillancePage = () => {
               </select>
             </div>
 
-            {/* Options */}
             <div style={{ marginBottom: '18px' }}>
               <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Clock size={13} color="#3b82f6" /> Mode de composition
@@ -1029,7 +1031,6 @@ const SurveillancePage = () => {
               ))}
             </div>
 
-            {/* Boutons d'action */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <motion.button
                 whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
@@ -1045,7 +1046,6 @@ const SurveillancePage = () => {
                 📡 Distribuer l'épreuve
               </motion.button>
 
-              {/* BOUTON UNIQUE COMMENCER */}
               {selectedExamId && (
                 <motion.button
                   initial={{ opacity: 0, y: -8 }}
@@ -1084,7 +1084,6 @@ const SurveillancePage = () => {
                 </motion.button>
               )}
 
-              {/* QUESTION SUIVANTE pour Option B */}
               {selectedExamOption === 'B' && selectedExamId && (
                 <motion.button
                   initial={{ opacity: 0, y: -8 }}
@@ -1161,29 +1160,6 @@ const SurveillancePage = () => {
                       {studentsWaitingForStart.length}
                     </span>
                   </h3>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                      getActiveSessions()
-                        .then(r => {
-                          if (r.data?.sessions) {
-                            setActiveSessions(r.data.sessions);
-                            toast.success(`${r.data.waitingCount || 0} étudiant(s) en attente`);
-                          }
-                        });
-                    }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '4px',
-                      padding: '4px 8px', borderRadius: '6px',
-                      background: 'rgba(139,92,246,0.2)',
-                      border: '1px solid rgba(139,92,246,0.3)',
-                      color: '#8b5cf6', fontSize: '0.7rem', cursor: 'pointer'
-                    }}
-                  >
-                    <RefreshCw size={12} />
-                    Rafraîchir
-                  </motion.button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
                   <AnimatePresence>
@@ -1339,7 +1315,7 @@ const SurveillancePage = () => {
           )}
         </motion.div>
 
-        {/* ── LIGNE 3 : Sessions d'examen (classement complet) ──────── */}
+        {/* ── LIGNE 3 : Liste déroulante des sessions et classement ──────── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1353,208 +1329,145 @@ const SurveillancePage = () => {
             marginTop: '20px',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-              <Trophy size={18} color="#f59e0b" />
-              Sessions d'examen
-              {computedSessions.length > 0 && (
-                <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>
-                  {computedSessions.length} session{computedSessions.length > 1 ? 's' : ''}
-                </span>
-              )}
+              <Trophy size={18} color="#f59e0b" /> Classement par session
             </h2>
-            <motion.button
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => {
-                getResults()
-                  .then(r => {
-                    const results = Array.isArray(r.data) ? r.data : (r.data?.data || []);
-                    setResultsData(results);
-                    toast.success('Sessions actualisées');
-                  })
-                  .catch(() => toast.error('Erreur de chargement'));
-              }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '7px 14px', borderRadius: '8px',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer',
-              }}
-            >
-              <RefreshCw size={13} /> Actualiser
-            </motion.button>
+            {selectedSessionData && (
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => printSessionRanking(selectedSessionData)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '8px 18px', borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: 'none', color: '#fff', fontWeight: 600,
+                  cursor: 'pointer', fontSize: '0.85rem',
+                }}
+              >
+                <Printer size={15} /> Imprimer le classement
+              </motion.button>
+            )}
           </div>
 
-          {computedSessions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <Calendar size={36} color="#1e293b" style={{ marginBottom: '12px' }} />
-              <p style={{ color: '#475569', fontSize: '0.85rem' }}>Aucune session d'examen enregistrée.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {computedSessions.map(session => {
-                const isOpen = expandedSessionKeys[session.key];
-                const passed = session.rankings.filter(r => r.passed || r.percentage >= 50).length;
-                const avg = session.rankings.length
-                  ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(1)
-                  : '0';
+          {/* Liste déroulante */}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px' }}>
+              📋 Sélectionner une session
+            </label>
+            <select
+              value={selectedSessionKey}
+              onChange={e => setSelectedSessionKey(e.target.value)}
+              style={{
+                width: '100%', maxWidth: '500px', padding: '12px 16px',
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: '12px', color: '#f8fafc', fontSize: '0.9rem', fontWeight: 500,
+                outline: 'none', cursor: 'pointer',
+              }}
+            >
+              <option value="" style={{ background: '#1e293b' }}>-- Choisir une session --</option>
+              {sessionOptions.map(session => {
                 const dateLabel = session.dateStr !== 'sans-date'
-                  ? new Date(session.dateStr).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                  ? new Date(session.dateStr).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
                   : 'Date inconnue';
-
+                const avg = session.rankings.length
+                  ? (session.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / session.rankings.length).toFixed(0)
+                  : '0';
                 return (
-                  <motion.div
-                    key={session.key}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    style={{
-                      background: 'rgba(0,0,0,0.3)',
-                      border: `1px solid ${isOpen ? 'rgba(139,92,246,0.4)' : 'rgba(139,92,246,0.2)'}`,
-                      borderRadius: '14px',
-                      overflow: 'hidden',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    {/* En-tête de session (cliquable) */}
-                    <div
-                      onClick={() => toggleSessionExpand(session.key)}
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '14px 20px', cursor: 'pointer', userSelect: 'none',
-                        background: isOpen ? 'rgba(139,92,246,0.05)' : 'transparent',
-                      }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                          <span style={{
-                            padding: '2px 10px', borderRadius: '999px',
-                            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
-                            color: '#f59e0b', fontSize: '0.7rem', fontWeight: 700,
-                          }}>
-                            📅 {dateLabel}
-                          </span>
-                          <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.95rem' }}>
-                            {session.examTitle}
-                          </span>
-                          {session.examLevel && (
-                            <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{session.examLevel}</span>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.75rem', color: '#64748b' }}>
-                          <span><span style={{ color: '#3b82f6', fontWeight: 700 }}>{session.results.length}</span> candidats</span>
-                          <span>Moy. <span style={{ color: '#8b5cf6', fontWeight: 700 }}>{avg}%</span></span>
-                          <span>✓ <span style={{ color: '#10b981', fontWeight: 700 }}>{passed}</span> reçus</span>
-                          <span>✗ <span style={{ color: '#ef4444', fontWeight: 700 }}>{session.results.length - passed}</span> échoués</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                        {/* Bouton d'impression de la session */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            printSessionRanking(session);
-                          }}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            padding: '6px 14px', borderRadius: '8px',
-                            background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-                            border: 'none', color: '#fff', fontSize: '0.75rem', fontWeight: 600,
-                            cursor: 'pointer', transition: 'all 0.2s',
-                          }}
-                        >
-                          <Printer size={12} /> Imprimer
-                        </button>
-                        <span style={{ color: '#f59e0b' }}>
-                          {isOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Contenu de la session (déplié) */}
-                    <AnimatePresence>
-                      {isOpen && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}
-                        >
-                          <div style={{ overflowX: 'auto', padding: '16px 20px' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
-                              <thead>
-                                <tr style={{ borderBottom: '2px solid rgba(139,92,246,0.3)' }}>
-                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rang</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Étudiant</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Matricule</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Score</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>%</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bulletin</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {session.rankings.map((r, idx) => {
-                                  const bulletinUrl = `${NODE_BACKEND_URL}/api/bulletin/${r._id}`;
-                                  return (
-                                    <tr key={r._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '10px 12px' }}>
-                                        <span style={{
-                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                          width: 28, height: 28, borderRadius: '50%',
-                                          background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(255,255,255,0.06)',
-                                          color: idx < 3 ? '#000' : '#94a3b8', fontWeight: 700, fontSize: '0.75rem',
-                                        }}>
-                                          {idx < 3 ? ['🥇', '🥈', '🥉'][idx] : r.rank}
-                                        </span>
-                                       </td>
-                                      <td style={{ padding: '10px 12px', color: '#f1f5f9', fontWeight: 500 }}>
-                                        {r.studentInfo?.firstName} {r.studentInfo?.lastName}
-                                       </td>
-                                      <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                                        {r.studentInfo?.matricule || '—'}
-                                       </td>
-                                      <td style={{ padding: '10px 12px', textAlign: 'center', color: '#f1f5f9', fontWeight: 600 }}>
-                                        {r.score ?? '—'}
-                                       </td>
-                                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                        <span style={{
-                                          padding: '2px 8px', borderRadius: '999px',
-                                          background: (r.percentage || 0) >= 50 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                                          color: (r.percentage || 0) >= 50 ? '#10b981' : '#ef4444',
-                                          fontWeight: 700, fontSize: '0.78rem',
-                                          border: `1px solid ${(r.percentage || 0) >= 50 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                                        }}>
-                                          {r.percentage ?? 0}%
-                                        </span>
-                                       </td>
-                                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                        <a
-                                          href={bulletinUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                            padding: '4px 10px', borderRadius: '6px',
-                                            background: 'rgba(99,102,241,0.1)',
-                                            border: '1px solid rgba(99,102,241,0.25)',
-                                            color: '#a5b4fc', textDecoration: 'none', fontSize: '0.7rem', fontWeight: 600,
-                                          }}
-                                        >
-                                          <Eye size={10} /> Voir
-                                        </a>
-                                       </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
+                  <option key={session.key} value={session.key} style={{ background: '#1e293b' }}>
+                    {dateLabel} - {session.examTitle} ({session.rankings.length} candidats · {avg}% moy.)
+                  </option>
                 );
               })}
+            </select>
+          </div>
+
+          {/* Affichage du classement sélectionné */}
+          {selectedSessionData ? (
+            <div>
+              {/* Statistiques de la session */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px', marginBottom: '24px', padding: '16px',
+                background: 'rgba(245,158,11,0.08)', borderRadius: '16px', border: '1px solid rgba(245,158,11,0.2)'
+              }}>
+                {[
+                  { label: 'Candidats', value: selectedSessionData.rankings.length, color: '#3b82f6' },
+                  { label: 'Moyenne', value: `${(selectedSessionData.rankings.reduce((a, r) => a + (r.percentage || 0), 0) / selectedSessionData.rankings.length).toFixed(1)}%`, color: '#8b5cf6' },
+                  { label: 'Reçus', value: selectedSessionData.rankings.filter(r => (r.percentage || 0) >= 50).length, color: '#10b981' },
+                  { label: 'Échoués', value: selectedSessionData.rankings.filter(r => (r.percentage || 0) < 50).length, color: '#ef4444' },
+                  { label: 'Meilleur score', value: `${Math.max(...selectedSessionData.rankings.map(r => r.percentage || 0))}%`, color: '#f59e0b' },
+                ].map(stat => (
+                  <div key={stat.label} style={{ background: `${stat.color}10`, border: `1px solid ${stat.color}25`, borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                    <div style={{ color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', marginBottom: '4px' }}>{stat.label}</div>
+                    <div style={{ color: stat.color, fontSize: '1.3rem', fontWeight: 800 }}>{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tableau du classement SANS liens de bulletins */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.1)' }}>
+                      <th style={{ padding: '12px 15px', textAlign: 'left', color: '#f59e0b', fontWeight: 700 }}>Rang</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>Étudiant</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>Matricule</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>Score</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>%</th>
+                      <th style={{ padding: '12px 15px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>Note /20</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedSessionData.rankings.map((r, idx) => {
+                      const note20 = ((r.percentage || 0) / 100 * 20).toFixed(2);
+                      return (
+                        <tr key={r._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <td style={{ padding: '12px 15px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 32, height: 32, borderRadius: '50%',
+                              background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(255,255,255,0.1)',
+                              color: idx < 3 ? '#000' : '#94a3b8', fontWeight: 700,
+                            }}>
+                              {idx < 3 ? ['🥇', '🥈', '🥉'][idx] : r.rank}
+                            </span>
+                           </td>
+                          <td style={{ padding: '12px 15px', color: '#f1f5f9', fontWeight: 500 }}>
+                            {r.studentInfo?.firstName} {r.studentInfo?.lastName}
+                           </td>
+                          <td style={{ padding: '12px 15px', color: '#64748b', fontFamily: 'monospace' }}>
+                            {r.studentInfo?.matricule || '—'}
+                           </td>
+                          <td style={{ padding: '12px 15px', textAlign: 'center', color: '#f1f5f9', fontWeight: 600 }}>
+                            {r.score ?? '—'}
+                           </td>
+                          <td style={{ padding: '12px 15px', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '3px 10px', borderRadius: '999px',
+                              background: (r.percentage || 0) >= 50 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: (r.percentage || 0) >= 50 ? '#10b981' : '#ef4444',
+                              fontWeight: 700, fontSize: '0.85rem',
+                            }}>
+                              {r.percentage ?? 0}%
+                            </span>
+                           </td>
+                          <td style={{ padding: '12px 15px', textAlign: 'center', color: '#8b5cf6', fontWeight: 700 }}>
+                            {note20}/20
+                           </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+              <Calendar size={48} color="#1e293b" style={{ marginBottom: '16px' }} />
+              <p style={{ color: '#475569', fontSize: '0.9rem' }}>Sélectionnez une session dans la liste déroulante pour afficher le classement.</p>
+              <p style={{ color: '#334155', fontSize: '0.8rem', marginTop: '8px' }}>Les sessions apparaissent après que des étudiants aient complété des épreuves.</p>
             </div>
           )}
         </motion.div>
