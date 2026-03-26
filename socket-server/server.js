@@ -57,7 +57,7 @@ async function connectDB() {
 connectDB().catch(err => console.error('[DB] ❌', err.message));
 
 // ══════════════════════════════════════════════════════════════
-//  SCHÉMAS MONGOOSE (inchangés)
+//  SCHÉMAS MONGOOSE
 // ══════════════════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -228,7 +228,7 @@ app.get('/api/check-config', (_, res) => res.json({
 }));
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH (inchangé)
+//  AUTH
 // ══════════════════════════════════════════════════════════════
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -273,7 +273,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  QUESTIONS (simplifié)
+//  QUESTIONS
 // ══════════════════════════════════════════════════════════════
 app.get('/api/questions', async (req, res) => {
   try {
@@ -494,38 +494,399 @@ app.get('/api/rankings/:examId', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  BULLETIN HTML (simplifié)
+//  BULLETIN HTML COMPLET
 // ══════════════════════════════════════════════════════════════
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId);
     if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
+    
     const exam = await Exam.findById(result.examId);
     const questions = result.examQuestions?.length ? result.examQuestions : (exam?.questions || []);
     const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : (result.answers || {});
-    const mention = result.percentage >= 90 ? 'Très Bien' : result.percentage >= 75 ? 'Bien' : result.percentage >= 60 ? 'Assez Bien' : result.percentage >= 50 ? 'Passable' : 'Insuffisant';
-    const mColor = result.percentage >= 75 ? '#16a34a' : result.percentage >= 50 ? '#d97706' : '#dc2626';
-    const note20 = ((result.percentage / 100) * 20).toFixed(2);
+    
+    const percentage = result.percentage || 0;
+    const mention = percentage >= 90 ? 'Très Bien' : percentage >= 75 ? 'Bien' : percentage >= 60 ? 'Assez Bien' : percentage >= 50 ? 'Passable' : 'Insuffisant';
+    const mColor = percentage >= 75 ? '#16a34a' : percentage >= 50 ? '#d97706' : '#dc2626';
+    const note20 = ((percentage / 100) * 20).toFixed(2);
+    const passed = result.passed;
 
+    // Calcul des points
+    let totalPoints = 0;
+    let earnedPoints = 0;
+    questions.forEach((q, i) => {
+      const points = q.points || 1;
+      totalPoints += points;
+      
+      const qId = q._id?.toString();
+      let studentAnswer = answers[qId];
+      if (studentAnswer === undefined && answers[i] !== undefined) {
+        studentAnswer = answers[i];
+      }
+      
+      const student = studentAnswer !== undefined && studentAnswer !== null ? String(studentAnswer) : '';
+      const correctAnswer = q.correctAnswer !== undefined && q.correctAnswer !== null ? String(q.correctAnswer) : '';
+      const isCorrect = student !== '' && student.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+      
+      if (isCorrect) earnedPoints += points;
+    });
+
+    // Générer les lignes du tableau
     let rows = '';
     questions.forEach((q, i) => {
       const qId = q._id?.toString();
-      const student = answers[qId] ?? '—';
-      const ok = student !== '—' && String(student).trim() === String(q.correctAnswer).trim();
-      rows += `<tr style="border-bottom:1px solid #e2e8f0">
-        <td style="padding:10px 8px;color:#64748b;width:32px">${i + 1}<\/td>
-        <td style="padding:10px 8px;font-size:0.88rem">${q.question || q.text || ''}<\/td>
-        <td style="padding:10px 8px;color:${ok ? '#16a34a' : '#dc2626'}">${student}<\/td>
-        <td style="padding:10px 8px;color:#16a34a">${q.correctAnswer}<\/td>
-        <td style="padding:10px 8px;text-align:center">${ok ? '✅' : '❌'}<\/td>
-       <\/tr>`;
+      let studentAnswer = answers[qId];
+      if (studentAnswer === undefined && answers[i] !== undefined) {
+        studentAnswer = answers[i];
+      }
+      
+      const student = studentAnswer !== undefined && studentAnswer !== null ? String(studentAnswer) : '—';
+      const correctAnswer = q.correctAnswer !== undefined && q.correctAnswer !== null ? String(q.correctAnswer) : '—';
+      const isCorrect = student !== '—' && student.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+      
+      rows += `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 12px 8px; color: #64748b; width: 40px; text-align: center;">${i + 1}</td>
+          <td style="padding: 12px 8px; font-size: 0.85rem; line-height: 1.4;">${escapeHtml(q.question || q.text || 'Question sans texte')}</td>
+          <td style="padding: 12px 8px; color: ${isCorrect ? '#16a34a' : '#dc2626'}; font-weight: 500;">${escapeHtml(student)}</td>
+          <td style="padding: 12px 8px; color: #16a34a; font-weight: 500;">${escapeHtml(correctAnswer)}</td>
+          <td style="padding: 12px 8px; text-align: center;">${isCorrect ? '✅' : '❌'}</td>
+        </tr>
+      `;
     });
 
-    const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Bulletin</title><style>...</style></head><body>...</body></html>`;
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulletin - ${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', 'Roboto', 'DM Sans', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    
+    .bulletin-container {
+      max-width: 1000px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.05);
+      overflow: hidden;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: white;
+      padding: 32px 40px;
+      text-align: center;
+      position: relative;
+    }
+    
+    .header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    
+    .header .subtitle {
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
+    
+    .status-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 100px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-top: 16px;
+    }
+    
+    .status-passed {
+      background: rgba(22, 163, 74, 0.15);
+      color: #16a34a;
+      border: 1px solid rgba(22, 163, 74, 0.3);
+    }
+    
+    .status-failed {
+      background: rgba(220, 38, 38, 0.15);
+      color: #dc2626;
+      border: 1px solid rgba(220, 38, 38, 0.3);
+    }
+    
+    .scores-section {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: #e2e8f0;
+    }
+    
+    .score-card {
+      background: white;
+      padding: 20px;
+      text-align: center;
+    }
+    
+    .score-card .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    
+    .score-card .value {
+      font-size: 2rem;
+      font-weight: 800;
+      font-family: monospace;
+    }
+    
+    .score-card .unit {
+      font-size: 0.85rem;
+      font-weight: 400;
+      color: #64748b;
+    }
+    
+    .mention {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+    
+    .info-section {
+      padding: 24px 40px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+    
+    .info-item {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .info-item .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    
+    .info-item .value {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    
+    .questions-section {
+      padding: 24px 40px;
+    }
+    
+    .questions-section h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 16px;
+      letter-spacing: -0.01em;
+    }
+    
+    .questions-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    
+    .questions-table th {
+      text-align: left;
+      padding: 12px 8px;
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    
+    .questions-table td {
+      vertical-align: top;
+    }
+    
+    .footer {
+      padding: 20px 40px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      text-align: center;
+      font-size: 0.7rem;
+      color: #94a3b8;
+    }
+    
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+        margin: 0;
+      }
+      .bulletin-container {
+        box-shadow: none;
+        border-radius: 0;
+      }
+      .no-print {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="bulletin-container">
+    <div class="header">
+      <h1>NA²QUIZ</h1>
+      <div class="subtitle">Système d'Évaluation Sommative</div>
+      <div class="status-badge ${passed ? 'status-passed' : 'status-failed'}">
+        ${passed ? '✓ REÇU' : '✗ AJOURNÉ'}
+      </div>
+    </div>
+    
+    <div class="scores-section">
+      <div class="score-card">
+        <div class="label">Score</div>
+        <div class="value">${earnedPoints}<span class="unit">/${totalPoints}</span></div>
+      </div>
+      <div class="score-card">
+        <div class="label">Pourcentage</div>
+        <div class="value" style="color: ${mColor}">${percentage}%</div>
+      </div>
+      <div class="score-card">
+        <div class="label">Note /20</div>
+        <div class="value" style="color: #8b5cf6">${note20}<span class="unit">/20</span></div>
+      </div>
+      <div class="score-card">
+        <div class="label">Mention</div>
+        <div class="mention" style="background: ${mColor}15; color: ${mColor}; border: 1px solid ${mColor}30;">
+          ${mention}
+        </div>
+      </div>
+    </div>
+    
+    <div class="info-section">
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="label">Candidat</span>
+          <span class="value">${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Matricule</span>
+          <span class="value">${escapeHtml(result.studentInfo?.matricule || '—')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Niveau</span>
+          <span class="value">${escapeHtml(result.studentInfo?.level || '—')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Date</span>
+          <span class="value">${new Date(result.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="info-section" style="background: white; border-bottom: 1px solid #e2e8f0;">
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="label">Épreuve</span>
+          <span class="value">${escapeHtml(result.examTitle || exam?.title || '—')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Matière</span>
+          <span class="value">${escapeHtml(result.subject || exam?.subject || '—')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Domaine</span>
+          <span class="value">${escapeHtml(result.domain || exam?.domain || '—')}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Seuil de réussite</span>
+          <span class="value">${result.passingScore || exam?.passingScore || 70}%</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="questions-section">
+      <h3>Détail des réponses</h3>
+      <table class="questions-table">
+        <thead>
+          <tr>
+            <th style="width: 40px;">#</th>
+            <th>Question</th>
+            <th style="width: 100px;">Réponse</th>
+            <th style="width: 100px;">Correcte</th>
+            <th style="width: 50px;">Rés.</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" style="text-align: center; padding: 40px;">Aucune question disponible</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    
+    <div class="footer">
+      <p>Document généré par NA²QUIZ · ${new Date().toLocaleDateString('fr-FR')}</p>
+      <p style="margin-top: 8px;">Ce bulletin fait foi pour l'évaluation sommative</p>
+    </div>
+  </div>
+  
+  <div class="no-print" style="text-align: center; margin-top: 24px;">
+    <button onclick="window.print()" style="padding: 10px 24px; background: #3b82f6; color: white; border: none; border-radius: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(59,130,246,0.3);">
+      🖨️ Imprimer / Télécharger PDF
+    </button>
+  </div>
+</body>
+</html>`;
+
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
-    res.status(500).send(`<h1>Erreur: ${err.message}</h1>`);
+    console.error('[Bulletin] Erreur:', err);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>Erreur</title></head>
+      <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+        <h1 style="color: #dc2626;">Erreur de génération</h1>
+        <p>${escapeHtml(err.message)}</p>
+        <button onclick="window.history.back()" style="padding: 8px 16px; margin-top: 20px; cursor: pointer;">Retour</button>
+      </body>
+      </html>
+    `);
   }
 });
 
@@ -628,7 +989,7 @@ app.get('/api/surveillance-data', (_, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  SESSIONS ACTIVES (API pour la surveillance)
+//  SESSIONS ACTIVES
 // ══════════════════════════════════════════════════════════════
 app.get('/api/active-sessions', (_, res) => {
   const sessions = Array.from(activeSessions.values()).map(s => ({
@@ -692,7 +1053,6 @@ const emitSessionUpdate = () => {
 io.on('connection', (socket) => {
   console.log(`[Socket] 🔌 Nouvelle connexion: ${socket.id}`);
 
-  // ==================== REGISTRATION ====================
   socket.on('registerSession', (data) => {
     console.log(`[Socket] 📝 registerSession: type=${data.type}, sessionId=${data.sessionId}`);
 
@@ -749,15 +1109,12 @@ io.on('connection', (socket) => {
     emitSessionUpdate();
   });
 
-  // ==================== STUDENT READY (CORRIGÉ POUR OPTION B) ====================
   socket.on('studentReadyForExam', ({ examId, studentInfo, status = 'composing', sessionId, examOption }) => {
-    // ✅ IMPORTANT: Utiliser socket.id, PAS studentSocketId
     const targetId = socket.id;
     const stableSessionId = sessionId || `STU_${examId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
     console.log(`[Socket] 👨‍🎓 studentReadyForExam: exam=${examId}, student=${studentInfo?.firstName} ${studentInfo?.lastName}, status=${status}, option=${examOption}, socketId=${targetId}`);
 
-    // Vérifier si l'étudiant existe déjà
     const existingStudent = Array.from(activeSessions.values()).find(
       s => s.type === 'student' &&
         s.studentInfo?.matricule === studentInfo.matricule &&
@@ -775,7 +1132,7 @@ io.on('connection', (socket) => {
       sessionId: stableSessionId,
       currentExamId: examId,
       studentInfo,
-      status: status,  // ✅ status = 'waiting' pour Option B
+      status: status,
       progress: 0,
       examOption: examOption || 'A',
       lastUpdate: Date.now(),
@@ -787,7 +1144,6 @@ io.on('connection', (socket) => {
     console.log(`[Socket] ✅ Student ajouté: ${studentInfo.firstName} ${studentInfo.lastName} (status=${status})`);
     console.log(`[Socket] 📊 Total students: ${Array.from(activeSessions.values()).filter(s => s.type === 'student').length}`);
 
-    // Joindre les rooms
     const studentSocket = io.sockets.sockets.get(targetId);
     if (studentSocket) {
       studentSocket.join(`exam:${examId}`);
@@ -813,7 +1169,6 @@ io.on('connection', (socket) => {
     emitSessionUpdate();
   });
 
-  // ==================== START EXAM ====================
   socket.on('startExam', ({ examId, option }) => {
     console.log(`[Socket] 🚀 DEMANDE DE DÉMARRAGE - Examen: ${examId}, Option: ${option}`);
 
@@ -910,7 +1265,6 @@ io.on('connection', (socket) => {
     emitSessionUpdate();
   });
 
-  // ==================== AUTRES ÉVÉNEMENTS ====================
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) return;
     const examData = {
