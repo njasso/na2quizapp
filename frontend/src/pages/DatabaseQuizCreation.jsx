@@ -1,4 +1,4 @@
-// src/pages/DatabaseQuizCreation.jsx
+// src/pages/DatabaseQuizCreation.jsx - Version production corrigée
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -42,7 +42,7 @@ const DatabaseQuizCreation = () => {
   const levels = selectedCategory ? DOMAIN_DATA[selectedDomain][selectedCategory].levels : [];
   const subjects = selectedCategory ? DOMAIN_DATA[selectedDomain][selectedCategory].subjects : [];
 
-  // Charger les questions depuis l'API avec filtrage robuste
+  // ✅ Charger les questions avec normalisation robuste
   const loadAvailableQuestions = async () => {
     if (!selectedDomain || !selectedCategory || !selectedLevel || !selectedSubject) return;
     
@@ -56,40 +56,56 @@ const DatabaseQuizCreation = () => {
         limit: 1000 
       });
       
-      // ✅ Normalisation robuste : supporte plusieurs structures de réponse
+      // ✅ Normalisation robuste - supporte toutes les structures de réponse
       let rawQuestions = [];
-      const raw = response?.data?.data   // { success, data: [...] }
-                || response?.data        // axios response.data direct
-                || response;             // déjà le tableau
-                
-      if (Array.isArray(raw)) {
-        rawQuestions = raw;
-      } else if (raw?.data && Array.isArray(raw.data)) {
-        rawQuestions = raw.data;
-      } else if (raw?.questions && Array.isArray(raw.questions)) {
-        rawQuestions = raw.questions;
+      
+      // Cas 1: response est déjà un tableau
+      if (Array.isArray(response)) {
+        rawQuestions = response;
+      }
+      // Cas 2: response.data est un tableau
+      else if (response?.data && Array.isArray(response.data)) {
+        rawQuestions = response.data;
+      }
+      // Cas 3: response.data.data (format { success: true, data: [...] })
+      else if (response?.data?.data && Array.isArray(response.data.data)) {
+        rawQuestions = response.data.data;
+      }
+      // Cas 4: response.questions (format { questions: [...] })
+      else if (response?.questions && Array.isArray(response.questions)) {
+        rawQuestions = response.questions;
+      }
+      // Cas 5: réponse directe avec propriété data
+      else if (response?.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+        if (Array.isArray(response.data.data)) rawQuestions = response.data.data;
+        else if (Array.isArray(response.data.questions)) rawQuestions = response.data.questions;
       }
       
-      // Normaliser chaque question avec un id unique
+      console.log(`📊 ${rawQuestions.length} questions brutes reçues`);
+      
+      // Normaliser chaque question
       const normalized = rawQuestions.map((q, idx) => ({
         id: q._id || q.id || `${selectedSubject}_${idx}_${Date.now()}`,
-        text: q.question || q.text,
-        options: q.options || [],
-        correctAnswer: q.correctAnswer || q.answer,
+        text: q.question || q.text || '',
+        options: Array.isArray(q.options) ? q.options : [],
+        correctAnswer: q.correctAnswer || q.answer || '',
         points: q.points || 1,
         explanation: q.explanation || '',
         type: q.type || 'single',
         niveau: q.niveau || selectedLevel,
-        matiere: q.matiere || selectedSubject
+        matiere: q.matiere || selectedSubject,
+        domaine: q.domaine || selectedDomain,
+        sousDomaine: q.sousDomaine || selectedCategory
       }));
       
-      // Éviter les doublons d'id (si plusieurs questions ont le même _id, garder une seule)
+      // Éviter les doublons par ID
       const uniqueMap = new Map();
       normalized.forEach(q => {
         if (!uniqueMap.has(q.id)) uniqueMap.set(q.id, q);
       });
       const uniqueQuestions = Array.from(uniqueMap.values());
       
+      console.log(`✅ ${uniqueQuestions.length} questions uniques chargées`);
       setAvailableQuestions(uniqueQuestions);
       
       if (uniqueQuestions.length === 0) {
@@ -98,8 +114,8 @@ const DatabaseQuizCreation = () => {
         toast.success(`${uniqueQuestions.length} questions trouvées`);
       }
     } catch (error) {
-      console.error('Erreur chargement questions:', error);
-      toast.error('Impossible de charger les questions');
+      console.error('❌ Erreur chargement questions:', error);
+      toast.error('Impossible de charger les questions. Vérifiez votre connexion.');
       setAvailableQuestions([]);
     } finally {
       setFetchingQuestions(false);
@@ -164,7 +180,7 @@ const DatabaseQuizCreation = () => {
 
       const response = await createExam(examData);
       
-      if (response.success !== false) {
+      if (response.success !== false || response._id) {
         toast.success('Épreuve créée avec succès !');
         navigate('/exams');
       } else {
