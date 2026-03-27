@@ -1,11 +1,11 @@
-// src/pages/DatabaseQuizCreation.jsx - Version corrigée avec tous les imports
+// src/pages/DatabaseQuizCreation.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Database, Save, Trash2, ArrowLeft, Search, Filter,
-  BookOpen, BookMarked, Loader, AlertCircle, RefreshCw,
-  CheckCircle, XCircle  // ✅ AJOUT DES IMPORTS MANQUANTS
+  Database, Save, Trash2, ArrowLeft, Search,
+  BookMarked, Loader, AlertCircle,
+  CheckCircle
 } from 'lucide-react';
 import DOMAIN_DATA from '../data/domainConfig';
 import { getQuestions, createExam } from '../services/api';
@@ -42,7 +42,7 @@ const DatabaseQuizCreation = () => {
   const levels = selectedCategory ? DOMAIN_DATA[selectedDomain][selectedCategory].levels : [];
   const subjects = selectedCategory ? DOMAIN_DATA[selectedDomain][selectedCategory].subjects : [];
 
-  // Charger les questions depuis l'API
+  // Charger les questions depuis l'API avec filtrage robuste
   const loadAvailableQuestions = async () => {
     if (!selectedDomain || !selectedCategory || !selectedLevel || !selectedSubject) return;
     
@@ -56,22 +56,23 @@ const DatabaseQuizCreation = () => {
         limit: 1000 
       });
       
-      // ✅ Normaliser toutes les formes de réponse possibles
-      let allQuestions = [];
-      const raw = response?.data?.data   // { success, data: [...], count }
+      // ✅ Normalisation robuste : supporte plusieurs structures de réponse
+      let rawQuestions = [];
+      const raw = response?.data?.data   // { success, data: [...] }
                 || response?.data        // axios response.data direct
                 || response;             // déjà le tableau
+                
       if (Array.isArray(raw)) {
-        allQuestions = raw;
+        rawQuestions = raw;
       } else if (raw?.data && Array.isArray(raw.data)) {
-        allQuestions = raw.data;
+        rawQuestions = raw.data;
       } else if (raw?.questions && Array.isArray(raw.questions)) {
-        allQuestions = raw.questions;
+        rawQuestions = raw.questions;
       }
       
-      // Normaliser les questions
-      const normalized = allQuestions.map(q => ({
-        id: q._id || q.id,
+      // Normaliser chaque question avec un id unique
+      const normalized = rawQuestions.map((q, idx) => ({
+        id: q._id || q.id || `${selectedSubject}_${idx}_${Date.now()}`,
         text: q.question || q.text,
         options: q.options || [],
         correctAnswer: q.correctAnswer || q.answer,
@@ -82,16 +83,24 @@ const DatabaseQuizCreation = () => {
         matiere: q.matiere || selectedSubject
       }));
       
-      setAvailableQuestions(normalized);
+      // Éviter les doublons d'id (si plusieurs questions ont le même _id, garder une seule)
+      const uniqueMap = new Map();
+      normalized.forEach(q => {
+        if (!uniqueMap.has(q.id)) uniqueMap.set(q.id, q);
+      });
+      const uniqueQuestions = Array.from(uniqueMap.values());
       
-      if (normalized.length === 0) {
+      setAvailableQuestions(uniqueQuestions);
+      
+      if (uniqueQuestions.length === 0) {
         toast.error(`Aucune question trouvée pour ${selectedSubject} (niveau ${selectedLevel})`);
       } else {
-        toast.success(`${normalized.length} questions trouvées`);
+        toast.success(`${uniqueQuestions.length} questions trouvées`);
       }
     } catch (error) {
       console.error('Erreur chargement questions:', error);
       toast.error('Impossible de charger les questions');
+      setAvailableQuestions([]);
     } finally {
       setFetchingQuestions(false);
     }
@@ -103,6 +112,7 @@ const DatabaseQuizCreation = () => {
     } else {
       setAvailableQuestions([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDomain, selectedCategory, selectedLevel, selectedSubject]);
 
   const filteredQuestions = availableQuestions.filter(q =>
@@ -131,7 +141,6 @@ const DatabaseQuizCreation = () => {
 
     setIsLoading(true);
     try {
-      // Format des questions pour le backend (modèle Exam)
       const formattedQuestions = selectedQuestions.map(q => ({
         question: q.text,
         options: q.options,
