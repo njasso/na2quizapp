@@ -18,7 +18,7 @@ const DOMAIN_DATA = {
         "Littérature",
         "Philosophie",
         "Histoire",
-        'Géographie",
+        "Géographie",
         "Français",
         "Anglais",
         "Espagnol",
