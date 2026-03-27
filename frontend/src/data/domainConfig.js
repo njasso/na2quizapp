@@ -17,7 +17,8 @@ const DOMAIN_DATA = {
       subjects: [
         "Littérature",
         "Philosophie",
-        "Histoire-Géographie",
+        "Histoire",
+        "Géographie",
         "Français",
         "Anglais",
         "Espagnol",
