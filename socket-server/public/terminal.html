@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NA²QUIZ — Terminal d'Examen</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <!-- ✅ Socket.IO depuis le même serveur (Render) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* ... garder tout le CSS inchangé ... */
+    </style>
+</head>
+<body>
+<div class="overlay" id="overlay">
+    <div class="exam-ring"><span class="exam-icon">📋</span></div>
+    <div>
+        <div class="exam-title" id="ovTitle">Épreuve reçue</div>
+        <div class="exam-opt" id="ovOpt">OPTION A — COLLECTIVE FIGÉE</div>
+    </div>
+    <div class="exam-cd" id="ovCd">▋ REDIRECTION EN COURS…</div>
+</div>
+<div class="shell">
+    <div class="identity">
+        <div class="identity-logo">NA²QUIZ</div>
+        <div class="identity-badge">Terminal d'Examen · Serveur</div>
+    </div>
+    <div class="card">
+        <div class="card-accent"></div>
+        <div class="hdr">
+            <div class="orb-wrap c-cyan" id="orbWrap">
+                <div class="orb-ring"></div><div class="orb-ring2"></div>
+                <div class="orb-core"><span class="orb-ico" id="orbIco">⬡</span></div>
+            </div>
+            <div class="hdr-text c-cyan" id="orbInfo">
+                <div class="hdr-title" id="orbTitle">Initialisation…</div>
+                <div class="hdr-desc" id="orbDesc">connexion au serveur</div>
+            </div>
+        </div>
+        <div class="slbl">Session</div>
+        <div class="dp">
+            <div class="dr"><div class="dk">ÉTAT</div><div class="dv" id="dState">initialisation…</div></div>
+            <div class="dr"><div class="dk">SERVEUR</div><div class="dv hi" id="dServer">—</div></div>
+            <div class="dr"><div class="dk">SESSION</div><div class="dv" id="dSession">—</div></div>
+            <div class="dr"><div class="dk">SOCKET ID</div><div class="dv" id="dSocket">—</div></div>
+        </div>
+        <div class="ctr" id="ctr">
+            <div class="ctr-num" id="ctrNum">0</div>
+            <div class="ctr-lbl">candidat(s) en salle d'attente</div>
+        </div>
+        <div class="slbl">Événements</div>
+        <div class="feed" id="feed"></div>
+        <div class="btns">
+            <button class="btn hidden" id="reconnBtn">↻ Reconnecter</button>
+            <button class="btn" id="refrBtn">⟳ Actualiser</button>
+        </div>
+        <div class="card-footer">
+            <div class="footer-l">AFRICANUT INDUSTRY · EBOLOWA, CMR</div>
+            <div class="footer-pill">Serveur</div>
+        </div>
+    </div>
+    <div class="howto">
+        <div class="howto-hdr">Comment se connecter à ce terminal</div>
+        <div class="howto-body">
+            <div class="howto-step"><div class="howto-num">1</div><div class="howto-txt">Le <strong>superviseur</strong> ouvre <strong>SurveillancePage</strong> sur son poste.</div></div>
+            <div class="howto-step"><div class="howto-num">2</div><div class="howto-txt">Ce terminal s'ouvre sur le <strong>poste candidat</strong> via l'URL :<br><code id="currentUrl"></code></div></div>
+            <div class="howto-step"><div class="howto-num">3</div><div class="howto-txt">Le superviseur sélectionne une épreuve et clique <strong>Distribuer</strong>.</div></div>
+            <div class="howto-step"><div class="howto-num">4</div><div class="howto-txt">Le candidat remplit son profil et compose l'examen.</div></div>
+        </div>
+    </div>
+</div>
+<script>
+(function(){
+    console.log('[Terminal] Démarrage...');
+    
+    if(typeof io === 'undefined'){
+        console.error('[Terminal] Socket.IO non chargé');
+        document.getElementById('orbTitle').textContent = 'Socket.IO non chargé';
+        document.getElementById('orbDesc').textContent = 'Vérifier que le serveur est démarré';
+        return;
+    }
+    
+    // ✅ Configuration automatique : utiliser le même serveur que la page
+    var SERVER_URL = window.location.origin;
+    var FRONTEND_URL = 'https://na2quizapp.netlify.app';
+    
+    console.log('[Terminal] Serveur:', SERVER_URL);
+    console.log('[Terminal] Frontend:', FRONTEND_URL);
+    
+    var MAX_RECONNECT = 10;
+    var socket = null;
+    var sessionId = null;
+    var reconnAttempts = 0;
+    var hbInterval = null;
+    var redirTimeout = null;
+    var isRedirecting = false;
+    var isRegistered = false;
+    
+    // DOM Elements
+    var orbWrap = document.getElementById('orbWrap');
+    var orbInfo = document.getElementById('orbInfo');
+    var orbIco = document.getElementById('orbIco');
+    var orbTitle = document.getElementById('orbTitle');
+    var orbDesc = document.getElementById('orbDesc');
+    var dState = document.getElementById('dState');
+    var dSession = document.getElementById('dSession');
+    var dSocket = document.getElementById('dSocket');
+    var dServer = document.getElementById('dServer');
+    var ctr = document.getElementById('ctr');
+    var ctrNum = document.getElementById('ctrNum');
+    var feed = document.getElementById('feed');
+    var reconnBtn = document.getElementById('reconnBtn');
+    var refrBtn = document.getElementById('refrBtn');
+    var overlay = document.getElementById('overlay');
+    var ovTitle = document.getElementById('ovTitle');
+    var ovOpt = document.getElementById('ovOpt');
+    var ovCd = document.getElementById('ovCd');
+    var currentUrlElem = document.getElementById('currentUrl');
+    
+    // Afficher l'URL du terminal
+    if(currentUrlElem) {
+        currentUrlElem.textContent = window.location.href;
+    }
+    
+    dServer.textContent = SERVER_URL.replace('https://', '').replace('http://', '');
+    
+    var COLORS = {
+        connecting: 'c-cyan',
+        connected: 'c-emerald',
+        waiting: 'c-violet',
+        exam: 'c-emerald',
+        error: 'c-red'
+    };
+    
+    function setStatus(state, ico, title, desc){
+        console.log('[Terminal] Status:', state, title);
+        var c = COLORS[state] || 'c-cyan';
+        ['c-cyan','c-emerald','c-violet','c-amber','c-red'].forEach(function(x){
+            orbWrap.classList.remove(x);
+            orbInfo.classList.remove(x);
+        });
+        orbWrap.classList.add(c);
+        orbInfo.classList.add(c);
+        orbIco.textContent = ico;
+        orbTitle.textContent = title;
+        orbDesc.textContent = desc || '';
+        dState.className = 'dv';
+        if(state === 'connected' || state === 'waiting'){
+            dState.className = 'dv live';
+            dState.innerHTML = '<span class="live-dot"></span>' + title;
+        } else {
+            dState.textContent = title;
+        }
+    }
+    
+    function addFeed(type, title, desc){
+        var t = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        var el = document.createElement('div');
+        el.className = 'fi ' + type;
+        el.innerHTML = '<div class="fd"></div><div class="fb"><div class="ft">' + escapeHtml(title) + '</div>' + (desc ? '<div class="fs">' + escapeHtml(desc) + '</div>' : '') + '</div><div class="ftime">' + t + '</div>';
+        feed.prepend(el);
+        while(feed.children.length > 10) feed.lastChild.remove();
+    }
+    
+    function escapeHtml(text) {
+        if(!text) return '';
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    function getOrCreateSession(){
+        var id = localStorage.getItem('terminalSessionId');
+        if(!id){
+            id = 'TERMINAL_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('terminalSessionId', id);
+            console.log('[Terminal] Nouvelle session créée:', id);
+        } else {
+            console.log('[Terminal] Session existante:', id);
+        }
+        return id;
+    }
+    
+    function syncPanel(){
+        dSession.textContent = sessionId ? sessionId.substring(0,22)+'…' : '—';
+        dSocket.textContent = socket && socket.id ? socket.id.substring(0,20)+'…' : '—';
+    }
+    
+    function cleanup(){
+        if(hbInterval){ clearInterval(hbInterval); hbInterval = null; }
+        if(redirTimeout){ clearTimeout(redirTimeout); redirTimeout = null; }
+    }
+    
+    function registerTerminal(){
+        if(!socket || !socket.connected){
+            console.log('[Terminal] Socket non connecté, attente...');
+            return;
+        }
+        if(isRegistered){
+            console.log('[Terminal] Déjà enregistré');
+            return;
+        }
+        
+        sessionId = getOrCreateSession();
+        console.log('[Terminal] Envoi registerTerminal:', { sessionId: sessionId, type: 'terminal', socketId: socket.id });
+        
+        socket.emit('registerSession', { 
+            sessionId: sessionId, 
+            type: 'terminal',
+            status: 'connected'
+        });
+        
+        setTimeout(function(){
+            isRegistered = true;
+        }, 500);
+    }
+    
+    function buildRedirectUrl(baseUrl, option) {
+        if(!baseUrl) return null;
+        
+        var cleanUrl = baseUrl.split('?')[0];
+        var redirectUrl = cleanUrl;
+        
+        // Remplacer localhost ou IP par l'URL du frontend Netlify
+        if(redirectUrl.includes('localhost') || redirectUrl.includes('127.0.0.1') || redirectUrl.includes('192.168.')) {
+            redirectUrl = redirectUrl.replace(/http:\/\/[^\/]+/, FRONTEND_URL);
+            redirectUrl = redirectUrl.replace(/https:\/\/[^\/]+/, FRONTEND_URL);
+        }
+        
+        // Ajouter le paramètre option
+        if(option && option !== '') {
+            if(redirectUrl.includes('?')) {
+                redirectUrl += '&option=' + option;
+            } else {
+                redirectUrl += '?option=' + option;
+            }
+        }
+        
+        return redirectUrl;
+    }
+    
+    function connect(){
+        if(socket && socket.connected){
+            console.log('[Terminal] Déjà connecté');
+            registerTerminal();
+            return;
+        }
+        if(socket) socket.disconnect();
+        
+        setStatus('connecting', '⬡', 'Connexion…', 'tentative ' + (reconnAttempts+1) + '/' + MAX_RECONNECT);
+        console.log('[Terminal] Connexion à:', SERVER_URL);
+        
+        socket = io(SERVER_URL, {
+            transports: ['polling', 'websocket'],
+            reconnection: true,
+            reconnectionAttempts: MAX_RECONNECT,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 15000,
+            forceNew: true
+        });
+        
+        socket.on('connect', function(){
+            console.log('[Terminal] ✅ Socket connecté, ID:', socket.id);
+            reconnAttempts = 0;
+            reconnBtn.classList.add('hidden');
+            syncPanel();
+            setStatus('connected', '✓', 'Connecté', 'en attente de distribution');
+            addFeed('success', 'Connecté au serveur', SERVER_URL);
+            
+            isRegistered = false;
+            registerTerminal();
+            
+            if(hbInterval) clearInterval(hbInterval);
+            hbInterval = setInterval(function(){
+                if(socket && socket.connected){
+                    socket.emit('ping');
+                }
+            }, 25000);
+        });
+        
+        socket.on('connect_error', function(err){
+            console.error('[Terminal] ❌ Erreur de connexion:', err.message);
+            reconnAttempts++;
+            if(reconnAttempts >= MAX_RECONNECT){
+                setStatus('error', '⚠', 'Serveur inaccessible', SERVER_URL);
+                addFeed('error', 'Connexion impossible', 'vérifier que le serveur est démarré');
+                reconnBtn.classList.remove('hidden');
+            }
+        });
+        
+        socket.on('reconnect', function(n){
+            console.log('[Terminal] 🔄 Reconnecté, tentative:', n);
+            reconnAttempts = 0;
+            reconnBtn.classList.add('hidden');
+            syncPanel();
+            setStatus('connected', '✓', 'Reconnecté', 'connexion rétablie');
+            addFeed('info', 'Reconnecté', 'tentative ' + n);
+            isRegistered = false;
+            registerTerminal();
+        });
+        
+        socket.on('disconnect', function(reason){
+            console.log('[Terminal] 👋 Déconnecté:', reason);
+            cleanup();
+            syncPanel();
+            setStatus('error', '⚡', 'Déconnecté', reason);
+            addFeed('warning', 'Déconnecté', reason);
+            isRegistered = false;
+        });
+        
+        socket.on('examDistributed', function(data){
+            console.log('[Terminal] 📋 examDistributed reçu:', data);
+            if(!data || !data.url || isRedirecting) return;
+            
+            var rawUrl = data.url;
+            var option = data.examOption;
+            
+            console.log('[Terminal] URL brute reçue:', rawUrl);
+            console.log('[Terminal] Option:', option);
+            
+            var redirectUrl = buildRedirectUrl(rawUrl, option);
+            
+            if(!redirectUrl) {
+                console.error('[Terminal] Impossible de construire l\'URL de redirection');
+                addFeed('error', 'Erreur de redirection', 'URL invalide');
+                return;
+            }
+            
+            console.log('[Terminal] URL finale de redirection:', redirectUrl);
+            
+            isRedirecting = true;
+            cleanup();
+            
+            var OPTS = { A:'COLLECTIVE FIGÉE', B:'COLLECTIVE SOUPLE', C:'PERSONNALISÉE', D:'ALÉATOIRE' };
+            var optName = OPTS[option] || ('OPTION ' + (option || '?'));
+            
+            setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — redirection…');
+            addFeed('success', 'Épreuve reçue — Option ' + (option || '?'), 'redirection dans 2s…');
+            ovTitle.textContent = (option ? 'Option ' + option + ' — ' : '') + 'Épreuve reçue';
+            ovOpt.textContent = optName;
+            overlay.classList.add('on');
+            
+            var s = 2;
+            var tick = setInterval(function(){
+                s--;
+                ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
+                if(s <= 0) clearInterval(tick);
+            }, 1000);
+            
+            redirTimeout = setTimeout(function(){
+                console.log('[Terminal] Redirection vers:', redirectUrl);
+                window.location.href = redirectUrl;
+            }, 2000);
+        });
+        
+        socket.on('waitingCountUpdate', function(data){
+            console.log('[Terminal] Compteur attente:', data);
+            var n = (data && data.count) ? data.count : 0;
+            if(n > 0){
+                ctr.classList.add('on');
+                ctrNum.textContent = n;
+                setStatus('waiting', '⏳', 'En attente', n + ' candidat' + (n > 1 ? 's' : '') + ' en salle');
+            } else {
+                ctr.classList.remove('on');
+            }
+        });
+        
+        socket.on('pong', function(){});
+        
+        socket.on('examFinished', function(data){
+            console.log('[Terminal] Examen terminé:', data);
+            isRedirecting = false;
+            overlay.classList.remove('on');
+            ctr.classList.remove('on');
+            setStatus('connected', '✓', 'Connecté', 'en attente d\'une nouvelle distribution');
+            addFeed('info', 'Épreuve terminée', 'Terminal prêt pour une nouvelle session');
+        });
+    }
+    
+    reconnBtn.addEventListener('click', function(){
+        console.log('[Terminal] Reconnexion manuelle');
+        reconnBtn.classList.add('hidden');
+        reconnAttempts = 0;
+        cleanup();
+        isRegistered = false;
+        if(socket) socket.disconnect();
+        setTimeout(connect, 300);
+    });
+    
+    refrBtn.addEventListener('click', function(){
+        console.log('[Terminal] Rechargement manuel');
+        window.location.reload();
+    });
+    
+    if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+            rs.forEach(function(r){ r.unregister(); });
+        });
+    }
+    
+    sessionId = getOrCreateSession();
+    syncPanel();
+    connect();
+    
+    window.addEventListener('beforeunload', function(){
+        console.log('[Terminal] Fermeture de la page');
+        cleanup();
+        if(socket) socket.disconnect();
+    });
+    
+    setTimeout(function(){
+        if(!socket || !socket.connected){
+            console.log('[Terminal] Connexion lente, affichage avertissement');
+            addFeed('warning', 'Connexion lente', 'Vérifier que le serveur est démarré');
+        }
+    }, 4000);
+    
+    console.log('[Terminal] Initialisation terminée');
+})();
+</script>
+</body>
+</html>
