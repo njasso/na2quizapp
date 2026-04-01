@@ -1,4 +1,4 @@
-// socket-server/server.js - Version complète et corrigée
+// socket-server/server.js - Version complète avec toutes les routes et modèles
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -13,6 +13,8 @@ import rateLimit from 'express-rate-limit';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,8 +70,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Security (désactivé en dev pour éviter les blocages)
 if (isProduction) {
@@ -86,65 +88,211 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ═══════════════════════════════════════════════════════════════
-// SCHÉMAS MONGOOSE (version complète)
+// SERVEUR STATIQUE POUR UPLOADS
 // ═══════════════════════════════════════════════════════════════
-const UserSchema = new mongoose.Schema({
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+const uploadsDir = path.join(publicDir, 'uploads/questions');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(path.join(publicDir, 'uploads')));
+
+// ═══════════════════════════════════════════════════════════════
+// SCHÉMAS MONGOOSE (COMPLETS)
+// ═══════════════════════════════════════════════════════════════
+
+// === User Schema ===
+const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true, lowercase: true },
+  username: { type: String, unique: true, sparse: true, lowercase: true },
   password: { type: String, required: true, select: false },
-  role: { type: String, enum: ['APPRENANT', 'ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'], default: 'APPRENANT' },
-  username: { type: String, unique: true, sparse: true },
-  matricule: { type: String, unique: true, sparse: true },
+  matricule: { type: String, unique: true, sparse: true, uppercase: true },
   level: { type: String, default: '' },
   grade: { type: String, default: '' },
+  department: { type: String, default: '' },
+  role: { type: String, enum: ['APPRENANT', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'], default: 'APPRENANT' },
+  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   isAdmin: { type: Boolean, default: false },
+  lastLogin: { type: Date },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
-UserSchema.pre('save', async function(next) {
+userSchema.pre('save', async function(next) {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, 10);
   }
   next();
 });
 
-UserSchema.methods.matchPassword = async function(password) {
+userSchema.methods.matchPassword = async function(password) {
   return await bcrypt.compare(password, this.password);
 };
 
-const ExamSchema = new mongoose.Schema({
+userSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+// === Question Schema ===
+const questionSchema = new mongoose.Schema({
+  domaine: { type: String, required: true },
+  sousDomaine: { type: String, default: '' },
+  niveau: { type: String, required: true },
+  matiere: { type: String, required: true },
+  libChapitre: { type: String, default: '' },
+  libQuestion: { type: String, required: true },
+  imageQuestion: { type: String, default: '' },
+  imageBase64: { type: String, default: '', select: false },
+  imageMetadata: {
+    originalName: { type: String, default: '' },
+    mimeType: { type: String, default: '' },
+    size: { type: Number, default: 0 },
+    storageType: { type: String, enum: ['url', 'base64', 'none'], default: 'none' }
+  },
+  typeQuestion: { type: Number, enum: [1, 2, 3], required: true },
+  options: { type: [String], required: true, validate: { validator: v => v && v.length >= 3 && v.length <= 5 } },
+  bonOpRep: { type: Number, required: true, validate: { validator: function(v) { return v >= 0 && v < this.options.length; } } },
+  tempsMin: { type: Number, default: 1, min: 0.5 },
+  matriculeAuteur: { type: String, required: true },
+  dateCreation: { type: Date, default: Date.now },
+  cleInterne: { type: String, unique: true, sparse: true },
+  points: { type: Number, default: 1 },
+  explanation: { type: String, default: '' },
+  type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+  difficulty: { type: String, enum: ['facile', 'moyen', 'difficile'], default: 'moyen' },
+  tags: { type: [String], default: [] },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date },
+  rejectionComment: { type: String, default: '' }
+}, { timestamps: true });
+
+questionSchema.index({ matiere: 1, libQuestion: 1 }, { unique: true });
+questionSchema.index({ domaine: 1, niveau: 1, matiere: 1 });
+questionSchema.index({ status: 1 });
+questionSchema.index({ cleInterne: 1 }, { unique: true });
+
+questionSchema.pre('save', function(next) {
+  if (!this.cleInterne && this.matiere && this.libQuestion) {
+    this.cleInterne = `${this.matiere}::${this.libQuestion}`;
+  }
+  if (this.imageQuestion && this.imageQuestion.trim()) {
+    this.imageMetadata.storageType = 'url';
+  } else if (this.imageBase64 && this.imageBase64.trim()) {
+    this.imageMetadata.storageType = 'base64';
+  } else {
+    this.imageMetadata.storageType = 'none';
+  }
+  next();
+});
+
+// === Exam Schema ===
+const examSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, default: '' },
   duration: { type: Number, required: true },
   domain: { type: String, required: true },
+  category: { type: String, default: '' },
   level: { type: String, required: true },
   subject: { type: String, required: true },
   questions: { type: Array, default: [] },
   passingScore: { type: Number, default: 70 },
   status: { type: String, enum: ['draft', 'published', 'archived'], default: 'published' },
-  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  source: { type: String, enum: ['manual', 'database', 'ai_generated'], default: 'manual' },
+  teacherName: { type: String, default: '' },
+  teacherGrade: { type: String, default: '' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  source: { type: String, default: 'manual' },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  cleExterne: { type: String, default: '' }
 }, { timestamps: true });
 
-const ResultSchema = new mongoose.Schema({
+examSchema.virtual('totalPoints').get(function() {
+  return this.questions?.reduce((sum, q) => sum + (q.points || 1), 0) || 0;
+});
+
+examSchema.virtual('questionCount').get(function() {
+  return this.questions?.length || 0;
+});
+
+// === Result Schema ===
+const resultSchema = new mongoose.Schema({
   examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   studentInfo: {
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
-    matricule: { type: String },
-    level: { type: String },
+    matricule: { type: String, uppercase: true },
+    level: { type: String }
   },
   answers: { type: Map, of: mongoose.Schema.Types.Mixed, required: true },
   score: { type: Number, required: true },
   percentage: { type: Number, required: true },
   passed: { type: Boolean, required: true },
+  totalQuestions: { type: Number },
   examTitle: { type: String },
+  examLevel: { type: String },
+  domain: { type: String },
+  subject: { type: String },
+  category: { type: String },
+  duration: { type: Number },
+  passingScore: { type: Number },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
   examQuestions: { type: Array, default: [] },
+  pdfPath: { type: String, default: null },
+  cleExterne: { type: String, default: '' }
 }, { timestamps: true });
 
-const User = mongoose.models.User || mongoose.model('User', UserSchema);
-const Exam = mongoose.models.Exam || mongoose.model('Exam', ExamSchema);
-const Result = mongoose.models.Result || mongoose.model('Result', ResultSchema);
+resultSchema.virtual('fullName').get(function() {
+  return `${this.studentInfo.firstName} ${this.studentInfo.lastName}`;
+});
+
+resultSchema.virtual('note20').get(function() {
+  return ((this.percentage / 100) * 20).toFixed(2);
+});
+
+// === Domain Schema ===
+const subDomainSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  code: { type: String, required: true, uppercase: true },
+  description: { type: String, default: '' },
+  order: { type: Number, default: 0 },
+  isActive: { type: Boolean, default: true }
+}, { _id: true });
+
+const domainSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  code: { type: String, uppercase: true, unique: true, sparse: true },
+  icon: { type: String, default: '🏛️' },
+  color: { type: String, default: '#6366f1' },
+  order: { type: Number, default: 0 },
+  isActive: { type: Boolean, default: true },
+  subDomains: { type: [subDomainSchema], default: [] },
+  categories: [{ name: String, description: String, order: Number }]
+}, { timestamps: true });
+
+// === Subject Schema ===
+const subjectSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  domain: { type: mongoose.Schema.Types.ObjectId, ref: 'Domain', required: true },
+  sousDomaine: { type: String, default: '' },
+  code: { type: String, uppercase: true, unique: true, sparse: true },
+  icon: { type: String, default: '📚' },
+  color: { type: String, default: '#3b82f6' },
+  isActive: { type: Boolean, default: true },
+  order: { type: Number, default: 0 },
+  matriculeAuteur: { type: String }
+}, { timestamps: true });
+
+// Modèles
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+const Question = mongoose.models.Question || mongoose.model('Question', questionSchema);
+const Exam = mongoose.models.Exam || mongoose.model('Exam', examSchema);
+const Result = mongoose.models.Result || mongoose.model('Result', resultSchema);
+const Domain = mongoose.models.Domain || mongoose.model('Domain', domainSchema);
+const Subject = mongoose.models.Subject || mongoose.model('Subject', subjectSchema);
 
 // ═══════════════════════════════════════════════════════════════
 // CONNEXION MONGODB
@@ -223,6 +371,14 @@ const protect = async (req, res, next) => {
   }
 };
 
+const authorize = (...roles) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Non autorisé' });
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ message: `Rôle ${req.user.role} non autorisé. Rôles requis: ${roles.join(', ')}` });
+  }
+  next();
+};
+
 // ═══════════════════════════════════════════════════════════════
 // ROUTES API
 // ═══════════════════════════════════════════════════════════════
@@ -230,7 +386,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', timestamp: new Date() });
 });
 
-// AUTH
+// ==================== AUTH ROUTES ====================
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -240,185 +396,512 @@ app.post('/api/auth/login', async (req, res) => {
     
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.json({
-      token,
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-      username: user.username,
-      role: user.role,
-      matricule: user.matricule,
-      isAdmin: user.isAdmin
+      token, _id: user._id, email: user.email, name: user.name,
+      username: user.username, role: user.role, matricule: user.matricule, isAdmin: user.isAdmin
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 app.post('/api/auth/logout', async (req, res) => {
-  try {
-    res.status(200).json({ success: true, message: 'Déconnexion réussie' });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  res.status(200).json({ success: true, message: 'Déconnexion réussie' });
 });
 
 app.get('/api/auth/me', protect, async (req, res) => {
-  try {
-    res.json({
-      _id: req.user._id,
-      email: req.user.email,
-      name: req.user.name,
-      username: req.user.username,
-      role: req.user.role,
-      matricule: req.user.matricule
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  res.json({ _id: req.user._id, email: req.user.email, name: req.user.name, username: req.user.username, role: req.user.role, matricule: req.user.matricule });
 });
 
-// EXAMENS
-app.get('/api/exams', protect, async (req, res) => {
+app.post('/api/auth/register', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { name, email, username, password, role, matricule, level, grade } = req.body;
+    const userExists = await User.findOne({ $or: [{ email }, { username }] });
+    if (userExists) return res.status(400).json({ message: 'Utilisateur déjà existant' });
+    const user = await User.create({ name, email, username, password, role, matricule, level, grade, createdBy: req.user._id });
+    res.status(201).json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// ==================== USERS ROUTES ====================
+app.get('/api/users', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.json({ success: true, data: users });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/users/:id', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT'), async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/users/:id', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== QUESTIONS ROUTES ====================
+app.get('/api/questions/public', async (req, res) => {
+  try {
+    const { domaine, sousDomaine, niveau, matiere, limit = 1000 } = req.query;
+    const filter = { status: 'approved' };
+    if (domaine) filter.domaine = domaine;
+    if (sousDomaine) filter.sousDomaine = sousDomaine;
+    if (niveau) filter.niveau = niveau;
+    if (matiere) filter.matiere = matiere;
+    const questions = await Question.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit));
+    res.json({ success: true, data: questions, count: questions.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const questions = await Question.find({ status: 'pending' }).populate('createdBy', 'name email').sort({ createdAt: -1 });
+    res.json({ success: true, data: questions });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions', protect, async (req, res) => {
+  try {
+    const { domaine, sousDomaine, niveau, matiere, status, limit = 1000, page = 1 } = req.query;
+    const filter = {};
+    if (domaine) filter.domaine = domaine;
+    if (sousDomaine) filter.sousDomaine = sousDomaine;
+    if (niveau) filter.niveau = niveau;
+    if (matiere) filter.matiere = matiere;
+    if (status) filter.status = status;
+    else if (req.user.role !== 'ADMIN_DELEGUE') filter.status = 'approved';
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const questions = await Question.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)).populate('createdBy', 'name email');
+    const total = await Question.countDocuments(filter);
+    res.json({ success: true, data: questions, count: questions.length, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id).populate('createdBy', 'name email').select('+imageBase64');
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canView = req.user.role === 'ADMIN_DELEGUE' || (req.user.role === 'ENSEIGNANT' && (question.status === 'approved' || question.createdBy?._id?.toString() === req.user._id?.toString()));
+    if (!canView) return res.status(403).json({ success: false, error: 'Accès non autorisé' });
+    res.json({ success: true, data: question });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { libQuestion, question, options, correctAnswer, bonOpRep, matiere, niveau, domaine, sousDomaine, typeQuestion, points, explanation, type, difficulty, imageQuestion, imageBase64 } = req.body;
+    const questionText = libQuestion || question;
+    if (!questionText) return res.status(400).json({ success: false, error: 'libQuestion requis' });
+    if (!options || !Array.isArray(options) || options.length < 3 || options.length > 5) return res.status(400).json({ success: false, error: '3 à 5 options requises' });
+    if (!matiere) return res.status(400).json({ success: false, error: 'matiere requis' });
+    if (!niveau) return res.status(400).json({ success: false, error: 'niveau requis' });
+    if (!domaine) return res.status(400).json({ success: false, error: 'domaine requis' });
+    
+    let finalBonOpRep = bonOpRep;
+    if (finalBonOpRep === undefined && correctAnswer !== undefined) finalBonOpRep = options.findIndex(opt => opt === correctAnswer);
+    if (finalBonOpRep === undefined || finalBonOpRep < 0) return res.status(400).json({ success: false, error: 'correctAnswer ou bonOpRep requis' });
+    
+    const newQuestion = new Question({
+      libQuestion: questionText, options, bonOpRep: finalBonOpRep, matiere, niveau, domaine, sousDomaine: sousDomaine || '',
+      imageQuestion: imageQuestion || '', imageBase64: imageBase64 || '', typeQuestion: typeQuestion || 1,
+      points: points || 1, explanation: explanation || '', type: type || 'single', difficulty: difficulty || 'moyen',
+      createdBy: req.user._id, matriculeAuteur: req.user.matricule, status: 'pending'
+    });
+    await newQuestion.save();
+    res.json({ success: true, message: 'Question créée et en attente de validation', data: newQuestion });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { questions } = req.body;
+    if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ success: false, error: 'Array de questions requis' });
+    
+    const questionsWithMetadata = questions.map(q => {
+      const questionText = q.libQuestion || q.question;
+      let bonOpRep = q.bonOpRep;
+      if (bonOpRep === undefined && q.correctAnswer !== undefined) bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
+      return {
+        libQuestion: questionText, options: q.options, bonOpRep, matiere: q.matiere || '', niveau: q.niveau || '', domaine: q.domaine || '',
+        sousDomaine: q.sousDomaine || '', typeQuestion: q.typeQuestion || 1, points: q.points || 1, explanation: q.explanation || '',
+        type: q.type || 'single', difficulty: q.difficulty || 'moyen', createdBy: req.user._id, matriculeAuteur: req.user.matricule,
+        status: 'pending', createdAt: new Date(), updatedAt: new Date()
+      };
+    });
+    const result = await Question.insertMany(questionsWithMetadata);
+    res.json({ success: true, message: `${result.length} questions enregistrées`, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.put('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canEdit = req.user.role === 'ADMIN_DELEGUE' || (question.createdBy?.toString() === req.user._id?.toString() && question.status === 'pending');
+    if (!canEdit) return res.status(403).json({ success: false, error: 'Non autorisé' });
+    const updated = await Question.findByIdAndUpdate(req.params.id, { ...req.body, updatedAt: new Date() }, { new: true });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.put('/api/questions/:id/validate', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { approved, comment } = req.body;
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    question.status = approved ? 'approved' : 'rejected';
+    if (comment) question.rejectionComment = comment;
+    question.approvedBy = req.user._id;
+    question.approvedAt = new Date();
+    await question.save();
+    res.json({ success: true, message: approved ? 'Question approuvée' : 'Question rejetée', data: question });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.delete('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canDelete = req.user.role === 'ADMIN_DELEGUE' || (question.createdBy?.toString() === req.user._id?.toString() && question.status === 'pending');
+    if (!canDelete) return res.status(403).json({ success: false, error: 'Non autorisé' });
+    await Question.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Question supprimée' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ==================== EXAM ROUTES ====================
+app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/teacher', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/by-subject/:subject', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ subject: req.params.subject, status: 'published' }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/by-domain/:domain', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const filter = { domain: req.params.domain, status: 'published' };
+    if (req.query.subDomain) filter['questions.sousDomaine'] = req.query.subDomain;
+    const exams = await Exam.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const original = await Exam.findById(req.params.id);
+    if (!original) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    const copy = new Exam({ ...original.toObject(), _id: undefined, title: `${original.title} (Copie)`, createdBy: req.user._id, createdAt: new Date() });
+    await copy.save();
+    res.status(201).json({ success: true, data: copy });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const exams = await Exam.find().sort({ createdAt: -1 });
     res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-app.get('/api/exams/:id', protect, async (req, res) => {
+app.get('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const exam = await Exam.findById(req.params.id);
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
-    res.json(exam);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/exams', protect, async (req, res) => {
-  try {
-    const exam = await Exam.create({ ...req.body, createdBy: req.user._id });
-    res.status(201).json({ success: true, data: exam });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/exams/:id', protect, async (req, res) => {
-  try {
-    const exam = await Exam.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     res.json({ success: true, data: exam });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-app.delete('/api/exams/:id', protect, async (req, res) => {
+app.post('/api/exams', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = new Exam({ ...req.body, createdBy: req.user._id });
+    await exam.save();
+    res.status(201).json({ success: true, data: exam });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.put('/api/exams/:id', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
+    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, message: 'Non autorisé' });
+    const updated = await Exam.findByIdAndUpdate(req.params.id, { ...req.body, updatedAt: Date.now() }, { new: true });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const exam = await Exam.findByIdAndDelete(req.params.id);
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-// RÉSULTATS
-app.post('/api/results', protect, async (req, res) => {
+// ==================== RESULT ROUTES ====================
+app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const results = await Result.find({ 'studentInfo.matricule': req.user.matricule }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const results = await Result.find({}).populate('examId', 'title domain subject level passingScore').sort({ createdAt: -1 });
+    res.json({ success: true, data: results, count: results.length });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id).populate('examId');
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    const isOwner = result.studentInfo?.matricule === req.user.matricule;
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
     const exam = await Exam.findById(examId);
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     
     let score = 0;
-    const totalPoints = exam.questions.reduce((s, q) => s + (q.points || 1), 0);
+    const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
+    const answersMap = new Map(Object.entries(answers));
     
     exam.questions.forEach(q => {
-      const studentAnswer = answers[q._id?.toString()];
-      if (studentAnswer && String(studentAnswer).trim() === String(q.correctAnswer).trim()) {
-        score += (q.points || 1);
-      }
+      const studentAnswer = answersMap.get(q._id.toString());
+      const isCorrect = studentAnswer != null && Number(studentAnswer) === q.bonOpRep;
+      if (isCorrect) score += (q.points || 1);
     });
     
-    const percentage = totalPoints ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
+    const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
-    const result = await Result.create({
-      examId,
-      studentInfo,
-      answers,
-      score,
-      percentage,
-      passed: percentage >= (exam.passingScore || 70),
-      examTitle: exam.title,
-      examQuestions: exam.questions
+    const result = new Result({
+      examId, studentInfo: { firstName: studentInfo.firstName, lastName: studentInfo.lastName, matricule: studentInfo.matricule, level: studentInfo.level },
+      answers: answersMap, score, percentage, passed: percentage >= (exam.passingScore || 70), totalQuestions: exam.questions.length,
+      examTitle: exam.title, examLevel: exam.level, domain: exam.domain, subject: exam.subject, category: exam.category,
+      duration: exam.duration, passingScore: exam.passingScore, examOption: exam.examOption, examQuestions: exam.questions
     });
-    
-    res.status(201).json({ success: true, result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    await result.save();
+    res.status(201).json({ success: true, message: 'Résultat soumis avec succès', data: result });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-app.get('/api/results', protect, async (req, res) => {
+app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
-    const results = await Result.find().sort({ createdAt: -1 }).populate('examId', 'title');
-    res.json({ success: true, data: results });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const result = await Result.findByIdAndDelete(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-app.get('/api/results/:id', protect, async (req, res) => {
-  try {
-    const result = await Result.findById(req.params.id).populate('examId');
-    if (!result) return res.status(404).json({ error: 'Résultat non trouvé' });
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// CLASSEMENTS
+// ==================== RANKINGS ====================
 app.get('/api/rankings/:examId', protect, async (req, res) => {
   try {
-    const results = await Result.find({ examId: req.params.examId })
-      .sort({ percentage: -1, score: -1 });
+    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1, score: -1 });
     const rankings = results.map((r, i) => ({ ...r.toObject(), rank: i + 1 }));
     res.json({ success: true, rankings });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// STATS
+// ==================== DOMAINS & SUBJECTS ====================
+app.get('/api/domains', async (req, res) => {
+  try {
+    const domains = await Domain.find({ isActive: true }).sort({ order: 1, name: 1 });
+    res.json({ success: true, data: domains });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/subjects', async (req, res) => {
+  try {
+    const subjects = await Subject.find({ isActive: true }).populate('domain', 'name').sort({ domain: 1, order: 1, name: 1 });
+    res.json({ success: true, data: subjects });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/domains/:id/subjects', async (req, res) => {
+  try {
+    const subjects = await Subject.find({ domain: req.params.id, isActive: true }).sort({ order: 1, name: 1 });
+    res.json({ success: true, data: subjects });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ==================== STATS ====================
 app.get('/api/stats', protect, async (req, res) => {
   try {
-    const [users, exams, results] = await Promise.all([
-      User.countDocuments(),
-      Exam.countDocuments(),
-      Result.countDocuments()
+    const [users, questions, exams, results, pendingQuestions] = await Promise.all([
+      User.countDocuments(), Question.countDocuments(), Exam.countDocuments(), Result.countDocuments(), Question.countDocuments({ status: 'pending' })
     ]);
-    res.json({ success: true, data: { users, exams, results } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, data: { users, questions: { total: questions, pending: pendingQuestions, approved: questions - pendingQuestions }, exams, results } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/check-config', (req, res) => {
+  res.json({ configured: !!process.env.DEEPSEEK_API_KEY, mode: process.env.DEEPSEEK_API_KEY ? 'api' : 'demo', mongodb: isConnected ? 'connected' : 'disconnected', environment: NODE_ENV });
+});
+
+app.get('/api/test-token', protect, async (req, res) => {
+  res.json({ success: true, message: 'Token valide', user: { id: req.user._id, email: req.user.email, role: req.user.role, name: req.user.name, matricule: req.user.matricule } });
+});
+
+app.get('/api/server-info', (req, res) => {
+  const networkInterfaces = os.networkInterfaces();
+  const ips = [];
+  for (const [name, interfaces] of Object.entries(networkInterfaces)) {
+    for (const iface of interfaces) {
+      if (iface.family === 'IPv4' && !iface.internal) ips.push({ interface: name, address: iface.address });
+    }
+  }
+  res.json({ port: PORT, availableIps: ips, mongodbConnected: isConnected, environment: NODE_ENV });
+});
+
+// ==================== UPLOAD ROUTES ====================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `qcm-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// SOCKET.IO
-// ═══════════════════════════════════════════════════════════════
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  if (allowedTypes.test(path.extname(file.originalname).toLowerCase()) && allowedTypes.test(file.mimetype)) cb(null, true);
+  else cb(new Error('Seules les images sont autorisées'));
+} });
+
+app.post('/api/upload/question-image', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'Aucun fichier uploadé' });
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64Image = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
+    res.json({ success: true, imageUrl: `/uploads/questions/${req.file.filename}`, imageBase64: base64Image, filename: req.file.filename });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/upload/question-image-base64', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { base64, mimeType, originalName } = req.body;
+    if (!base64) return res.status(400).json({ success: false, error: 'Base64 requis' });
+    if (base64.startsWith('http')) return res.json({ success: true, imageUrl: base64, imageBase64: '' });
+    res.json({ success: true, imageUrl: '', imageBase64: base64, metadata: { originalName: originalName || 'image.png', mimeType: mimeType || 'image/png', storageType: 'base64' } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.delete('/api/upload/question-image/:filename', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), (req, res) => {
+  try {
+    const filePath = path.join(uploadsDir, req.params.filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ==================== BULLETIN HTML ====================
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text).replace(/[&<>]/g, (m) => {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
+}
+
+app.get('/api/bulletin/:resultId', async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.resultId);
+    if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
+    const exam = await Exam.findById(result.examId);
+    const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
+    const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
+    const noteOn20 = ((result.percentage / 100) * 20).toFixed(2);
+    let mention = '';
+    if (result.percentage >= 90) mention = 'Très Bien';
+    else if (result.percentage >= 75) mention = 'Bien';
+    else if (result.percentage >= 60) mention = 'Assez Bien';
+    else if (result.percentage >= 50) mention = 'Passable';
+    else mention = 'Insuffisant';
+    
+    let rows = '';
+    questions.forEach((q, i) => {
+      const qId = q._id?.toString();
+      const studentAnswer = qId && answers[qId] ? answers[qId] : '—';
+      const correctAnswer = q.correctAnswer || (q.options?.[q.bonOpRep] || '');
+      const isCorrect = studentAnswer !== '—' && String(studentAnswer).trim() === String(correctAnswer).trim();
+      rows += `<tr><td>${i+1}</td><td>${escapeHtml(q.libQuestion || q.question || '—')}</td><td style="color:${isCorrect ? 'green' : 'red'}">${escapeHtml(studentAnswer)}</td><td>${escapeHtml(correctAnswer)}</td><td>${isCorrect ? '✅' : '❌'}</td></tr>`;
+    });
+    
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bulletin</title><style>body{font-family:Arial;margin:40px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f2f2f2}</style></head><body>
+      <h1>NA²QUIZ - Bulletin</h1>
+      <p><strong>Candidat:</strong> ${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</p>
+      <p><strong>Matricule:</strong> ${escapeHtml(result.studentInfo?.matricule || '—')}</p>
+      <p><strong>Épreuve:</strong> ${escapeHtml(result.examTitle || exam?.title || '—')}</p>
+      <p><strong>Score:</strong> ${result.percentage}% (${noteOn20}/20)</p>
+      <p><strong>Mention:</strong> ${mention}</p>
+      <p><strong>Statut:</strong> ${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</p>
+      <h2>Détail des réponses</h2>
+      <table><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th></tr></thead><tbody>${rows}</tbody></table>
+      <p style="margin-top:30px;font-size:12px;color:#666">NA²QUIZ - Système d'Évaluation Intelligente</p>
+    </body></html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) { res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>'); }
+});
+
+// ==================== SOCKET.IO ====================
 const activeSessions = new Map();
 const activeDistributedExams = new Map();
 const pendingReconnections = new Map();
 
 const io = new Server(server, {
-  cors: {
-    origin: isProduction ? CORS_ORIGINS : '*',
-    credentials: true,
-  },
+  cors: { origin: isProduction ? CORS_ORIGINS : '*', credentials: true },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
@@ -446,23 +929,14 @@ io.on('connection', (socket) => {
     }
 
     const session = {
-      socketId: socket.id,
-      type: data.type,
-      sessionId: data.sessionId || socket.id,
-      status: data.status || 'idle',
-      currentExamId: data.examId || null,
-      studentInfo: data.studentInfo || null,
-      examOption: data.examOption || null,
-      progress: 0,
-      lastUpdate: Date.now(),
-      isOnline: true,
+      socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id, status: data.status || 'idle',
+      currentExamId: data.examId || null, studentInfo: data.studentInfo || null, examOption: data.examOption || null,
+      progress: 0, lastUpdate: Date.now(), isOnline: true,
     };
     activeSessions.set(socket.id, session);
-
     if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
     if (data.type === 'terminal') socket.join('terminals');
     if (data.type === 'surveillance') socket.join('surveillance');
-
     emitSessionUpdate();
   });
 
@@ -473,11 +947,8 @@ io.on('connection', (socket) => {
       session.currentExamId = examId;
       session.studentInfo = studentInfo;
       session.examOption = examOption;
-      
       if (status === 'waiting') {
-        const waitingCount = Array.from(activeSessions.values()).filter(
-          s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-        ).length;
+        const waitingCount = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting').length;
         io.emit('waitingCountUpdate', { examId, count: waitingCount });
       }
       emitSessionUpdate();
@@ -486,23 +957,12 @@ io.on('connection', (socket) => {
 
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) return;
-    activeDistributedExams.set(data.examId, {
-      option: data.examOption,
-      distributedAt: new Date(),
-      questionCount: data.questionCount || 0
-    });
-    io.to('terminals').emit('examDistributed', {
-      url: `${FRONTEND_URL}/exam/profile/${data.examId}`,
-      examId: data.examId,
-      examOption: data.examOption
-    });
+    activeDistributedExams.set(data.examId, { option: data.examOption, distributedAt: new Date(), questionCount: data.questionCount || 0 });
+    io.to('terminals').emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${data.examId}`, examId: data.examId, examOption: data.examOption });
   });
 
   socket.on('startExam', ({ examId, option }) => {
-    const waitingStudents = Array.from(activeSessions.values()).filter(
-      s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-    );
-    
+    const waitingStudents = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');
     waitingStudents.forEach(s => {
       const studentSocket = io.sockets.sockets.get(s.socketId);
       if (studentSocket) {
@@ -510,7 +970,6 @@ io.on('connection', (socket) => {
         studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
       }
     });
-    
     io.emit('waitingCountUpdate', { examId, count: 0 });
     emitSessionUpdate();
   });
@@ -532,7 +991,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Routes de surveillance Socket
 app.get('/api/active-sessions', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   res.json({ success: true, count: sessions.length, sessions });
@@ -544,115 +1002,12 @@ app.get('/api/surveillance-data', (req, res) => {
   res.json({ success: true, activeSessions: sessions, waitingStudents });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// BULLETIN HTML
-// ═══════════════════════════════════════════════════════════════
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text).replace(/[&<>]/g, (m) => {
-    if (m === '&') return '&amp;';
-    if (m === '<') return '&lt;';
-    if (m === '>') return '&gt;';
-    return m;
-  });
-}
-
-app.get('/api/bulletin/:resultId', async (req, res) => {
-  try {
-    const result = await Result.findById(req.params.resultId);
-    if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
-    
-    const exam = await Exam.findById(result.examId);
-    const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
-    const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
-    const noteOn20 = ((result.percentage / 100) * 20).toFixed(2);
-    
-    let mention = '';
-    if (result.percentage >= 90) mention = 'Très Bien';
-    else if (result.percentage >= 75) mention = 'Bien';
-    else if (result.percentage >= 60) mention = 'Assez Bien';
-    else if (result.percentage >= 50) mention = 'Passable';
-    else mention = 'Insuffisant';
-    
-    let rows = '';
-    questions.forEach((q, i) => {
-      const qId = q._id?.toString();
-      const studentAnswer = qId && answers[qId] ? answers[qId] : '—';
-      const correctAnswer = q.correctAnswer || (q.options?.[q.bonOpRep] || '');
-      const isCorrect = studentAnswer !== '—' && String(studentAnswer).trim() === String(correctAnswer).trim();
-      
-      rows += `<tr style="border-bottom:1px solid #e2e8f0;">
-                <td style="padding:12px 8px;">${i+1}<\/td>
-                <td style="padding:12px 8px;">${escapeHtml(q.libQuestion || q.question || '—')}<\/td>
-                <td style="padding:12px 8px; color:${isCorrect ? '#16a34a' : '#dc2626'}">${escapeHtml(studentAnswer)}<\/td>
-                <td style="padding:12px 8px; color:#16a34a;">${escapeHtml(correctAnswer)}<\/td>
-                <td style="padding:12px 8px; text-align:center;">${isCorrect ? '✅' : '❌'}<\/td>
-              <\/tr>`;
-    });
-    
-    const html = `<!DOCTYPE html>
-    <html><head><meta charset="UTF-8"><title>Bulletin - ${escapeHtml(result.studentInfo?.lastName || 'Candidat')}</title>
-    <style>
-      *{margin:0;padding:0;box-sizing:border-box;}
-      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:40px 20px;}
-      .container{max-width:1000px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden;}
-      .header{background:linear-gradient(135deg,#1e293b,#0f172a);color:white;padding:30px 40px;text-align:center;}
-      .logo{font-size:2rem;font-weight:800;background:linear-gradient(135deg,#f59e0b,#fbbf24);-webkit-background-clip:text;background-clip:text;color:transparent;}
-      .badge{display:inline-block;padding:6px 16px;border-radius:999px;font-weight:700;margin-top:16px;}
-      .badge.success{background:#10b98120;color:#10b981;border:1px solid #10b98140;}
-      .badge.error{background:#ef444420;color:#ef4444;border:1px solid #ef444440;}
-      .content{padding:32px 40px;}
-      .score-section{background:linear-gradient(135deg,#3b82f6,#2563eb);border-radius:16px;padding:24px;color:white;text-align:center;margin-bottom:32px;}
-      .score-percent{font-size:3rem;font-weight:800;}
-      .mention{display:inline-block;background:white;color:#f59e0b;padding:6px 20px;border-radius:999px;margin-top:16px;}
-      .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px;}
-      .info-card{background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;}
-      .info-label{font-size:0.7rem;text-transform:uppercase;color:#64748b;}
-      .info-value{font-size:0.95rem;font-weight:600;}
-      .question-table{width:100%;border-collapse:collapse;}
-      .question-table th{text-align:left;padding:12px 8px;background:#f1f5f9;color:#64748b;}
-      .question-table td{padding:12px 8px;vertical-align:top;}
-      .footer{background:#f8fafc;padding:20px;text-align:center;font-size:0.7rem;color:#94a3b8;}
-      .btn-print{text-align:center;margin-top:20px;}
-      .btn-print button{background:#3b82f6;color:white;border:none;padding:12px 32px;border-radius:10px;cursor:pointer;}
-      @media print{.btn-print{display:none;}}
-    </style>
-    </head><body>
-    <div class="container">
-      <div class="header"><div class="logo">NA²QUIZ</div><div class="badge ${result.passed ? 'success' : 'error'}">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</div></div>
-      <div class="content">
-        <div class="score-section"><div class="score-percent">${result.percentage}%</div><div>Note : ${noteOn20} / 20</div><div class="mention">${mention}</div></div>
-        <div class="info-grid">
-          <div class="info-card"><div class="info-label">Candidat</div><div class="info-value">${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</div></div>
-          <div class="info-card"><div class="info-label">Matricule</div><div class="info-value">${escapeHtml(result.studentInfo?.matricule || '—')}</div></div>
-          <div class="info-card"><div class="info-label">Épreuve</div><div class="info-value">${escapeHtml(result.examTitle || exam?.title || '—')}</div></div>
-          <div class="info-card"><div class="info-label">Score</div><div class="info-value">${result.score} / ${result.totalQuestions || questions.length}</div></div>
-        </div>
-        <table class="question-table"><thead>编码<th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th> </thead><tbody>${rows}</tbody> </table>
-        <div class="btn-print"><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
-      </div>
-      <div class="footer"><p>NA²QUIZ - Système d'Évaluation Intelligente</p><p>Africanut Industry - Ebolowa, Cameroun</p></div>
-    </div>
-    </body></html>`;
-    
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (err) {
-    console.error('[API] Erreur bulletin:', err);
-    res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>');
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 404
-// ═══════════════════════════════════════════════════════════════
+// ==================== 404 ====================
 app.use('*', (req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} introuvable` });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// DÉMARRAGE
-// ═══════════════════════════════════════════════════════════════
+// ==================== DÉMARRAGE ====================
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`[NA²QUIZ] 🚀 Serveur Socket.IO`);
