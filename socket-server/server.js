@@ -1,4 +1,4 @@
-// socket-server/server.js - Version complète avec toutes les routes et modèles
+// socket-server/server.js - Version finale avec terminal.html
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -88,12 +88,15 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ═══════════════════════════════════════════════════════════════
-// SERVEUR STATIQUE POUR UPLOADS
+// SERVEUR STATIQUE POUR UPLOADS ET FICHIERS STATIQUES
 // ═══════════════════════════════════════════════════════════════
 const publicDir = path.join(__dirname, 'public');
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 const uploadsDir = path.join(publicDir, 'uploads/questions');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Servir les fichiers statiques (uploads + terminal.html)
+app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(publicDir, 'uploads')));
 
 // ═══════════════════════════════════════════════════════════════
@@ -156,7 +159,7 @@ const questionSchema = new mongoose.Schema({
   tempsMin: { type: Number, default: 1, min: 0.5 },
   matriculeAuteur: { type: String, required: true },
   dateCreation: { type: Date, default: Date.now },
-  cleInterne: { type: String, unique: true, sparse: true },
+  cleInterne: { type: String, sparse: true },
   points: { type: Number, default: 1 },
   explanation: { type: String, default: '' },
   type: { type: String, enum: ['single', 'multiple'], default: 'single' },
@@ -169,10 +172,10 @@ const questionSchema = new mongoose.Schema({
   rejectionComment: { type: String, default: '' }
 }, { timestamps: true });
 
+questionSchema.index({ cleInterne: 1 }, { unique: true, sparse: true });
 questionSchema.index({ matiere: 1, libQuestion: 1 }, { unique: true });
 questionSchema.index({ domaine: 1, niveau: 1, matiere: 1 });
 questionSchema.index({ status: 1 });
-questionSchema.index({ cleInterne: 1 }, { unique: true });
 
 questionSchema.pre('save', function(next) {
   if (!this.cleInterne && this.matiere && this.libQuestion) {
@@ -382,6 +385,44 @@ const authorize = (...roles) => (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════
 // ROUTES API
 // ═══════════════════════════════════════════════════════════════
+
+// Route racine
+app.get('/', (req, res) => {
+  res.json({
+    name: 'NA²QUIZ API',
+    version: '2.0.0',
+    status: 'running',
+    environment: NODE_ENV,
+    mongodb: isConnected ? 'connected' : 'disconnected',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      terminal: '/terminal.html',
+      socket: '/socket.io'
+    }
+  });
+});
+
+// Servir terminal.html
+app.get('/terminal.html', (req, res) => {
+  const terminalPath = path.join(publicDir, 'terminal.html');
+  if (fs.existsSync(terminalPath)) {
+    res.sendFile(terminalPath);
+  } else {
+    res.status(404).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Terminal non trouvé</title></head>
+      <body>
+        <h1>❌ terminal.html non trouvé</h1>
+        <p>Placez le fichier terminal.html dans le dossier public/</p>
+        <p>Chemin attendu: ${publicDir}/terminal.html</p>
+      </body>
+      </html>
+    `);
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', timestamp: new Date() });
 });
@@ -875,24 +916,66 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
       const studentAnswer = qId && answers[qId] ? answers[qId] : '—';
       const correctAnswer = q.correctAnswer || (q.options?.[q.bonOpRep] || '');
       const isCorrect = studentAnswer !== '—' && String(studentAnswer).trim() === String(correctAnswer).trim();
-      rows += `<tr><td>${i+1}</td><td>${escapeHtml(q.libQuestion || q.question || '—')}</td><td style="color:${isCorrect ? 'green' : 'red'}">${escapeHtml(studentAnswer)}</td><td>${escapeHtml(correctAnswer)}</td><td>${isCorrect ? '✅' : '❌'}</td></tr>`;
+      rows += `<tr style="border-bottom:1px solid #e2e8f0;">
+                <td style="padding:12px 8px;">${i+1}<\/td>
+                <td style="padding:12px 8px;">${escapeHtml(q.libQuestion || q.question || '—')}<\/td>
+                <td style="padding:12px 8px; color:${isCorrect ? '#16a34a' : '#dc2626'}">${escapeHtml(studentAnswer)}<\/td>
+                <td style="padding:12px 8px; color:#16a34a;">${escapeHtml(correctAnswer)}<\/td>
+                <td style="padding:12px 8px; text-align:center;">${isCorrect ? '✅' : '❌'}<\/td>
+              <\/tr>`;
     });
     
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bulletin</title><style>body{font-family:Arial;margin:40px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f2f2f2}</style></head><body>
-      <h1>NA²QUIZ - Bulletin</h1>
-      <p><strong>Candidat:</strong> ${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</p>
-      <p><strong>Matricule:</strong> ${escapeHtml(result.studentInfo?.matricule || '—')}</p>
-      <p><strong>Épreuve:</strong> ${escapeHtml(result.examTitle || exam?.title || '—')}</p>
-      <p><strong>Score:</strong> ${result.percentage}% (${noteOn20}/20)</p>
-      <p><strong>Mention:</strong> ${mention}</p>
-      <p><strong>Statut:</strong> ${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</p>
-      <h2>Détail des réponses</h2>
-      <table><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th></tr></thead><tbody>${rows}</tbody></table>
-      <p style="margin-top:30px;font-size:12px;color:#666">NA²QUIZ - Système d'Évaluation Intelligente</p>
+    const html = `<!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>Bulletin - ${escapeHtml(result.studentInfo?.lastName || 'Candidat')}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:40px 20px;}
+      .container{max-width:1000px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden;}
+      .header{background:linear-gradient(135deg,#1e293b,#0f172a);color:white;padding:30px 40px;text-align:center;}
+      .logo{font-size:2rem;font-weight:800;background:linear-gradient(135deg,#f59e0b,#fbbf24);-webkit-background-clip:text;background-clip:text;color:transparent;}
+      .badge{display:inline-block;padding:6px 16px;border-radius:999px;font-weight:700;margin-top:16px;}
+      .badge.success{background:#10b98120;color:#10b981;border:1px solid #10b98140;}
+      .badge.error{background:#ef444420;color:#ef4444;border:1px solid #ef444440;}
+      .content{padding:32px 40px;}
+      .score-section{background:linear-gradient(135deg,#3b82f6,#2563eb);border-radius:16px;padding:24px;color:white;text-align:center;margin-bottom:32px;}
+      .score-percent{font-size:3rem;font-weight:800;}
+      .mention{display:inline-block;background:white;color:#f59e0b;padding:6px 20px;border-radius:999px;margin-top:16px;}
+      .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px;}
+      .info-card{background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;}
+      .info-label{font-size:0.7rem;text-transform:uppercase;color:#64748b;}
+      .info-value{font-size:0.95rem;font-weight:600;}
+      .question-table{width:100%;border-collapse:collapse;}
+      .question-table th{text-align:left;padding:12px 8px;background:#f1f5f9;color:#64748b;}
+      .question-table td{padding:12px 8px;vertical-align:top;}
+      .footer{background:#f8fafc;padding:20px;text-align:center;font-size:0.7rem;color:#94a3b8;}
+      .btn-print{text-align:center;margin-top:20px;}
+      .btn-print button{background:#3b82f6;color:white;border:none;padding:12px 32px;border-radius:10px;cursor:pointer;}
+      @media print{.btn-print{display:none;}}
+    </style>
+    </head><body>
+    <div class="container">
+      <div class="header"><div class="logo">NA²QUIZ</div><div class="badge ${result.passed ? 'success' : 'error'}">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</div></div>
+      <div class="content">
+        <div class="score-section"><div class="score-percent">${result.percentage}%</div><div>Note : ${noteOn20} / 20</div><div class="mention">${mention}</div></div>
+        <div class="info-grid">
+          <div class="info-card"><div class="info-label">Candidat</div><div class="info-value">${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</div></div>
+          <div class="info-card"><div class="info-label">Matricule</div><div class="info-value">${escapeHtml(result.studentInfo?.matricule || '—')}</div></div>
+          <div class="info-card"><div class="info-label">Épreuve</div><div class="info-value">${escapeHtml(result.examTitle || exam?.title || '—')}</div></div>
+          <div class="info-card"><div class="info-label">Score</div><div class="info-value">${result.score} / ${result.totalQuestions || questions.length}</div></div>
+        </div>
+        <table class="question-table"><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="btn-print"><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
+      </div>
+      <div class="footer"><p>NA²QUIZ - Système d'Évaluation Intelligente</p><p>Africanut Industry - Ebolowa, Cameroun</p></div>
+    </div>
     </body></html>`;
+    
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
-  } catch (err) { res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>'); }
+  } catch (err) {
+    console.error('[API] Erreur bulletin:', err);
+    res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>');
+  }
 });
 
 // ==================== SOCKET.IO ====================
@@ -1014,6 +1097,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[NA²QUIZ] 🌍 Environnement: ${NODE_ENV}`);
   console.log(`[NA²QUIZ] 📡 Port: ${PORT}`);
   console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
+  console.log(`[NA²QUIZ] 📄 Terminal: ${FRONTEND_URL}/terminal.html (via Netlify) ou /terminal.html (local)`);
   console.log(`[NA²QUIZ] 💾 MongoDB: ${isConnected ? '✅ Connecté' : '❌ Déconnecté'}`);
   console.log(`${'='.repeat(60)}\n`);
 });
