@@ -1,4 +1,4 @@
-// src/pages/auth/LoginPage.jsx - Version complète et corrigée
+// src/pages/auth/LoginPage.jsx - Version production prête
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
@@ -7,9 +7,32 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-const NODE_BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? (process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000')
-  : 'http://192.168.0.1:5000';
+// ==================== CONFIGURATION DYNAMIQUE ====================
+// Détection automatique de l'environnement
+const getBackendUrl = () => {
+  // En production (Netlify)
+  if (process.env.NODE_ENV === 'production') {
+    // Utiliser l'URL Render configurée dans les variables d'environnement Netlify
+    const renderUrl = process.env.REACT_APP_BACKEND_URL;
+    if (renderUrl) {
+      return renderUrl;
+    }
+    // Fallback: utiliser le même domaine mais avec /api (si les fonctions Netlify sont utilisées)
+    return '';
+  }
+  
+  // En développement local
+  if (process.env.NODE_ENV === 'development') {
+    return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+  }
+  
+  // Fallback pour les cas non déterminés
+  return process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
+};
+
+const BACKEND_URL = getBackendUrl();
+
+console.log('[LoginPage] 🌐 Backend URL:', BACKEND_URL || '/api (relatif)');
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -21,40 +44,82 @@ const LoginPage = () => {
   const { login } = useAuth();
 
   const handleLogin = async (e) => {
-  e.preventDefault();
-  setError('');
-  setIsLoading(true);
-  
-  try {
-    const { data } = await axios.post(
-      `${NODE_BACKEND_URL}/api/auth/login`,
-      { email, password },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
-    );
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
     
-    if (!data.token) throw new Error('Token manquant dans la réponse.');
-    
-    // Appel au contexte
-    login({
-      token: data.token,
-      email: data.email,
-      username: data.username,
-      role: data.role,
-      name: data.name,
-      _id: data._id,
-      matricule: data.matricule,
-    });
-    
-    // ✅ Redirection unique vers EvaluationSummative (tableau de bord unifié)
-    toast.success(`Bienvenue ${data.name || data.email}`);
-    navigate('/evaluate');
-    
-  } catch (err) {
-    // ... gestion des erreurs
-  } finally {
-    setIsLoading(false);
-  }
-};
+    try {
+      // Construction de l'URL - si BACKEND_URL est vide, utiliser le chemin relatif
+      const apiUrl = BACKEND_URL 
+        ? `${BACKEND_URL}/api/auth/login`
+        : '/api/auth/login';
+      
+      console.log('[LoginPage] 📡 Appel API:', apiUrl);
+      
+      const response = await axios.post(
+        apiUrl,
+        { email, password },
+        { 
+          headers: { 'Content-Type': 'application/json' }, 
+          timeout: 15000,
+          withCredentials: false
+        }
+      );
+      
+      const data = response.data;
+      
+      if (!data.token) {
+        throw new Error('Token manquant dans la réponse.');
+      }
+      
+      // Stockage des données utilisateur
+      const userData = {
+        token: data.token,
+        email: data.email,
+        username: data.username || data.email,
+        role: data.role || 'APPRENANT',
+        name: data.name,
+        _id: data._id,
+        matricule: data.matricule,
+        isAdmin: data.isAdmin || false
+      };
+      
+      // Appel au contexte d'authentification
+      login(userData, data.token);
+      
+      // Notification de bienvenue
+      toast.success(`Bienvenue ${data.name || data.email || '!'}`);
+      
+      // Redirection vers le tableau de bord unifié
+      navigate('/evaluate');
+      
+    } catch (err) {
+      console.error('[LoginPage] ❌ Erreur:', err);
+      
+      // Gestion des erreurs
+      if (err.response) {
+        // Erreur serveur avec réponse
+        const status = err.response.status;
+        const message = err.response.data?.message || err.response.data?.error || 'Erreur de connexion';
+        
+        if (status === 401) {
+          setError('Email ou mot de passe incorrect');
+        } else if (status === 404) {
+          setError('Serveur indisponible. Veuillez réessayer plus tard.');
+        } else {
+          setError(message);
+        }
+      } else if (err.code === 'ECONNABORTED') {
+        setError('Le serveur ne répond pas. Vérifiez votre connexion.');
+      } else if (err.message === 'Network Error') {
+        setError('Impossible de joindre le serveur. Vérifiez votre connexion internet.');
+      } else {
+        setError(err.message || 'Une erreur est survenue');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const fieldStyle = {
     width: '100%',
