@@ -1,0 +1,48 @@
+# ── Node modules ─────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+socket-server/node_modules/
+netlify/functions/node_modules/
+
+# ── Build outputs ─────────────────────────────────────────────
+frontend/build/
+frontend/.cache/
+.cache/
+.netlify/
+
+# ── Environment files ─────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+frontend/.env.local
+frontend/.env.development.local
+socket-server/.env
+
+# ⚠️  .env.production est VERSIONNÉ intentionnellement
+# (il ne contient que des variables non-secrètes)
+# Les secrets sont dans les variables Netlify/Railway
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+socket_connections.log
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Uploads / PDF temporaires ─────────────────────────────────
+backend/uploads/
+backend/results/
+uploads/
+results/*.pdf
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+deploy.sh

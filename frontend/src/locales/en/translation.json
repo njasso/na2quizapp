@@ -1,0 +1,12 @@
+{
+  "generate_exam": "Generate Exam",
+  "manual_entry": "Manual Entry",
+  "ai_generation": "AI Generation",
+  "domain": "Domain",
+  "subject": "Subject",
+  "level": "Level",
+  "add_question": "Add Question",
+  "download_pdf": "Download PDF",
+  "save_exam": "Save Exam",
+  "history": "Exam History"
+}

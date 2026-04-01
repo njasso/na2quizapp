@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+      "target": "es5",                      // Cible ES5 (ou ES6, ESNext selon ton besoin)
+      "lib": ["dom", "es2015"],              // Bibliothèques nécessaires
+      "allowJs": true,                       // Permet l'utilisation de fichiers .js
+      "jsx": "react",                        // Si tu utilises React
+      "module": "commonjs",                  // Module en CommonJS pour Node.js
+      "moduleResolution": "node",            // Résolution des modules compatible avec Node.js
+      "baseUrl": "src",                      // Spécifie le répertoire de base pour les chemins relatifs
+      "paths": {
+        "@/*": ["*"]                         // Définit un alias pour le chemin src
+      },
+      "esModuleInterop": true,               // Permet l'importation des modules CommonJS
+      "skipLibCheck": true,                  // Ignore la vérification des types dans les fichiers de déclaration
+      "strict": true,                        // Active le mode strict
+      "noImplicitAny": true,                 // Ne permet pas l'utilisation du type `any` implicite
+      "strictNullChecks": true,              // Vérifie les valeurs null et undefined
+      "resolveJsonModule": true,             // Permet l'importation de fichiers JSON
+      "isolatedModules": true,               // Aide à la gestion des modules isolés
+      "noUnusedLocals": true,                // Signale les variables inutilisées
+      "noUnusedParameters": true             // Signale les paramètres inutilisés
+    },
+    "include": [
+      "src/**/*"                             // Inclut tous les fichiers sous src
+    ],
+    "exclude": [
+      "node_modules"                         // Exclut le répertoire node_modules
+    ]
+  }
+  

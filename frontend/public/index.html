@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05071a" />
+    <meta name="description" content="NA²QUIZ — Plateforme d'examens numérique" />
+
+    <!-- ═══════════════════════════════════════════════
+         SÉCURITÉ — Critique pour un contexte d'examen
+         ═══════════════════════════════════════════════ -->
+
+    <!-- Empêche la mise en cache des pages (évite de retrouver les réponses après l'examen) -->
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <!-- Désactive la détection automatique de numéros de téléphone -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!--
+      ⚠️  X-Frame-Options et X-Content-Type-Options NE peuvent PAS être définis via <meta>.
+          Ils doivent être des en-têtes HTTP envoyés par le serveur.
+          → Ajouter dans server.js (voir bas de page pour l'extrait de code).
+    -->
+
+    <!-- ═══════════════════════════════════════════════
+         IDENTITÉ & PWA
+         ═══════════════════════════════════════════════ -->
+    <title>NA²QUIZ</title>
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <!-- ═══════════════════════════════════════════════
+         PERFORMANCE — Préconnexions réseau local
+         ═══════════════════════════════════════════════ -->
+
+    <!-- Préconnexion au serveur backend (Socket.IO + API) -->
+    <link rel="preconnect" href="http://192.168.0.1:5000" />
+
+    <!-- Préchargement des polices Google Fonts (utilisées dans les composants) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap"
+    />
+
+    <!-- ═══════════════════════════════════════════════
+         STYLES GLOBAUX — Rendu avant React (évite le FOUC)
+         ═══════════════════════════════════════════════ -->
+    <style>
+      /* Reset minimal et fond immédiat avant le chargement de React */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        height: 100%;
+        font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+        background: #05071a;   /* Correspond au fond de l'app — évite le flash blanc */
+        color: #f8fafc;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        /* Sécurité examen : désactiver la sélection de texte par défaut */
+        /* (à affiner par composant si besoin) */
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #root {
+        height: 100%;
+        isolation: isolate; /* Crée un nouveau contexte de stacking pour les modals */
+      }
+
+      /* Écran de chargement affiché AVANT que React ne prende la main */
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        background: #05071a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        z-index: 9999;
+        transition: opacity 0.4s ease;
+      }
+
+      #app-loader.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .loader-brand {
+        font-family: 'Sora', system-ui, sans-serif;
+        font-size: clamp(1.5rem, 4vw, 2.5rem);
+        font-weight: 800;
+        background: linear-gradient(135deg, #60a5fa, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -0.03em;
+      }
+
+      .loader-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(59, 130, 246, 0.15);
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      .loader-sub {
+        font-size: 0.875rem;
+        color: #475569;
+        letter-spacing: 0.05em;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* Scrollbar personnalisée — cohérence visuelle */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(59,130,246,0.3);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.5); }
+
+      /* Désactiver le menu contextuel dans le contexte d'examen (anti-triche basique) */
+      /* ATTENTION : désactivez cette règle en dehors des pages de composition */
+      body.exam-mode {
+        -webkit-user-select: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>
+      <div style="
+        display:flex; align-items:center; justify-content:center;
+        height:100vh; background:#05071a; color:#f8fafc;
+        font-family:system-ui,sans-serif; text-align:center; padding:24px;
+      ">
+        <div>
+          <p style="font-size:1.25rem; font-weight:700; margin-bottom:8px;">JavaScript requis</p>
+          <p style="color:#94a3b8;">Vous devez activer JavaScript pour utiliser NA²QUIZ.</p>
+        </div>
+      </div>
+    </noscript>
+
+    <!-- Écran de chargement natif (disparaît quand React est prêt) -->
+    <div id="app-loader" aria-hidden="true">
+      <div class="loader-brand">NA²QUIZ</div>
+      <div class="loader-spinner"></div>
+      <div class="loader-sub">Chargement de la plateforme…</div>
+    </div>
+
+    <div id="root"></div>
+
+    <!-- Script de loader externalisé pour respecter la CSP (pas d'inline scripts) -->
+    <script src="%PUBLIC_URL%/loader.js"></script>
+  </body>
+</html>
