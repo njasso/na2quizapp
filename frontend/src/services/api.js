@@ -197,12 +197,12 @@ export const getTerminals = () => api.get('/api/surveillance/terminals');
 export const getSurveillanceAlerts = () => api.get('/api/surveillance/alerts');
 export const exportSessionLogs = (data) => api.post('/api/surveillance/export-logs', data);
 
-// ==================== IA — DeepSeek (timeout 90s) ====================
+// ==================== IA — DeepSeek (timeout 120s) ====================
 export const generateQuestionsAI = async (data) => {
   try {
     console.log('🚀 [IA] Envoi à /api/ai/generate-questions:', data);
     const response = await api.post('/api/ai/generate-questions', data, {
-      timeout: 90000, // 90 secondes pour DeepSeek
+      timeout: 120000, // ✅ 120 secondes (2 minutes) au lieu de 90000
     });
     
     // Normalisation selon la réponse
@@ -219,7 +219,6 @@ export const generateQuestionsAI = async (data) => {
     throw error;
   }
 };
-
 export const checkConfig = () => api.get('/api/check-config');
 export const getAIConfig = () => api.get('/api/ai/config');
 
