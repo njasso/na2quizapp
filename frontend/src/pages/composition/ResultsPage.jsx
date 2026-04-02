@@ -1,4 +1,4 @@
-// src/pages/ResultsPage.jsx — avec affichage de la configuration et support des nouveaux champs QCM
+// src/pages/composition/ResultsPage.jsx — avec affichage de la configuration et support des nouveaux champs QCM
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -10,6 +10,11 @@ import logo from '../logo.png';
 import { Download, CheckCircle, XCircle, Award, User, Calendar, FileText, Printer, Settings } from 'lucide-react';
 
 const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
+
+// ✅ Fonction pour récupérer le token JWT
+const getAuthToken = () => {
+    return localStorage.getItem('userToken') || localStorage.getItem('token');
+};
 
 const ResultsPage = () => {
     const { examId } = useParams();
@@ -45,13 +50,20 @@ const ResultsPage = () => {
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
     }, []);
 
+    // ✅ Correction : redirection vers le terminal sur Render
     const redirectToTerminal = useCallback(() => {
         cleanupBeforeRedirect();
         localStorage.removeItem('studentInfoForExam');
-        const baseUrl = NODE_BACKEND_URL;
-        const redirectUrl = `${baseUrl}/terminal.html${terminalSessionId ? `?sessionId=${terminalSessionId}` : ''}`;
+        // Nettoyer les sauvegardes automatiques
+        if (examId) {
+            localStorage.removeItem(`exam_${examId}_answers`);
+            localStorage.removeItem(`exam_${examId}_index`);
+            localStorage.removeItem(`exam_${examId}_attempts`);
+            localStorage.removeItem(`exam_${examId}_showResult`);
+        }
+        const redirectUrl = `https://na2quizapp.onrender.com/terminal.html${terminalSessionId ? `?sessionId=${terminalSessionId}` : ''}`;
         window.location.replace(redirectUrl);
-    }, [terminalSessionId, cleanupBeforeRedirect]);
+    }, [terminalSessionId, cleanupBeforeRedirect, examId]);
 
     useEffect(() => {
         if (isLoading || !redirectTimerActive) return;
@@ -122,6 +134,12 @@ const ResultsPage = () => {
 
         const fetchAndProcessResults = async () => {
             try {
+                // ✅ Ajout du token JWT
+                const token = getAuthToken();
+                const axiosConfig = token ? {
+                    headers: { Authorization: `Bearer ${token}` }
+                } : {};
+
                 // Utiliser le snapshot s'il existe
                 if (passedResultSnapshot?.examQuestions?.length > 0) {
                     questionDetailsRef.current = passedResultSnapshot.examQuestions.map(q => {
@@ -130,7 +148,11 @@ const ResultsPage = () => {
                     });
                 }
 
-                const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { timeout: 10000 });
+                const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+                    timeout: 10000,
+                    ...axiosConfig 
+                });
+                
                 const examData = response.data;
                 setExam(examData);
                 setConfig(examData.config || null);
@@ -151,6 +173,15 @@ const ResultsPage = () => {
                 );
             } catch (error) {
                 console.error("Erreur lors du chargement des détails de l'épreuve pour les résultats:", error);
+                
+                // ✅ Gestion de l'erreur 401
+                if (error.response?.status === 401) {
+                    toast.error("Session expirée. Veuillez vous reconnecter.");
+                    localStorage.removeItem('userToken');
+                    localStorage.removeItem('token');
+                    setTimeout(() => navigate('/login'), 2000);
+                    return;
+                }
                 
                 // Fallback: utiliser les données passées dans state
                 if (passedExamQuestions?.length > 0) {

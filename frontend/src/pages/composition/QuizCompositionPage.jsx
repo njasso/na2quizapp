@@ -1,4 +1,4 @@
-// src/pages/QuizCompositionPage.jsx - Version avec double stockage d'images
+// src/pages/composition/QuizCompositionPage.jsx - Version avec double stockage d'images et token JWT
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,9 +18,59 @@ const NODE_BACKEND_URL = process.env.NODE_ENV === 'production'
   : 'http://localhost:5000';
 const SOCKET_URL = NODE_BACKEND_URL;
 
-// Timer component (inchangé)
+// Timer component
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick }) => {
-  // ... code inchangé ...
+  const [timeLeft, setTimeLeft] = useState(initialTime);
+  const timerRef = useRef(null);
+  const lastResetRef = useRef(Date.now());
+
+  useEffect(() => {
+    setTimeLeft(initialTime);
+  }, [initialTime, resetTrigger]);
+
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (!isActive) return;
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          if (onTimeEnd) onTimeEnd();
+          return 0;
+        }
+        if (onTick) onTick(prev - 1);
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isActive, onTimeEnd, onTick]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (!isActive) return null;
+
+  return (
+    <div style={{
+      fontFamily: "'DM Mono', monospace",
+      fontSize: '1.5rem',
+      fontWeight: 700,
+      color: timeLeft < 10 ? '#ef4444' : '#f8fafc',
+      background: 'rgba(0,0,0,0.3)',
+      padding: '4px 12px',
+      borderRadius: '8px',
+      letterSpacing: '0.05em'
+    }}>
+      {formatTime(timeLeft)}
+    </div>
+  );
 };
 
 const QuizCompositionPage = () => {
@@ -65,6 +115,11 @@ const QuizCompositionPage = () => {
   const stableSessionIdRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
 
+  // ✅ Fonction pour récupérer le token JWT
+  const getAuthToken = () => {
+    return localStorage.getItem('userToken') || localStorage.getItem('token');
+  };
+
   // Mise à jour des refs
   useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { attemptsRef.current = attempts; }, [attempts]);
@@ -85,7 +140,6 @@ const QuizCompositionPage = () => {
 
   // Normaliser une question du nouveau format (AVEC IMAGES)
   const normalizeQuestion = (q) => {
-    // Récupérer l'URL de l'image (priorité à imageQuestion, fallback imageBase64)
     let imageUrl = q.imageQuestion || '';
     if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
       imageUrl = q.imageBase64;
@@ -111,7 +165,6 @@ const QuizCompositionPage = () => {
       sousDomaine: q.sousDomaine || '',
       niveau: q.niveau || '',
       matiere: q.matiere || '',
-      // === STOCKAGE DES IMAGES ===
       imageQuestion: q.imageQuestion || '',
       imageBase64: q.imageBase64 || '',
       imageMetadata: q.imageMetadata || {},
@@ -130,7 +183,6 @@ const QuizCompositionPage = () => {
   // SAUVEGARDE AUTOMATIQUE ET RÉCUPÉRATION
   // ═══════════════════════════════════════════════════════════════
   
-  // Récupération des données sauvegardées au chargement
   useEffect(() => {
     const savedAnswers = localStorage.getItem(`exam_${examId}_answers`);
     const savedIndex = localStorage.getItem(`exam_${examId}_index`);
@@ -166,7 +218,6 @@ const QuizCompositionPage = () => {
     }
   }, [examId]);
 
-  // Sauvegarde automatique périodique (toutes les 30 secondes)
   useEffect(() => {
     if (quizFinishedRef.current || waitingForStartRef.current) return;
     
@@ -192,7 +243,6 @@ const QuizCompositionPage = () => {
     };
   }, [examId, quizFinished, waitingForStart]);
 
-  // Sauvegarde immédiate à chaque changement
   useEffect(() => {
     if (quizFinishedRef.current || waitingForStartRef.current) return;
     
@@ -202,7 +252,6 @@ const QuizCompositionPage = () => {
     localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
   }, [answers, currentQuestionIndex, attempts, showResult, examId, quizFinished, waitingForStart]);
 
-  // Sauvegarde avant de quitter la page
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (!quizFinishedRef.current && !submittingRef.current && Object.keys(answersRef.current).length > 0) {
@@ -267,12 +316,21 @@ const QuizCompositionPage = () => {
     }
 
     try {
+      // ✅ Récupérer le token pour l'appel API
+      const token = getAuthToken();
+      const axiosConfig = token ? {
+        headers: { Authorization: `Bearer ${token}` }
+      } : {};
+
       const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         examId: examRef.current._id,
         studentInfo: studentInfoRef.current,
         answers: answersRef.current,
         config: configRef.current
-      }, { timeout: 10000 });
+      }, { 
+        timeout: 10000,
+        ...axiosConfig
+      });
       
       const { result, details: correctionDetails } = res.data;
       setShowConfetti(true);
@@ -317,7 +375,14 @@ const QuizCompositionPage = () => {
       quizFinishedRef.current = false;
       setQuizFinished(false);
       setIsSubmitting(false);
-      toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
+      if (error.response?.status === 401) {
+        toast.error("Session expirée. Veuillez vous reconnecter.");
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('token');
+        setTimeout(() => navigate('/login'), 2000);
+      } else {
+        toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
+      }
     }
   }, [navigate, clearAutoSave]);
 
@@ -452,7 +517,17 @@ const QuizCompositionPage = () => {
 
     const fetchExam = async () => {
       try {
-        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { timeout: 10000 });
+        // ✅ Récupérer le token pour l'appel API
+        const token = getAuthToken();
+        const axiosConfig = token ? {
+          headers: { Authorization: `Bearer ${token}` }
+        } : {};
+        
+        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+          timeout: 10000,
+          ...axiosConfig
+        });
+        
         if (!res.data || !Array.isArray(res.data.questions) || res.data.questions.length === 0) {
           throw new Error("Données d'examen invalides");
         }
@@ -495,8 +570,15 @@ const QuizCompositionPage = () => {
 
       } catch (error) {
         console.error("Erreur chargement examen:", error);
-        toast.error("Échec du chargement de l'examen.");
-        navigate('/', { replace: true });
+        if (error.response?.status === 401) {
+          toast.error("Session expirée. Veuillez vous reconnecter.");
+          localStorage.removeItem('userToken');
+          localStorage.removeItem('token');
+          setTimeout(() => navigate('/login'), 2000);
+        } else {
+          toast.error("Échec du chargement de l'examen.");
+          navigate('/', { replace: true });
+        }
       } finally {
         setIsLoading(false);
       }
@@ -620,6 +702,9 @@ const QuizCompositionPage = () => {
       <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
         <Toaster />
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
       </div>
     );
   }
@@ -749,7 +834,7 @@ const QuizCompositionPage = () => {
                   )}
                 </div>
                 
-                {/* ✅ AFFICHAGE DE L'IMAGE */}
+                {/* AFFICHAGE DE L'IMAGE */}
                 {getImageUrl(currentQuestion) && (
                   <div style={{ marginBottom: 16, textAlign: 'center' }}>
                     <img 
@@ -876,7 +961,7 @@ const QuizCompositionPage = () => {
   );
 };
 
-// Styles (inchangés)
+// Styles
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },

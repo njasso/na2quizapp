@@ -12,9 +12,7 @@ import {
   TrendingUp, Award, BookOpen, Link, Settings, ArrowLeft, Tag, Layers, AlertCircle
 } from 'lucide-react';
 
-const NODE_BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
-
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
 const PAGE_SIZE = 12;
 
 // ── Helpers ────────────────────────────────────────────────────
