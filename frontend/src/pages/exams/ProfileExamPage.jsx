@@ -1,6 +1,6 @@
-// src/pages/ProfileExamPage.jsx - Version avec affichage des champs normalisés
+// src/pages/exams/ProfileExamPage.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
@@ -24,7 +24,6 @@ const itemVariants = {
   show: { opacity: 1, y: 0 }
 };
 
-// Composant d'indicateur de configuration
 const ConfigIndicator = ({ config }) => {
   const features = [];
   if (config?.openRange) features.push(`📖 ${config.requiredQuestions} questions`);
@@ -51,7 +50,6 @@ const ConfigIndicator = ({ config }) => {
   );
 };
 
-// Composant d'alerte de validation
 const ValidationAlert = ({ message, type, onClose }) => (
   <motion.div
     initial={{ opacity: 0, y: -10 }}
@@ -77,6 +75,7 @@ const ValidationAlert = ({ message, type, onClose }) => (
 
 const ProfileExamPage = () => {
   const { examId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // États
@@ -102,7 +101,15 @@ const ProfileExamPage = () => {
   const isMounted = useRef(true);
   const reconnectAttempts = useRef(0);
 
-  // Fonction getOptionLabel
+  // ✅ Récupérer et stocker le token depuis l'URL
+  useEffect(() => {
+    const urlToken = searchParams.get('token');
+    if (urlToken) {
+      console.log('[ProfileExamPage] ✅ Token reçu via URL, stockage dans localStorage');
+      localStorage.setItem('userToken', urlToken);
+    }
+  }, [searchParams]);
+
   const getOptionLabel = (option) => {
     const labels = {
       A: 'Collective Figée',
@@ -113,7 +120,6 @@ const ProfileExamPage = () => {
     return labels[option] || `Option ${option}`;
   };
 
-  // Fonction de validation des champs
   const validateFields = useCallback(() => {
     const errors = {};
     if (!lastName.trim()) errors.lastName = 'Le nom est requis';
@@ -157,7 +163,6 @@ const ProfileExamPage = () => {
   useEffect(() => {
     isMounted.current = true;
 
-    const searchParams = new URLSearchParams(window.location.search);
     const urlOption = searchParams.get('option');
     if (urlOption && ['A', 'B', 'C', 'D'].includes(urlOption)) {
       setSelectedExamOption(urlOption);
@@ -167,12 +172,16 @@ const ProfileExamPage = () => {
     const fetchExam = async () => {
       setIsLoading(true);
       try {
-        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { timeout: 15000 });
+        const token = localStorage.getItem('userToken');
+        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, {
+          timeout: 15000,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        
         if (!isMounted.current) return;
         
         const examData = response.data;
         
-        // Normaliser les questions pour l'affichage
         const normalizedQuestions = (examData.questions || []).map((q, idx) => ({
           ...q,
           libQuestion: q.libQuestion || q.question || q.text,
@@ -210,7 +219,10 @@ const ProfileExamPage = () => {
             toast.error('Le serveur ne répond pas. Vérifiez votre connexion.');
           } else if (error.response?.status === 404) {
             toast.error('Épreuve non trouvée.');
-            navigate('/exams');
+            navigate('/available-exams');
+          } else if (error.response?.status === 401) {
+            toast.error('Session expirée. Veuillez vous reconnecter.');
+            navigate('/login');
           } else {
             toast.error('Erreur de chargement. Veuillez réessayer.');
           }
@@ -223,7 +235,7 @@ const ProfileExamPage = () => {
     fetchExam();
     
     return () => { isMounted.current = false; };
-  }, [examId, navigate]);
+  }, [examId, navigate, searchParams]);
 
   // Connexion WebSocket
   useEffect(() => {
@@ -429,7 +441,6 @@ const ProfileExamPage = () => {
   const connectionColor = connectionStatus === 'connected' ? '#10b981' : connectionStatus === 'connecting' ? '#f59e0b' : '#ef4444';
   const connectionText = connectionStatus === 'connected' ? 'Connecté' : connectionStatus === 'connecting' ? 'Connexion...' : 'Déconnecté';
 
-  // Calcul du nombre de questions et des points totaux
   const totalQuestions = exam.questions?.length || 0;
   const totalPoints = exam.questions?.reduce((sum, q) => sum + (q.points || 1), 0) || 0;
 
@@ -440,7 +451,6 @@ const ProfileExamPage = () => {
       position: 'relative', overflow: 'hidden', display: 'flex',
       alignItems: 'center', justifyContent: 'center', padding: '20px',
     }}>
-      {/* Background effects */}
       <div style={{
         position: 'fixed', inset: 0,
         backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)',
@@ -585,7 +595,6 @@ const ProfileExamPage = () => {
           </p>
         </motion.div>
 
-        {/* Configuration de l'épreuve - avec informations du référentiel */}
         {config && (
           <motion.div
             variants={itemVariants}
@@ -653,7 +662,6 @@ const ProfileExamPage = () => {
           </motion.div>
         )}
 
-        {/* Informations de session en cache */}
         {cachedInfo && (
           <motion.div
             variants={itemVariants}
@@ -671,7 +679,6 @@ const ProfileExamPage = () => {
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Champs du formulaire */}
           <motion.div variants={itemVariants}>
             <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8', marginBottom: '6px' }}>
               <User size={14} color="#3b82f6" style={{ marginRight: '4px', verticalAlign: 'middle' }} />
