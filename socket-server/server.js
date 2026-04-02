@@ -790,13 +790,75 @@ app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGU
 // ==================== IA ROUTES ====================
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
+// Fonction pour nettoyer et extraire le JSON d'une réponse
+function extractJSONFromResponse(content) {
+  if (!content) return null;
+  
+  let cleanContent = content.trim();
+  
+  // Supprimer les balises markdown ```json et ```
+  cleanContent = cleanContent.replace(/```json\s*/gi, '');
+  cleanContent = cleanContent.replace(/```\s*/g, '');
+  
+  // Si le contenu commence par 'json' sans backticks
+  if (cleanContent.startsWith('json')) {
+    cleanContent = cleanContent.substring(4);
+  }
+  
+  cleanContent = cleanContent.trim();
+  
+  // Trouver le premier { et le dernier }
+  const firstBrace = cleanContent.indexOf('{');
+  const lastBrace = cleanContent.lastIndexOf('}');
+  
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleanContent = cleanContent.substring(firstBrace, lastBrace + 1);
+  }
+  
+  return cleanContent;
+}
+
+// Fonction pour valider une question générée
+function validateQuestion(q) {
+  return q && 
+         typeof q.text === 'string' && q.text.trim().length > 10 &&
+         Array.isArray(q.options) && q.options.length >= 3 && q.options.length <= 5 &&
+         typeof q.answer === 'string' && q.answer.trim().length > 0 &&
+         q.options.includes(q.answer);
+}
+
+// Fonction pour corriger une question mal formée
+function fixQuestion(q, index, subject, level) {
+  const fixed = { ...q };
+  
+  if (!fixed.text || fixed.text.trim().length < 5) {
+    fixed.text = `Question ${index + 1} sur ${subject} (niveau ${level})`;
+  }
+  
+  if (!Array.isArray(fixed.options) || fixed.options.length < 3) {
+    fixed.options = ['Option A', 'Option B', 'Option C', 'Option D'];
+  }
+  
+  if (!fixed.answer || !fixed.options.includes(fixed.answer)) {
+    fixed.answer = fixed.options[0];
+  }
+  
+  if (!fixed.explanation) {
+    fixed.explanation = `La bonne réponse est : ${fixed.answer}`;
+  }
+  
+  if (!fixed.points) fixed.points = 1;
+  if (!fixed.difficulty) fixed.difficulty = 'moyen';
+  
+  return fixed;
+}
+
 app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { 
       domain, sousDomaine, level, subject, 
       numQuestions = 5, 
       typeQuestion = 1,
-      tempsMinParQuestion = 60,
       difficulty = 'moyen',
       keywords = '' 
     } = req.body;
@@ -805,39 +867,40 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
     if (!domain || !level || !subject) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Domain, level et subject sont requis' 
+        error: 'Domaine, niveau et matière sont requis' 
       });
     }
 
-    // Construction du prompt pour l'IA
-    const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
+    // Construction du prompt amélioré pour l'IA
+    const prompt = `Génère ${numQuestions} questions QCM de qualité sur "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
     
-    ${keywords ? `Mots-clés spécifiques: ${keywords}` : ''}
-    Difficulté: ${difficulty}
-    
-    Pour chaque question, fournis:
-    - La question
-    - 4 options de réponse
-    - La bonne réponse (index 0-3)
-    - Une brève explication
-    
-    Format JSON attendu:
+${keywords ? `Thèmes spécifiques: ${keywords}` : ''}
+Niveau de difficulté: ${difficulty}
+Type: ${typeQuestion === 2 ? 'choix multiples (une ou plusieurs bonnes réponses possibles)' : 'choix unique (une seule bonne réponse)'}
+
+IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks, sans markdown.
+
+Format JSON attendu EXACTEMENT:
+{
+  "questions": [
     {
-      "questions": [
-        {
-          "text": "question",
-          "options": ["opt1", "opt2", "opt3", "opt4"],
-          "answer": "opt2",
-          "explanation": "explication"
-        }
-      ]
-    }`;
+      "text": "Énoncé complet de la question",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": "Option A",
+      "explanation": "Explication pédagogique de la réponse"
+    }
+  ]
+}
+
+Les questions doivent être pertinentes, précises et adaptées au niveau ${level}.`;
 
     let generatedQuestions = [];
 
-    // Si clé API DeepSeek configurée
+    // Appel à DeepSeek
     if (DEEPSEEK_API_KEY) {
       try {
+        console.log('[IA] Appel à DeepSeek API...');
+        
         const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -847,7 +910,10 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
           body: JSON.stringify({
             model: 'deepseek-chat',
             messages: [
-              { role: 'system', content: 'Tu es un générateur de QCM pédagogique. Réponds uniquement au format JSON demandé.' },
+              { 
+                role: 'system', 
+                content: 'Tu es un expert pédagogique spécialisé dans la création de QCM de qualité. Tu réponds UNIQUEMENT au format JSON brut, sans aucun texte additionnel.' 
+              },
               { role: 'user', content: prompt }
             ],
             temperature: 0.7,
@@ -857,23 +923,67 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
 
         if (response.ok) {
           const data = await response.json();
-          const content = data.choices[0]?.message?.content || '';
-          try {
-            const parsed = JSON.parse(content);
-            generatedQuestions = parsed.questions || [];
-          } catch (e) {
-            console.error('Erreur parsing JSON IA:', e);
+          const rawContent = data.choices[0]?.message?.content || '';
+          
+          console.log('[IA] Réponse brute reçue, longueur:', rawContent.length);
+          
+          // Nettoyer et extraire le JSON
+          const cleanJson = extractJSONFromResponse(rawContent);
+          
+          if (cleanJson) {
+            try {
+              const parsed = JSON.parse(cleanJson);
+              if (parsed.questions && Array.isArray(parsed.questions)) {
+                generatedQuestions = parsed.questions;
+                console.log(`[IA] ✅ ${generatedQuestions.length} questions parsées avec succès`);
+              } else {
+                console.error('[IA] Structure JSON invalide: missing questions array');
+              }
+            } catch (parseError) {
+              console.error('[IA] Erreur parsing JSON:', parseError.message);
+              console.error('[IA] Contenu nettoyé (premier 500 chars):', cleanJson.substring(0, 500));
+            }
+          } else {
+            console.error('[IA] Impossible d\'extraire le JSON de la réponse');
+            console.error('[IA] Réponse brute (premier 500 chars):', rawContent.substring(0, 500));
           }
+        } else {
+          console.error('[IA] Erreur DeepSeek API:', response.status, response.statusText);
         }
       } catch (err) {
-        console.error('Erreur appel DeepSeek:', err.message);
+        console.error('[IA] Erreur appel DeepSeek:', err.message);
       }
+    } else {
+      console.log('[IA] Pas de clé API DeepSeek, utilisation du mode mock');
     }
 
-    // Fallback si IA non disponible ou erreur
-    if (generatedQuestions.length === 0) {
-      generatedQuestions = generateMockQuestions(domain, subject, level, numQuestions);
+    // Validation et correction des questions
+    if (generatedQuestions.length > 0) {
+      const validQuestions = [];
+      for (let i = 0; i < generatedQuestions.length; i++) {
+        const q = generatedQuestions[i];
+        if (validateQuestion(q)) {
+          validQuestions.push(q);
+        } else {
+          console.warn(`[IA] Question ${i + 1} invalide, correction...`);
+          validQuestions.push(fixQuestion(q, i, subject, level));
+        }
+      }
+      generatedQuestions = validQuestions;
     }
+
+    // Fallback si pas assez de questions
+    if (generatedQuestions.length < numQuestions) {
+      console.log(`[IA] Génération fallback: ${generatedQuestions.length}/${numQuestions} questions valides`);
+      const fallbackNeeded = numQuestions - generatedQuestions.length;
+      const fallbackQuestions = generateMockQuestions(domain, subject, level, fallbackNeeded);
+      generatedQuestions = [...generatedQuestions, ...fallbackQuestions];
+    }
+
+    // Limiter au nombre demandé
+    generatedQuestions = generatedQuestions.slice(0, numQuestions);
+
+    console.log(`[IA] ✅ Final: ${generatedQuestions.length} questions générées`);
 
     res.json({
       success: true,
@@ -882,6 +992,7 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
         model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock',
         generatedAt: new Date().toISOString(),
         count: generatedQuestions.length,
+        requested: numQuestions,
         domain,
         level,
         subject
@@ -889,7 +1000,7 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
     });
 
   } catch (error) {
-    console.error('Erreur génération IA:', error);
+    console.error('[IA] Erreur génération:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la génération des questions' 
@@ -897,13 +1008,41 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
   }
 });
 
-// Fonction de fallback (questions mock)
+// Fonction de fallback améliorée (questions mock pédagogiques)
 function generateMockQuestions(domain, subject, level, count) {
   const mockQuestions = [];
+  
   const templates = [
-    { text: `Qu'est-ce que ${subject} ?`, options: [`Définition de ${subject}`, 'Une science', 'Un art', 'Une technique'], answer: `Définition de ${subject}`, explanation: `Le ${subject} est la discipline qui étudie...` },
-    { text: `Quelle est l'importance de ${subject} dans le ${level} ?`, options: ['Très importante', 'Peu importante', 'Non essentielle', 'Dépend du contexte'], answer: 'Très importante', explanation: `Le ${subject} est fondamental à ce niveau.` },
-    { text: `Quel est le concept clé en ${subject} ?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], answer: 'Concept A', explanation: `Le concept A est central dans ${subject}.` }
+    { 
+      text: `Qu'est-ce que ${subject} ?`, 
+      options: [`La discipline qui étudie ${subject}`, 'Une science exacte', 'Un art', 'Une technique'], 
+      answer: `La discipline qui étudie ${subject}`, 
+      explanation: `${subject} est une discipline fondamentale qui permet de comprendre...` 
+    },
+    { 
+      text: `Quelle est l'importance de ${subject} au niveau ${level} ?`, 
+      options: ['Fondamentale', 'Secondaire', 'Optionnelle', 'Non requise'], 
+      answer: 'Fondamentale', 
+      explanation: `À ce niveau, ${subject} constitue une base essentielle pour la formation.` 
+    },
+    { 
+      text: `Parmi ces concepts, lequel est central en ${subject} ?`, 
+      options: ['Concept fondamental A', 'Concept secondaire B', 'Aspect périphérique C', 'Détail technique D'], 
+      answer: 'Concept fondamental A', 
+      explanation: `Le concept fondamental A est au cœur de la discipline ${subject}.` 
+    },
+    { 
+      text: `En quoi ${subject} contribue-t-il au développement des compétences ?`, 
+      options: ['Développement de la pensée critique', 'Mémorisation passive', 'Répétition mécanique', 'Ignorance des concepts'], 
+      answer: 'Développement de la pensée critique', 
+      explanation: `${subject} forme à l'analyse et à la synthèse.` 
+    },
+    { 
+      text: `Quelle méthode privilégie-t-on dans l'étude de ${subject} ?`, 
+      options: ['Approche analytique', 'Mémorisation', 'Copie', 'Hasard'], 
+      answer: 'Approche analytique', 
+      explanation: `L'approche analytique permet une compréhension approfondie de ${subject}.` 
+    }
   ];
 
   for (let i = 0; i < Math.min(count, templates.length); i++) {
@@ -918,13 +1057,19 @@ function generateMockQuestions(domain, subject, level, count) {
     });
   }
 
-  // Compléter avec des questions génériques si nécessaire
+  // Compléter avec des questions génériques de qualité
   while (mockQuestions.length < count) {
+    const idx = mockQuestions.length + 1;
     mockQuestions.push({
-      text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`,
-      options: ['Option A', 'Option B', 'Option C', 'Option D'],
-      answer: 'Option A',
-      explanation: `Explication pour la question ${mockQuestions.length + 1}`,
+      text: `Question ${idx} : Quel est l'élément clé à retenir concernant ${subject} au niveau ${level} ?`,
+      options: [
+        `L'élément essentiel A de ${subject}`,
+        `Un détail secondaire de ${subject}`,
+        `Un aspect périphérique de ${subject}`,
+        `Une information non pertinente`
+      ],
+      answer: `L'élément essentiel A de ${subject}`,
+      explanation: `Dans ${subject} au niveau ${level}, il est fondamental de maîtriser cet élément.`,
       points: 1,
       difficulty: 'moyen'
     });
