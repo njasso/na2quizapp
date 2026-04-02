@@ -1135,9 +1135,12 @@ const pendingReconnections = new Map();
 
 const io = new Server(server, {
   cors: { origin: isProduction ? CORS_ORIGINS : '*', credentials: true },
-  transports: ['websocket', 'polling'],
+  transports: ['polling'],      // ✅ Polling uniquement
+  allowEIO3: true,
   pingTimeout: 60000,
   pingInterval: 25000,
+  allowUpgrades: false,         // ✅ Désactiver les upgrades
+  cookie: false
 });
 
 const emitSessionUpdate = () => {

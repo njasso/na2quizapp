@@ -777,28 +777,30 @@
     }
     
     function connect(){
-        if(socket && socket.connected){
-            console.log('[Terminal] Déjà connecté');
-            registerTerminal();
-            return;
-        }
-        if(socket) socket.disconnect();
-        
-        setStatus('connecting', '⬡', 'Connexion…', 'tentative ' + (reconnAttempts+1) + '/' + MAX_RECONNECT);
-        console.log('[Terminal] Connexion à:', SERVER_URL);
-        
-        socket = io(SERVER_URL, {
-            transports: ['polling', 'websocket'],
-            reconnection: true,
-            reconnectionAttempts: MAX_RECONNECT,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 15000,
-            forceNew: true
-        });
-        
-        socket.on('connect', function(){
-            console.log('[Terminal] ✅ Socket connecté, ID:', socket.id);
+    if(socket && socket.connected){
+        console.log('[Terminal] Déjà connecté');
+        registerTerminal();
+        return;
+    }
+    if(socket) socket.disconnect();
+    
+    setStatus('connecting', '⬡', 'Connexion…', 'tentative ' + (reconnAttempts+1) + '/' + MAX_RECONNECT);
+    console.log('[Terminal] Connexion à:', SERVER_URL);
+    
+    // ✅ POLLING UNIQUEMENT - PAS DE WEBSOCKET
+    socket = io(SERVER_URL, {
+        transports: ['polling'],
+        reconnection: true,
+        reconnectionAttempts: MAX_RECONNECT,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        forceNew: true,
+        upgrade: false
+    });
+    
+    socket.on('connect', function(){
+        console.log('[Terminal] ✅ Socket connecté (polling), ID:', socket.id);
             reconnAttempts = 0;
             reconnBtn.classList.add('hidden');
             syncPanel();
@@ -846,50 +848,52 @@
             isRegistered = false;
         });
         
-        socket.on('examDistributed', function(data){
-            console.log('[Terminal] 📋 examDistributed reçu:', data);
-            if(!data || !data.url || isRedirecting) return;
-            
-            var rawUrl = data.url;
-            var option = data.examOption;
-            
-            console.log('[Terminal] URL brute reçue:', rawUrl);
-            console.log('[Terminal] Option:', option);
-            
-            var redirectUrl = buildRedirectUrl(rawUrl, option);
-            
-            if(!redirectUrl) {
-                console.error('[Terminal] Impossible de construire l\'URL de redirection');
-                addFeed('error', 'Erreur de redirection', 'URL invalide');
-                return;
-            }
-            
-            console.log('[Terminal] URL finale de redirection:', redirectUrl);
-            
-            isRedirecting = true;
-            cleanup();
-            
-            var OPTS = { A:'COLLECTIVE FIGÉE', B:'COLLECTIVE SOUPLE', C:'PERSONNALISÉE', D:'ALÉATOIRE' };
-            var optName = OPTS[option] || ('OPTION ' + (option || '?'));
-            
-            setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — redirection…');
-            addFeed('success', 'Épreuve reçue — Option ' + (option || '?'), 'redirection dans 2s…');
-            ovTitle.textContent = (option ? 'Option ' + option + ' — ' : '') + 'Épreuve reçue';
-            ovOpt.textContent = optName;
-            overlay.classList.add('on');
-            
-            var s = 2;
-            var tick = setInterval(function(){
-                s--;
-                ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
-                if(s <= 0) clearInterval(tick);
-            }, 1000);
-            
-            redirTimeout = setTimeout(function(){
-                console.log('[Terminal] Redirection vers:', redirectUrl);
-                window.location.href = redirectUrl;
-            }, 2000);
-        });
+       socket.on('examDistributed', function(data){
+    console.log('[Terminal] 📋 examDistributed reçu:', data);
+    if(!data || isRedirecting) return;
+    
+    // ✅ Récupérer l'examId (plus de url)
+    var examId = data.examId;
+    var option = data.examOption || 'C';
+    
+    console.log('[Terminal] examId reçu:', examId);
+    console.log('[Terminal] Option:', option);
+    
+    if(!examId) {
+        console.error('[Terminal] Aucun examId trouvé');
+        addFeed('error', 'Erreur de distribution', 'examId manquant');
+        return;
+    }
+    
+    // ✅ Construire l'URL de redirection vers le profil
+    var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId;
+    
+    console.log('[Terminal] URL finale de redirection:', redirectUrl);
+    
+    isRedirecting = true;
+    cleanup();
+    
+    var OPTS = { A:'COLLECTIVE FIGÉE', B:'COLLECTIVE SOUPLE', C:'PERSONNALISÉE', D:'ALÉATOIRE' };
+    var optName = OPTS[option] || ('OPTION ' + (option || '?'));
+    
+    setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — redirection…');
+    addFeed('success', 'Épreuve reçue — Option ' + (option || '?'), 'redirection dans 2s…');
+    ovTitle.textContent = (option ? 'Option ' + option + ' — ' : '') + 'Épreuve reçue';
+    ovOpt.textContent = optName;
+    overlay.classList.add('on');
+    
+    var s = 2;
+    var tick = setInterval(function(){
+        s--;
+        ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
+        if(s <= 0) clearInterval(tick);
+    }, 1000);
+    
+    redirTimeout = setTimeout(function(){
+        console.log('[Terminal] Redirection vers:', redirectUrl);
+        window.location.href = redirectUrl;
+    }, 2000);
+});
         
         socket.on('waitingCountUpdate', function(data){
             console.log('[Terminal] Compteur attente:', data);
