@@ -5,7 +5,7 @@ import { toast, Toaster } from 'react-hot-toast';
 import io from 'socket.io-client';
 import { Clock, Users, Home, RefreshCw, Wifi, WifiOff, Loader } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
 
 const WaitingPage = () => {
