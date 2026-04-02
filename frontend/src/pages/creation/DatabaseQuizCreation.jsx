@@ -351,26 +351,33 @@ const DatabaseQuizCreation = () => {
         : config.totalTime;
 
       const examData = {
-        title: examTitle,
-        description: examDescription || `Épreuve créée depuis la base de données - ${matiereNom}`,
-        nDomaine: parseInt(selectedDomainId),
-        nSousDomaine: parseInt(selectedSousDomaineId),
-        niveau: parseInt(selectedLevelId),
-        niveauNom: levelNom,
-        matiere: parseInt(selectedMatiereId),
-        matiereNom: matiereNom,
-        questions: formattedQuestions,
-        duration: Math.ceil(totalDuration),
-        passingScore: 70,
-        createdBy: user?._id || user?.id,
-        teacherName: user?.name,
-        teacherGrade: user?.role,
-        source: 'database',
-        config: config,
-        examOption: config.examOption,
-        status: 'draft'
-      };
-
+  title: examTitle,
+  description: examDescription || `Épreuve créée depuis la base de données - ${matiereNom}`,
+  
+  // ✅ CORRECTION : Utiliser les noms attendus par le backend
+  subject: matiereNom,                    // ou selectedMatiereId selon votre besoin
+  level: levelNom,                        // ou selectedLevelId
+  domain: domainNom,                      // ou selectedDomainId
+  
+  // Gardez aussi les anciens champs si nécessaire pour d'autres parties du code
+  nDomaine: parseInt(selectedDomainId),
+  nSousDomaine: parseInt(selectedSousDomaineId),
+  niveau: parseInt(selectedLevelId),
+  niveauNom: levelNom,
+  matiere: parseInt(selectedMatiereId),
+  matiereNom: matiereNom,
+  
+  questions: formattedQuestions,
+  duration: Math.ceil(totalDuration),
+  passingScore: 70,
+  createdBy: user?._id || user?.id,
+  teacherName: user?.name,
+  teacherGrade: user?.role,
+  source: 'database',
+  config: config,
+  examOption: config.examOption,
+  status: 'draft'
+};
       const response = await createExam(examData);
 
       if (response.success !== false) {
