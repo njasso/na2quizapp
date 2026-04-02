@@ -1,4 +1,4 @@
-// src/pages/ProfileExamPage.jsx
+// src/pages/exams/ProfileExamPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -17,9 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 
-const NODE_BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL ||
-  'https://na2quizapp.onrender.com';
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -51,48 +49,60 @@ const ProfileExamPage = () => {
   const socketRef = useRef(null);
   const isMounted = useRef(true);
 
-  // ✅ FIX CRITIQUE : useEffect fetchExam avec isMounted reset
+  // ✅ Fonction pour récupérer le token
+  const getAuthToken = () => {
+    const token = localStorage.getItem('userToken') || localStorage.getItem('token');
+    console.log('[ProfileExamPage] 🔑 Token présent:', !!token);
+    return token;
+  };
+
   useEffect(() => {
-    // ✅ CORRECTION: Réinitialiser isMounted à true à chaque nouvelle invocation
-    // de l'effet. Sans cela, en StrictMode (développement), le cleanup du premier
-    // run met isMounted=false, et le second run ne le remet pas à true — la
-    // requête axios revient, voit isMounted=false, sort prématurément, et
-    // setIsLoading(false) n'est jamais appelé → spinner infini.
     isMounted.current = true;
 
     const fetchExam = async () => {
       try {
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
+        
+        // ✅ Récupérer le token
+        const token = getAuthToken();
+        
+        // ✅ Configuration des headers avec le token
+        const config = token ? {
+          headers: { Authorization: `Bearer ${token}` }
+        } : {};
+        
         console.log('[ProfileExamPage] 📡 API URL:', `${NODE_BACKEND_URL}/api/exams/${examId}`);
         
-        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`);
+        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, config);
         
         if (!isMounted.current) return;
         
-        // ── Gestion des deux formats de réponse : exam direct OU {data: exam} ──
+        console.log('[ProfileExamPage] ✅ Réponse reçue, status:', response.status);
+        
+        // ── Gestion des deux formats de réponse ──
         const raw = response.data;
         const examData = (raw && raw._id) ? raw
                        : (raw?.data?._id) ? raw.data
                        : (raw?.exam?._id) ? raw.exam
                        : raw;
-        // ── Normalisation : support format opRep1..5 ET format options[] ──
+                       
+        // ── Normalisation des questions ──
         const normalizedQuestions = (examData.questions || []).map((q, idx) => {
-          // Construire le tableau options depuis opRep1..opRep5 si absent
           let options = q.options && q.options.length > 0 ? q.options : [];
           if (options.length === 0) {
             ['opRep1','opRep2','opRep3','opRep4','opRep5'].forEach(k => {
               if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
             });
           }
-          // Normaliser correctAnswer depuis bonOpRep (index) si absent
+          
           let correctAnswer = q.correctAnswer !== undefined ? q.correctAnswer : null;
           if (correctAnswer === null && q.bonOpRep !== undefined && options.length > 0) {
             correctAnswer = options[q.bonOpRep] ?? q.bonOpRep;
           }
-          // Normaliser l'énoncé
+          
           const libQuestion = q.libQuestion || q.question || q.text || '';
-          // Normaliser le temps
           const tempsMin = q.tempsMinParQuestion || q.tempsMin || 60;
+          
           return {
             ...q,
             libQuestion,
@@ -113,6 +123,8 @@ const ProfileExamPage = () => {
         
         setExam(normalizedExam);
         console.log('[ProfileExamPage] ✅ Examen chargé:', normalizedExam.title);
+        console.log('[ProfileExamPage] 📊 Questions:', normalizedExam.questions?.length);
+        console.log('[ProfileExamPage] ⏱️ Durée:', normalizedExam.duration);
 
         if (normalizedExam.examOption) {
           setSelectedExamOption(normalizedExam.examOption);
@@ -129,9 +141,18 @@ const ProfileExamPage = () => {
         }
       } catch (error) {
         console.error('[ProfileExamPage] ❌ Erreur chargement:', error);
+        console.error('[ProfileExamPage] Status:', error.response?.status);
+        console.error('[ProfileExamPage] Message:', error.response?.data?.message);
+        
         if (isMounted.current) {
-          toast.error("Épreuve non trouvée ou erreur serveur.");
-          navigate('/');
+          if (error.response?.status === 401) {
+            toast.error("Session expirée. Veuillez vous reconnecter.");
+            localStorage.removeItem('userToken');
+            localStorage.removeItem('token');
+            setTimeout(() => navigate('/login'), 2000);
+          } else {
+            toast.error("Épreuve non trouvée ou erreur serveur.");
+          }
         }
       } finally {
         if (isMounted.current) {
@@ -161,7 +182,7 @@ const ProfileExamPage = () => {
 
     socketRef.current.on('connect', () => {
       console.log('[ProfileExamPage] ✅ Socket connecté, ID:', socketRef.current.id);
-      socketRef.current.emit('registerSession', { type: 'student' });
+      socketRef.current.emit('registerSession', { type: 'student', examId });
     });
 
     socketRef.current.on('connect_error', (error) => {
@@ -175,7 +196,7 @@ const ProfileExamPage = () => {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, [examId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -190,7 +211,7 @@ const ProfileExamPage = () => {
     toast.loading("Traitement...", { id: 'submit-profile' });
 
     try {
-      // ── Calcul robuste de la durée ──────────────────────────────
+      // Calcul robuste de la durée
       let examDuration = exam?.duration;
       if (!examDuration || examDuration <= 0) {
         if (exam?.questions?.length > 0) {
@@ -199,7 +220,7 @@ const ProfileExamPage = () => {
           );
           examDuration = Math.ceil(totalSec / 60);
         } else {
-          examDuration = 60; // défaut 60 min
+          examDuration = 60;
         }
       }
 
@@ -207,11 +228,10 @@ const ProfileExamPage = () => {
         name: `${lastName.trim()} ${firstName.trim()}`,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        matricule: matricule.trim(),
+        matricule: matricule.trim().toUpperCase(),
         level: level.trim()
       };
 
-      // ✅ Inclure terminalSessionId (null ici, mais cohérent avec WaitingPage)
       localStorage.setItem('studentInfoForExam', JSON.stringify({
         examId: examId,
         info: studentInfoData,
@@ -232,10 +252,10 @@ const ProfileExamPage = () => {
           examOption: selectedExamOption
         });
         
-        toast.success("Profil enregistré. En attente du démarrage...", { 
+        toast.success("Profil enregistré. Redirection...", { 
           id: 'submit-profile',
-          icon: '⏳',
-          duration: 5000
+          icon: '✅',
+          duration: 3000
         });
         
         setTimeout(() => {
@@ -429,7 +449,7 @@ const ProfileExamPage = () => {
           }}>
             <Clock size={14} color="#3b82f6" />
             <span style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
-              Durée: {exam.duration} minutes
+              Durée: {exam.duration || '?'} minutes
             </span>
           </div>
           
@@ -519,7 +539,7 @@ const ProfileExamPage = () => {
             <input
               type="text"
               value={matricule}
-              onChange={(e) => setMatricule(e.target.value)}
+              onChange={(e) => setMatricule(e.target.value.toUpperCase())}
               required
               style={{
                 width: '100%',
@@ -531,6 +551,7 @@ const ProfileExamPage = () => {
                 fontSize: '0.9375rem',
                 outline: 'none',
                 boxSizing: 'border-box',
+                fontFamily: 'monospace',
               }}
               placeholder="2024-INFO-001"
             />
@@ -692,7 +713,7 @@ const ProfileExamPage = () => {
               </>
             ) : (
               <>
-                Rejoindre la salle d'attente
+                {selectedExamOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'examen'}
                 <ArrowRight size={18} />
               </>
             )}
