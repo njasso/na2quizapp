@@ -1,5 +1,5 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec luminosité réduite et design épuré
+// Version avec 11 modules, titres harmonisés et design épuré
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -7,12 +7,13 @@ import {
   BookOpen, Database, Bot, Home, List, Monitor, Download,
   CheckSquare, Users, LogOut, Eye, FileText, Shield,
   ClipboardList, Award, BarChart3, Terminal, TrendingUp,
-  Library, LayoutDashboard, User, LogOutIcon, HomeIcon
+  Library, LayoutDashboard, User, LogOutIcon, HomeIcon,
+  FileQuestion, GraduationCap, Activity
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 
-// ========== PALETTE PROFESSIONNELLE - LUMINOSITÉ RÉDUITE ==========
+// ========== Palette professionnelle ==========
 const COLORS = {
   primary: '#2d5a9c',
   primaryLight: '#3d6aac',
@@ -35,38 +36,40 @@ const COLORS = {
   bgGradientEnd: '#0a0e1a'
 };
 
-// ========== MODULES AVEC INTITULÉS PRO ==========
+// ========== 11 modules principaux ==========
 const ALL_MODULES = [
-  // PÔLE QUESTIONS
+  // 1. Création digitale ex nihilo d'une QCM
   {
     id: 'create_question',
     path: '/create/question',
     icon: FileText,
-    title: 'Création ex nihilo',
+    title: 'Création digitale ex nihilo',
     subtitle: 'Question individuelle',
-    desc: 'Concevoir une question originale destinée au circuit de validation',
+    desc: 'Concevoir une question originale destinée au circuit de validation pédagogique',
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #1e3a5f, #2d5a9c)',
     tag: 'Création',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
+  // 2. Création depuis la banque de questions disponibles
   {
     id: 'database',
     path: '/create/database',
     icon: Database,
-    title: 'Sélection catalogue',
-    subtitle: 'Base validée',
-    desc: 'Composer une épreuve à partir des questions approuvées',
+    title: 'Création depuis la banque',
+    subtitle: 'Questions validées',
+    desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #8b5a2b, #b66d2e)',
-    tag: 'Catalogue',
+    tag: 'Banque',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
+  // 3. Création par intelligence artificielle
   {
     id: 'ai',
     path: '/create/ai',
     icon: Bot,
-    title: 'Génération IA',
+    title: 'Génération par IA',
     subtitle: 'DeepSeek',
     desc: 'Générer automatiquement des questions QCM avec révision préalable',
     color: COLORS.secondary,
@@ -74,30 +77,72 @@ const ALL_MODULES = [
     tag: 'IA',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
+  // 4. Gestion des épreuves
   {
-    id: 'qcm_bank',
-    path: '/qcm-bank',
-    icon: Library,
-    title: 'Banque analytique',
-    subtitle: 'Consultation',
-    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées',
-    color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #265e6b, #2c6e7e)',
-    tag: 'Analyse',
+    id: 'exams',
+    path: '/exams',
+    icon: List,
+    title: 'Gestion des épreuves',
+    subtitle: 'Bibliothèque',
+    desc: 'Consulter, modifier, prévisualiser et déployer les examens créés',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
+    tag: 'Épreuves',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
   },
+  // 5. Surveillance en temps réel
+  {
+    id: 'surveillance',
+    path: '/surveillance',
+    icon: Monitor,
+    title: 'Surveillance temps réel',
+    subtitle: 'Sessions actives',
+    desc: 'Piloter et surveiller le déroulement des évaluations en cours',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)',
+    tag: 'Live',
+    roles: ['OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  // 6. Élaboration et analyse complète des rapports
+  {
+    id: 'reports',
+    path: '/reports',
+    icon: BarChart3,
+    title: 'Rapports institutionnels',
+    subtitle: 'Analyse complète',
+    desc: 'Générer et analyser les résultats consolidés, classements et statistiques globales',
+    color: COLORS.gray,
+    gradient: 'linear-gradient(135deg, #4a5a6a, #5a6a7a)',
+    tag: 'Analytics',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  // 7. Rapports de classe
+  {
+    id: 'teacher_reports',
+    path: '/teacher/reports',
+    icon: TrendingUp,
+    title: 'Rapports de classe',
+    subtitle: 'Suivi pédagogique',
+    desc: 'Consulter les résultats détaillés de vos apprenants et classes',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
+    tag: 'Classe',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  // 8. Validation des QCM en attente
   {
     id: 'qcm_validation',
     path: '/admin/qcm-validation',
     icon: CheckSquare,
     title: 'Validation pédagogique',
-    subtitle: 'Comité',
-    desc: 'Examiner et statuer sur les questions proposées',
+    subtitle: 'Questions en attente',
+    desc: 'Examiner et statuer sur les questions proposées par les enseignants',
     color: COLORS.secondary,
     gradient: 'linear-gradient(135deg, #5e4a7a, #6b5b7e)',
-    tag: 'Comité',
+    tag: 'Validation',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
+  // 9. Importation des QCM
   {
     id: 'qcm_import',
     path: '/admin/qcm-import',
@@ -110,60 +155,7 @@ const ALL_MODULES = [
     tag: 'Import',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-
-  // PÔLE ÉPREUVES
-  {
-    id: 'exams',
-    path: '/exams',
-    icon: List,
-    title: 'Gestion des épreuves',
-    subtitle: 'Bibliothèque',
-    desc: 'Consulter, modifier et déployer les examens créés',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
-    tag: 'Épreuves',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
-  },
-
-  // PÔLE ÉVALUATION
-  {
-    id: 'surveillance',
-    path: '/surveillance',
-    icon: Monitor,
-    title: 'Supervision temps réel',
-    subtitle: 'Sessions actives',
-    desc: 'Piloter et surveiller le déroulement des évaluations',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)',
-    tag: 'Live',
-    roles: ['OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'reports',
-    path: '/reports',
-    icon: BarChart3,
-    title: 'Rapports institutionnels',
-    subtitle: 'Analyse complète',
-    desc: 'Générer et analyser les résultats consolidés et classements',
-    color: COLORS.gray,
-    gradient: 'linear-gradient(135deg, #4a5a6a, #5a6a7a)',
-    tag: 'Analytics',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'teacher_reports',
-    path: '/teacher/reports',
-    icon: TrendingUp,
-    title: 'Rapports de classe',
-    subtitle: 'Suivi pédagogique',
-    desc: 'Consulter les résultats détaillés de vos apprenants',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
-    tag: 'Classe',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-
-  // PÔLE ADMINISTRATION
+  // 10. Gestion des utilisateurs
   {
     id: 'user_management',
     path: '/admin/users',
@@ -176,8 +168,21 @@ const ALL_MODULES = [
     tag: 'Admin',
     roles: ['ADMIN_SYSTEME', 'ADMIN_DELEGUE']
   },
+  // 11. Consultation analytique de la banque de QCM (nouveau)
+  {
+    id: 'qcm_bank',
+    path: '/qcm-bank',
+    icon: Library,
+    title: 'Banque analytique',
+    subtitle: 'Consultation détaillée',
+    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #265e6b, #2c6e7e)',
+    tag: 'Analyse',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
+  },
 
-  // PÔLE APPRENANT
+  // === Modules apprenant ===
   {
     id: 'available_exams',
     path: '/available-exams',
@@ -196,7 +201,7 @@ const ALL_MODULES = [
     icon: Award,
     title: 'Mon parcours',
     subtitle: 'Résultats',
-    desc: 'Visualiser l\'historique de vos évaluations',
+    desc: 'Visualiser l\'historique de vos évaluations et télécharger vos bulletins',
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)',
     tag: 'Suivi',
@@ -217,31 +222,31 @@ const ALL_MODULES = [
   }
 ];
 
-// ========== GROUPES PAR CENTRE D'INTÉRÊT ==========
+// ========== Groupes fonctionnels ==========
 const INTEREST_GROUPS = [
   {
     id: 'qcm',
-    title: 'Questions',
-    subtitle: 'Création · Gestion · Validation',
-    icon: BookOpen,
-    modules: ['create_question', 'database', 'ai', 'qcm_bank', 'qcm_validation', 'qcm_import'],
+    title: 'Gestion des questions',
+    subtitle: 'Création · Validation · Import · Analyse',
+    icon: FileQuestion,
+    modules: ['create_question', 'database', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank'],
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #1e3a5f, #2d5a9c)'
   },
   {
     id: 'exam',
-    title: 'Épreuves',
+    title: 'Gestion des épreuves',
     subtitle: 'Composition · Distribution',
-    icon: List,
+    icon: GraduationCap,
     modules: ['exams'],
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)'
   },
   {
     id: 'evaluation',
-    title: 'Évaluation',
-    subtitle: 'Supervision · Analyse',
-    icon: LayoutDashboard,
+    title: 'Évaluation opérationnelle',
+    subtitle: 'Supervision · Analyse · Rapports',
+    icon: Activity,
     modules: ['surveillance', 'reports', 'teacher_reports'],
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)'
@@ -249,7 +254,7 @@ const INTEREST_GROUPS = [
   {
     id: 'users',
     title: 'Administration',
-    subtitle: 'Utilisateurs · Sécurité',
+    subtitle: 'Comptes · Sécurité · Rôles',
     icon: Shield,
     modules: ['user_management'],
     color: COLORS.danger,
@@ -257,7 +262,7 @@ const INTEREST_GROUPS = [
   }
 ];
 
-// ========== ANIMATIONS ==========
+// ========== Animations ==========
 const containerVariants = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.08 } }
@@ -317,13 +322,11 @@ const EvaluationSummative = () => {
 
   return (
     <div style={styles.app}>
-      {/* Fond */}
       <div style={styles.bgPattern} />
       <div style={styles.bgGradient} />
 
-      {/* Header */}
       <header style={styles.header}>
-        <div style={styles.logo}>NA²QUIZ · Évaluation Sommative</div>
+        <div style={styles.logo}>na²quiz · évaluation sommative</div>
         <div style={styles.headerActions}>
           {user && (
             <div style={styles.userBadge}>
@@ -341,7 +344,6 @@ const EvaluationSummative = () => {
       </header>
 
       <main style={styles.main}>
-        {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -350,9 +352,9 @@ const EvaluationSummative = () => {
         >
           <div style={styles.badge}>
             <span style={styles.badgeDot} />
-            <span style={styles.badgeText}>TABLEAU DE BORD</span>
+            <span style={styles.badgeText}>Tableau de bord</span>
           </div>
-          <h1 style={styles.title}>Évaluation Sommative</h1>
+          <h1 style={styles.title}>Évaluation sommative</h1>
           <p style={styles.subtitle}>
             {user?.role === 'APPRENANT'
               ? 'Accédez à vos évaluations et suivez votre progression'
@@ -362,7 +364,6 @@ const EvaluationSummative = () => {
           </p>
         </motion.div>
 
-        {/* Groupes */}
         {visibleGroups.length === 0 ? (
           <div style={styles.emptyState}>
             <LayoutDashboard size={48} color={COLORS.textMuted} />
@@ -443,7 +444,7 @@ const EvaluationSummative = () => {
   );
 };
 
-// ========== STYLES ÉPURÉS ==========
+// ========== Styles ==========
 const styles = {
   app: {
     minHeight: '100vh',
@@ -486,11 +487,12 @@ const styles = {
   },
   logo: {
     fontFamily: "'Inter', system-ui",
-    fontWeight: 600,
-    fontSize: '0.95rem',
+    fontWeight: 500,
+    fontSize: '0.85rem',
     letterSpacing: '-0.01em',
     color: COLORS.text,
-    opacity: 0.9
+    opacity: 0.8,
+    textTransform: 'lowercase'
   },
   headerActions: {
     display: 'flex',
@@ -549,7 +551,7 @@ const styles = {
   },
   badgeText: {
     fontSize: '0.65rem',
-    fontWeight: 600,
+    fontWeight: 500,
     letterSpacing: '0.08em',
     color: COLORS.primaryLight,
     textTransform: 'uppercase'
@@ -560,7 +562,8 @@ const styles = {
     fontWeight: 600,
     letterSpacing: '-0.02em',
     color: COLORS.text,
-    marginBottom: '12px'
+    marginBottom: '12px',
+    textTransform: 'lowercase'
   },
   subtitle: {
     fontSize: '0.9rem',
@@ -597,7 +600,7 @@ const styles = {
   groupTitle: {
     fontFamily: "'Inter', system-ui",
     fontSize: '1rem',
-    fontWeight: 600,
+    fontWeight: 500,
     color: COLORS.text,
     letterSpacing: '-0.01em',
     margin: 0
@@ -606,15 +609,14 @@ const styles = {
     fontSize: '0.6rem',
     color: COLORS.textMuted,
     marginTop: '1px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em'
+    letterSpacing: '0.05em'
   },
   groupCount: {
     marginLeft: 'auto',
     padding: '2px 8px',
     borderRadius: '24px',
     fontSize: '0.65rem',
-    fontWeight: 600,
+    fontWeight: 500,
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid'
   },
@@ -653,19 +655,20 @@ const styles = {
   },
   cardTag: {
     fontSize: '0.6rem',
-    fontWeight: 600,
-    textTransform: 'uppercase',
+    fontWeight: 500,
     letterSpacing: '0.08em',
     marginBottom: '4px',
-    display: 'inline-block'
+    display: 'inline-block',
+    textTransform: 'uppercase'
   },
   cardTitle: {
     fontFamily: "'Inter', system-ui",
-    fontSize: '0.9rem',
-    fontWeight: 600,
+    fontSize: '0.85rem',
+    fontWeight: 500,
     color: COLORS.text,
     marginBottom: '4px',
-    letterSpacing: '-0.01em'
+    letterSpacing: '-0.01em',
+    lineHeight: 1.3
   },
   cardDesc: {
     fontSize: '0.7rem',
@@ -708,7 +711,7 @@ const styles = {
   authTitle: {
     color: COLORS.text,
     fontSize: '1.2rem',
-    fontWeight: 600,
+    fontWeight: 500,
     marginBottom: '8px'
   },
   authText: {
