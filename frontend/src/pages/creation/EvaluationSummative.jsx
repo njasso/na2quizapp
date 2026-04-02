@@ -1,5 +1,5 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec thème harmonisé avec QCMBankPage
+// Version avec lien terminal fonctionnel pour APPRENANT
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,32 +13,32 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
-// ========== PALETTE PROFESSIONNELLE (harmonisée avec QCMBankPage) ==========
+// ========== PALETTE SOMBRE TAMISÉE ==========
 const COLORS = {
-  primary: '#2d5a9c',
-  primaryLight: '#3d6aac',
-  primaryDark: '#1d4a8c',
+  primary: '#6366f1',
+  primaryLight: '#8b5cf6',
+  primaryDark: '#4f46e5',
   secondary: '#6b5b7e',
-  success: '#2b6e4f',
-  warning: '#b66d2e',
-  danger: '#a94442',
-  info: '#2c6e7e',
-  gray: '#5a6a7a',
-  dark: '#0e1622',
-  cardBg: 'rgba(18, 22, 35, 0.85)',
-  cardBorder: 'rgba(75, 85, 105, 0.25)',
-  text: '#e8edf5',
-  textDim: '#9aa9b9',
-  textMuted: '#6f7d8f',
-  glow: 'rgba(45, 90, 156, 0.12)',
-  bgGradientStart: '#0a0e1a',
-  bgGradientMid: '#111624',
-  bgGradientEnd: '#0a0e1a'
+  success: '#10b981',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  info: '#3b82f6',
+  gray: '#6b7280',
+  dark: '#0f172a',
+  cardBg: 'rgba(15, 23, 42, 0.85)',
+  cardBorder: 'rgba(99, 102, 241, 0.15)',
+  text: '#f1f5f9',
+  textDim: '#94a3b8',
+  textMuted: '#64748b',
+  glow: 'rgba(99, 102, 241, 0.08)',
+  bgGradientStart: '#05071a',
+  bgGradientMid: '#0a0f2e',
+  bgGradientEnd: '#05071a'
 };
 
-// ========== 12 MODULES PRINCIPAUX (avec rôles corrigés) ==========
+// ========== MODULES AVEC RÔLES CORRIGÉS ==========
 const ALL_MODULES = [
-  // 1. Création digitale ex nihilo d'une QCM
+  // ========== MODULES ENSEIGNANT & ADMIN ==========
   {
     id: 'create_question',
     path: '/create/question',
@@ -47,11 +47,10 @@ const ALL_MODULES = [
     subtitle: 'Question individuelle',
     desc: 'Concevoir une question originale destinée au circuit de validation pédagogique',
     color: COLORS.primary,
-    gradient: 'linear-gradient(135deg, #1e3a5f, #2d5a9c)',
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
     tag: 'Création',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 2. Création depuis la banque de questions disponibles
   {
     id: 'database',
     path: '/create/database',
@@ -60,11 +59,10 @@ const ALL_MODULES = [
     subtitle: 'Questions validées',
     desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
     color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #8b5a2b, #b66d2e)',
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
     tag: 'Banque',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 3. Création par intelligence artificielle
   {
     id: 'ai',
     path: '/create/ai',
@@ -73,11 +71,10 @@ const ALL_MODULES = [
     subtitle: 'DeepSeek',
     desc: 'Générer automatiquement des questions QCM avec révision préalable',
     color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #524b6b, #6b5b7e)',
+    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
     tag: 'IA',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 4. Gestion des épreuves
   {
     id: 'exams',
     path: '/exams',
@@ -86,11 +83,10 @@ const ALL_MODULES = [
     subtitle: 'Bibliothèque',
     desc: 'Consulter, modifier, prévisualiser et déployer les examens créés',
     color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Épreuves',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
+    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 5. Surveillance en temps réel
   {
     id: 'surveillance',
     path: '/surveillance',
@@ -99,11 +95,10 @@ const ALL_MODULES = [
     subtitle: 'Sessions actives',
     desc: 'Piloter et surveiller le déroulement des évaluations en cours',
     color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)',
+    gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
     tag: 'Live',
-    roles: ['OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 6. Élaboration et analyse complète des rapports
   {
     id: 'reports',
     path: '/reports',
@@ -112,11 +107,10 @@ const ALL_MODULES = [
     subtitle: 'Analyse complète',
     desc: 'Générer et analyser les résultats consolidés, classements et statistiques globales',
     color: COLORS.gray,
-    gradient: 'linear-gradient(135deg, #4a5a6a, #5a6a7a)',
+    gradient: 'linear-gradient(135deg, #475569, #64748b)',
     tag: 'Analytics',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 7. Rapports de classe
   {
     id: 'teacher_reports',
     path: '/teacher/reports',
@@ -125,11 +119,10 @@ const ALL_MODULES = [
     subtitle: 'Suivi pédagogique',
     desc: 'Consulter les résultats détaillés de vos apprenants et classes',
     color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Classe',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 8. Validation des QCM en attente
   {
     id: 'qcm_validation',
     path: '/admin/qcm-validation',
@@ -138,11 +131,10 @@ const ALL_MODULES = [
     subtitle: 'Questions en attente',
     desc: 'Examiner et statuer sur les questions proposées par les enseignants',
     color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #5e4a7a, #6b5b7e)',
+    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
     tag: 'Validation',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 9. Importation des QCM
   {
     id: 'qcm_import',
     path: '/admin/qcm-import',
@@ -151,11 +143,10 @@ const ALL_MODULES = [
     subtitle: 'CSV / JSON',
     desc: 'Intégrer un lot de questions depuis un fichier structuré',
     color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #266e4a, #2b6e4f)',
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Import',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 10. Gestion des utilisateurs
   {
     id: 'user_management',
     path: '/admin/users',
@@ -164,11 +155,10 @@ const ALL_MODULES = [
     subtitle: 'Utilisateurs',
     desc: 'Administrer les profils, rôles et accès au système',
     color: COLORS.danger,
-    gradient: 'linear-gradient(135deg, #964b4b, #a94442)',
+    gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
     tag: 'Admin',
-    roles: ['ADMIN_SYSTEME', 'ADMIN_DELEGUE']
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 11. Consultation analytique de la banque de QCM
   {
     id: 'qcm_bank',
     path: '/qcm-bank',
@@ -177,11 +167,10 @@ const ALL_MODULES = [
     subtitle: 'Consultation détaillée',
     desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
     color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #265e6b, #2c6e7e)',
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
     tag: 'Analyse',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
-  // 12. Mes questions - Suivi des QCM pour l'enseignant
   {
     id: 'my_questions',
     path: '/teacher/questions',
@@ -190,21 +179,21 @@ const ALL_MODULES = [
     subtitle: 'Suivi des QCM',
     desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
     color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #1e4a6b, #2c6e7e)',
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
     tag: 'Suivi',
     roles: ['ENSEIGNANT']
   },
 
-  // === Modules APPRENANT ===
+  // ========== MODULES APPRENANT ==========
   {
     id: 'available_exams',
     path: '/available-exams',
     icon: ClipboardList,
     title: 'Épreuves disponibles',
-    subtitle: 'Composition',
-    desc: 'Accéder aux évaluations auxquelles vous êtes inscrit',
+    subtitle: 'Mes évaluations',
+    desc: 'Accéder aux évaluations auxquelles vous êtes inscrit et composer',
     color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)',
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Composition',
     roles: ['APPRENANT']
   },
@@ -212,26 +201,26 @@ const ALL_MODULES = [
     id: 'my_results',
     path: '/my-results',
     icon: Award,
-    title: 'Mon parcours',
-    subtitle: 'Résultats',
+    title: 'Mes résultats',
+    subtitle: 'Mon parcours',
     desc: 'Visualiser l\'historique de vos évaluations et télécharger vos bulletins',
     color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)',
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
     tag: 'Suivi',
     roles: ['APPRENANT']
   },
   {
     id: 'terminal',
-    path: 'http://192.168.0.1:5000/terminal.html',
+    path: 'https://na2quizapp.onrender.com/terminal.html',
     icon: Terminal,
     title: 'Terminal d\'examen',
     subtitle: 'Poste candidat',
     desc: 'Interface de composition pour les évaluations en salle',
-    color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #5e4a7a, #6b5b7e)',
+    color: COLORS.primary,
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
     tag: 'Examen',
     roles: ['APPRENANT'],
-    external: true
+    external: true  // ← Ouvre dans un nouvel onglet
   }
 ];
 
@@ -244,7 +233,7 @@ const INTEREST_GROUPS = [
     icon: FileQuestion,
     modules: ['create_question', 'database', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank', 'my_questions'],
     color: COLORS.primary,
-    gradient: 'linear-gradient(135deg, #1e3a5f, #2d5a9c)'
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
   },
   {
     id: 'exam',
@@ -253,7 +242,7 @@ const INTEREST_GROUPS = [
     icon: GraduationCap,
     modules: ['exams'],
     color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #1f6e48, #2b6e4f)'
+    gradient: 'linear-gradient(135deg, #059669, #10b981)'
   },
   {
     id: 'evaluation',
@@ -262,7 +251,7 @@ const INTEREST_GROUPS = [
     icon: Activity,
     modules: ['surveillance', 'reports', 'teacher_reports'],
     color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #9e5a2b, #b66d2e)'
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)'
   },
   {
     id: 'users',
@@ -271,7 +260,16 @@ const INTEREST_GROUPS = [
     icon: Shield,
     modules: ['user_management'],
     color: COLORS.danger,
-    gradient: 'linear-gradient(135deg, #964b4b, #a94442)'
+    gradient: 'linear-gradient(135deg, #dc2626, #ef4444)'
+  },
+  {
+    id: 'apprenant',
+    title: 'Espace Apprenant',
+    subtitle: 'Évaluations · Résultats · Terminal',
+    icon: GraduationCap,
+    modules: ['available_exams', 'my_results', 'terminal'],
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)'
   }
 ];
 
@@ -295,12 +293,14 @@ const EvaluationSummative = () => {
   const navigate = useNavigate();
   const { user, hasRole, logout } = useAuth();
 
+  // Filtrer les modules accessibles selon le rôle de l'utilisateur
   const accessibleModules = ALL_MODULES.filter(mod =>
     mod.roles.some(role => hasRole(role))
   );
 
   const accessibleModulesMap = new Map(accessibleModules.map(m => [m.id, m]));
 
+  // Filtrer les groupes qui ont au moins un module accessible
   const visibleGroups = INTEREST_GROUPS.filter(group =>
     group.modules.some(id => accessibleModulesMap.has(id))
   );
@@ -312,7 +312,8 @@ const EvaluationSummative = () => {
 
   const handleModuleClick = (mod) => {
     if (mod.external) {
-      window.open(mod.path, '_blank');
+      // Ouvre le terminal dans un nouvel onglet
+      window.open(mod.path, '_blank', 'noopener,noreferrer');
     } else {
       navigate(mod.path);
     }
@@ -333,27 +334,48 @@ const EvaluationSummative = () => {
     );
   }
 
+  // Déterminer le message d'accueil selon le rôle
+  const getWelcomeMessage = () => {
+    switch (user?.role) {
+      case 'APPRENANT':
+        return 'Accédez à vos épreuves, consultez vos résultats et utilisez le terminal d\'examen';
+      case 'OPERATEUR_EVALUATION':
+        return 'Pilotez et supervisez les sessions d\'examen en temps réel';
+      case 'ENSEIGNANT':
+        return 'Concevez, gérez et analysez vos évaluations pédagogiques';
+      case 'ADMIN_DELEGUE':
+        return 'Validez les QCM, gérez les épreuves et consultez les rapports';
+      case 'ADMIN_SYSTEME':
+        return 'Administration complète du système';
+      default:
+        return 'Tableau de bord NA²QUIZ';
+    }
+  };
+
   return (
     <div style={styles.app}>
-      {/* Fond */}
+      {/* Fond avec pattern */}
       <div style={styles.bgPattern} />
       <div style={styles.bgGradient} />
 
       {/* Header */}
       <header style={styles.header}>
-        <div style={styles.logo}>na²quiz · évaluation sommative</div>
+        <div style={styles.logo}>
+          <span style={{ color: COLORS.primary }}>na²</span>quiz · évaluation sommative
+        </div>
         <div style={styles.headerActions}>
           {user && (
             <div style={styles.userBadge}>
               <User size={12} style={{ marginRight: 6 }} />
-              {user.name?.split(' ')[0] || user.email?.split('@')[0]} · <span style={{ color: COLORS.primaryLight }}>{user.role}</span>
+              {user.name?.split(' ')[0] || user.email?.split('@')[0]} · 
+              <span style={{ color: COLORS.primaryLight, marginLeft: 4 }}>{user.role}</span>
             </div>
           )}
-          <button onClick={handleLogout} style={styles.iconButton}>
-            <LogOutIcon size={14} /> Déconnexion
-          </button>
           <button onClick={() => navigate('/')} style={styles.iconButton}>
             <HomeIcon size={14} /> Accueil
+          </button>
+          <button onClick={handleLogout} style={{...styles.iconButton, borderColor: 'rgba(239,68,68,0.3)', color: COLORS.danger}}>
+            <LogOutIcon size={14} /> Déconnexion
           </button>
         </div>
       </header>
@@ -370,21 +392,16 @@ const EvaluationSummative = () => {
             <span style={styles.badgeDot} />
             <span style={styles.badgeText}>Tableau de bord</span>
           </div>
-          <h1 style={styles.title}>Évaluation sommative</h1>
-          <p style={styles.subtitle}>
-            {user?.role === 'APPRENANT'
-              ? 'Accédez à vos évaluations et suivez votre progression'
-              : user?.role === 'OPERATEUR_EVALUATION'
-              ? 'Pilotez et supervisez les sessions d\'examen en temps réel'
-              : 'Concevez, validez et analysez les évaluations pédagogiques'}
-          </p>
+          <h1 style={styles.title}>ÉVALUATION SOMMATIVE</h1>
+          <p style={styles.subtitle}>{getWelcomeMessage()}</p>
         </motion.div>
 
-        {/* Groupes */}
+        {/* Groupes de modules */}
         {visibleGroups.length === 0 ? (
           <div style={styles.emptyState}>
             <LayoutDashboard size={48} color={COLORS.textMuted} />
             <p>Aucun module accessible avec votre profil</p>
+            <p style={{ fontSize: '0.7rem', marginTop: 8 }}>Contactez votre administrateur</p>
           </div>
         ) : (
           <motion.div
@@ -424,12 +441,10 @@ const EvaluationSummative = () => {
                         <motion.button
                           key={mod.id}
                           variants={cardVariants}
-                          whileHover={{ y: -3 }}
+                          whileHover={{ y: -3, borderColor: mod.color }}
                           whileTap={{ scale: 0.99 }}
                           onClick={() => handleModuleClick(mod)}
                           style={styles.card}
-                          onMouseEnter={e => e.currentTarget.style.borderColor = `${mod.color}60`}
-                          onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.cardBorder}
                         >
                           <div style={{ ...styles.cardIcon, background: mod.gradient }}>
                             <Icon size={20} color="#fff" />
@@ -456,12 +471,27 @@ const EvaluationSummative = () => {
           0%, 100% { opacity: 0.5; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.2); }
         }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        ::-webkit-scrollbar {
+          width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.5);
+          border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(99, 102, 241, 0.3);
+          border-radius: 10px;
+        }
       `}</style>
     </div>
   );
 };
 
-// ========== STYLES (harmonisés avec QCMBankPage) ==========
+// ========== STYLES ==========
 const styles = {
   app: {
     minHeight: '100vh',
@@ -473,15 +503,15 @@ const styles = {
   bgPattern: {
     position: 'fixed',
     inset: 0,
-    backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(75,85,105,0.08) 1px, transparent 0)',
-    backgroundSize: '32px 32px',
+    backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.05) 1px, transparent 0)',
+    backgroundSize: '40px 40px',
     pointerEvents: 'none',
     zIndex: 0
   },
   bgGradient: {
     position: 'fixed',
     top: '-30%',
-    left: '30%',
+    left: '20%',
     width: '60vw',
     height: '60vh',
     background: `radial-gradient(ellipse, ${COLORS.glow} 0%, transparent 70%)`,
@@ -493,9 +523,9 @@ const styles = {
     position: 'sticky',
     top: 0,
     zIndex: 50,
-    background: 'rgba(14, 22, 34, 0.85)',
+    background: 'rgba(5, 7, 26, 0.85)',
     backdropFilter: 'blur(16px)',
-    borderBottom: '1px solid rgba(75,85,105,0.2)',
+    borderBottom: '1px solid rgba(99, 102, 241, 0.15)',
     padding: '0 28px',
     height: '56px',
     display: 'flex',
@@ -507,8 +537,7 @@ const styles = {
     fontWeight: 500,
     fontSize: '0.85rem',
     letterSpacing: '-0.01em',
-    color: COLORS.text,
-    opacity: 0.8,
+    color: COLORS.textDim,
     textTransform: 'lowercase'
   },
   headerActions: {
@@ -519,10 +548,10 @@ const styles = {
   userBadge: {
     fontSize: '0.7rem',
     color: COLORS.textDim,
-    background: 'rgba(255,255,255,0.03)',
+    background: 'rgba(99, 102, 241, 0.08)',
     padding: '4px 12px',
     borderRadius: '32px',
-    border: '1px solid rgba(255,255,255,0.05)'
+    border: '1px solid rgba(99, 102, 241, 0.15)'
   },
   iconButton: {
     display: 'flex',
@@ -531,7 +560,7 @@ const styles = {
     padding: '4px 12px',
     borderRadius: '32px',
     background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.05)',
+    border: '1px solid rgba(99, 102, 241, 0.15)',
     color: COLORS.textDim,
     fontSize: '0.7rem',
     fontWeight: 500,
@@ -555,8 +584,8 @@ const styles = {
     gap: '6px',
     padding: '3px 12px',
     marginBottom: '16px',
-    background: 'rgba(45,90,156,0.12)',
-    border: '1px solid rgba(45,90,156,0.2)',
+    background: 'rgba(99, 102, 241, 0.08)',
+    border: '1px solid rgba(99, 102, 241, 0.2)',
     borderRadius: '32px'
   },
   badgeDot: {
@@ -580,7 +609,7 @@ const styles = {
     letterSpacing: '-0.02em',
     color: COLORS.text,
     marginBottom: '12px',
-    textTransform: 'lowercase'
+    textTransform: 'uppercase'
   },
   subtitle: {
     fontSize: '0.9rem',
@@ -603,12 +632,12 @@ const styles = {
     gap: '14px',
     marginBottom: '20px',
     paddingBottom: '10px',
-    borderBottom: '1px solid rgba(75,85,105,0.2)'
+    borderBottom: '1px solid rgba(99, 102, 241, 0.15)'
   },
   groupIcon: {
     width: '36px',
     height: '36px',
-    borderRadius: '10px',
+    borderRadius: '12px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -653,14 +682,14 @@ const styles = {
     backdropFilter: 'blur(8px)',
     border: '1px solid',
     borderColor: COLORS.cardBorder,
-    borderRadius: '16px',
+    borderRadius: '20px',
     cursor: 'pointer',
     transition: 'all 0.2s ease'
   },
   cardIcon: {
     width: '42px',
     height: '42px',
-    borderRadius: '12px',
+    borderRadius: '14px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -705,9 +734,9 @@ const styles = {
     textAlign: 'center',
     padding: '60px 20px',
     color: COLORS.textMuted,
-    background: 'rgba(18,22,35,0.5)',
+    background: 'rgba(15, 23, 42, 0.5)',
     borderRadius: '24px',
-    border: '1px dashed rgba(75,85,105,0.3)'
+    border: '1px dashed rgba(99, 102, 241, 0.3)'
   },
   authContainer: {
     minHeight: '100vh',
@@ -720,7 +749,7 @@ const styles = {
     textAlign: 'center',
     background: COLORS.cardBg,
     backdropFilter: 'blur(12px)',
-    border: '1px solid rgba(169,68,66,0.3)',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
     borderRadius: '24px',
     padding: '40px',
     maxWidth: '380px'
