@@ -184,23 +184,23 @@ const AIQuizCreation = () => {
     setIsLoading(true);
     try {
       const questionsToSave = generatedQuestions.map(q => ({
-        libQuestion: q.libQuestion,
-        options: q.options.filter(opt => opt && opt.trim() !== ''),
-        correctAnswer: q.correctAnswer,
-        typeQuestion: q.typeQuestion,
-        points: q.points,
-        tempsMin: q.tempsMin,
-        explanation: q.explanation,
-        domaine: resolvedDomainNom,
-        sousDomaine: resolvedSousDomNom,
-        niveau: resolvedLevelNom,
-        matiere: resolvedMatiereNom,
-        imageQuestion: q.imageQuestion || '',
-        imageBase64: q.imageBase64 || '',
-        imageMetadata: q.imageMetadata || {},
-        matriculeAuteur: user?.matricule || user?.email || '',
-        status: 'pending'
-      }));
+  libQuestion: q.libQuestion?.trim() || 'Question sans libellé',
+  options: q.options.filter(opt => opt && opt.trim() !== ''),
+  correctAnswer: q.correctAnswer?.trim() || (q.options[0]?.trim() || 'A'),
+  typeQuestion: q.typeQuestion || 1,
+  points: q.points || 1,
+  tempsMin: q.tempsMin || 1,
+  explanation: q.explanation?.trim() || '',
+  domaine: resolvedDomainNom?.trim() || 'Non spécifié',
+  sousDomaine: resolvedSousDomNom?.trim() || 'Non spécifié',
+  niveau: resolvedLevelNom?.trim() || 'Non spécifié',
+  matiere: resolvedMatiereNom?.trim() || 'Non spécifié', // ← JAMAIS VIDE
+  imageQuestion: q.imageQuestion || '',
+  imageBase64: q.imageBase64 || '',
+  imageMetadata: q.imageMetadata || {},
+  matriculeAuteur: user?.matricule || user?.email || 'inconnu',
+  status: 'pending'
+}));
 
       const response = await saveQuestions({ questions: questionsToSave });
 
