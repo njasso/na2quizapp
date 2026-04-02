@@ -133,10 +133,11 @@ const CreateQuestion = () => {
   };
 
   const handleImageChange = (url, base64, metadata) => {
-    setImageQuestion(url || '');
-    setImageBase64(base64 || '');
-    setImageMetadata(metadata || {});
-  };
+  console.log('Image change:', { url, base64: !!base64, metadata });
+  setImageQuestion(url || '');
+  setImageBase64(base64 || '');
+  setImageMetadata(metadata || {});
+};
 
   const validateForm = () => {
     const filledOptions = options.filter(opt => opt.trim() !== '');
@@ -362,8 +363,11 @@ const CreateQuestion = () => {
           </div>
 
           {/* Image */}
-          <ImageUploader value={imageQuestion || imageBase64} onImageChange={handleImageChange} label="Image (optionnel)" />
-
+           <ImageUploader 
+  value={imageQuestion || imageBase64} 
+  onChange={handleImageChange} // Changé de onImageChange à onChange
+  label="Image (optionnel)" 
+/> 
           {/* Options */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.7rem', marginBottom: 8, display: 'block' }}>

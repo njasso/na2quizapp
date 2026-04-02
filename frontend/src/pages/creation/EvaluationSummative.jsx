@@ -1,8 +1,9 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec 11 modules, titres harmonisés et design épuré
+// Version avec thème harmonisé avec QCMBankPage
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import {
   BookOpen, Database, Bot, Home, List, Monitor, Download,
   CheckSquare, Users, LogOut, Eye, FileText, Shield,
@@ -10,10 +11,9 @@ import {
   Library, LayoutDashboard, User, LogOutIcon, HomeIcon,
   FileQuestion, GraduationCap, Activity
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 
-// ========== Palette professionnelle ==========
+// ========== PALETTE PROFESSIONNELLE (harmonisée avec QCMBankPage) ==========
 const COLORS = {
   primary: '#2d5a9c',
   primaryLight: '#3d6aac',
@@ -36,7 +36,7 @@ const COLORS = {
   bgGradientEnd: '#0a0e1a'
 };
 
-// ========== 11 modules principaux ==========
+// ========== 12 MODULES PRINCIPAUX (avec rôles corrigés) ==========
 const ALL_MODULES = [
   // 1. Création digitale ex nihilo d'une QCM
   {
@@ -168,7 +168,7 @@ const ALL_MODULES = [
     tag: 'Admin',
     roles: ['ADMIN_SYSTEME', 'ADMIN_DELEGUE']
   },
-  // 11. Consultation analytique de la banque de QCM (nouveau)
+  // 11. Consultation analytique de la banque de QCM
   {
     id: 'qcm_bank',
     path: '/qcm-bank',
@@ -181,8 +181,21 @@ const ALL_MODULES = [
     tag: 'Analyse',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']
   },
+  // 12. Mes questions - Suivi des QCM pour l'enseignant
+  {
+    id: 'my_questions',
+    path: '/teacher/questions',
+    icon: FileQuestion,
+    title: 'Mes questions',
+    subtitle: 'Suivi des QCM',
+    desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #1e4a6b, #2c6e7e)',
+    tag: 'Suivi',
+    roles: ['ENSEIGNANT']
+  },
 
-  // === Modules apprenant ===
+  // === Modules APPRENANT ===
   {
     id: 'available_exams',
     path: '/available-exams',
@@ -222,14 +235,14 @@ const ALL_MODULES = [
   }
 ];
 
-// ========== Groupes fonctionnels ==========
+// ========== GROUPES FONCTIONNELS ==========
 const INTEREST_GROUPS = [
   {
     id: 'qcm',
     title: 'Gestion des questions',
-    subtitle: 'Création · Validation · Import · Analyse',
+    subtitle: 'Création · Validation · Import · Analyse · Suivi',
     icon: FileQuestion,
-    modules: ['create_question', 'database', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank'],
+    modules: ['create_question', 'database', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank', 'my_questions'],
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #1e3a5f, #2d5a9c)'
   },
@@ -262,7 +275,7 @@ const INTEREST_GROUPS = [
   }
 ];
 
-// ========== Animations ==========
+// ========== ANIMATIONS ==========
 const containerVariants = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.08 } }
@@ -322,9 +335,11 @@ const EvaluationSummative = () => {
 
   return (
     <div style={styles.app}>
+      {/* Fond */}
       <div style={styles.bgPattern} />
       <div style={styles.bgGradient} />
 
+      {/* Header */}
       <header style={styles.header}>
         <div style={styles.logo}>na²quiz · évaluation sommative</div>
         <div style={styles.headerActions}>
@@ -344,6 +359,7 @@ const EvaluationSummative = () => {
       </header>
 
       <main style={styles.main}>
+        {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -364,6 +380,7 @@ const EvaluationSummative = () => {
           </p>
         </motion.div>
 
+        {/* Groupes */}
         {visibleGroups.length === 0 ? (
           <div style={styles.emptyState}>
             <LayoutDashboard size={48} color={COLORS.textMuted} />
@@ -444,7 +461,7 @@ const EvaluationSummative = () => {
   );
 };
 
-// ========== Styles ==========
+// ========== STYLES (harmonisés avec QCMBankPage) ==========
 const styles = {
   app: {
     minHeight: '100vh',

@@ -1,4 +1,6 @@
-// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA
+// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION PRO
+// Données réelles, statistiques pertinentes, recommandations IA dynamiques
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,7 +10,8 @@ import {
   ChevronDown, ChevronUp, ArrowLeft, Home, User, RefreshCw,
   BarChart3, TrendingUp, PieChart, FilterX, Copy, Trash2,
   Brain, Zap, Target, AlertTriangle, Lightbulb, Settings, Sparkles,
-  Calendar, TrendingDown, Activity, BarChart, LineChart
+  Calendar, TrendingDown, Activity, BarChart, LineChart,
+  Users, Medal, Star, Clock as ClockIcon
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getQuestions } from '../../services/api';
@@ -57,8 +60,7 @@ const QCMBankPage = () => {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dashboardView, setDashboardView] = useState('analytics'); // 'analytics', 'insights', 'recommendations'
-  const [timeRange, setTimeRange] = useState('month'); // 'week', 'month', 'year', 'all'
+  const [dashboardView, setDashboardView] = useState('analytics');
 
   // Filtres
   const [searchTerm, setSearchTerm] = useState('');
@@ -71,21 +73,21 @@ const QCMBankPage = () => {
   const [showFilters, setShowFilters] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState(null);
 
-  // Noms
+  // Noms (pour les filtres API)
   const [domainNom, setDomainNom] = useState('');
   const [sousDomaineNom, setSousDomaineNom] = useState('');
   const [levelNom, setLevelNom] = useState('');
   const [matiereNom, setMatiereNom] = useState('');
 
-  // IA Insights
+  // IA Insights (calculés dynamiquement)
   const [aiInsights, setAiInsights] = useState({
     strengths: [],
     weaknesses: [],
     recommendations: [],
-    predictedGrowth: 12,
-    qualityScore: 78,
-    balanceScore: 65,
-    coverageScore: 82
+    predictedGrowth: 0,
+    qualityScore: 0,
+    balanceScore: 0,
+    coverageScore: 0
   });
 
   // Statistiques avancées
@@ -99,7 +101,11 @@ const QCMBankPage = () => {
     byMatiere: {},
     monthlyGrowth: [],
     validationRate: 0,
-    avgValidationDays: 0
+    avgValidationDays: 0,
+    // Statistiques auteurs
+    topAuthors: [],
+    authorStats: {},
+    totalAuthors: 0
   });
 
   // Mise à jour des noms
@@ -131,18 +137,20 @@ const QCMBankPage = () => {
     setError(null);
     try {
       const filter = {};
-      if (selectedDomainId) filter.nDomaine = parseInt(selectedDomainId);
-      if (selectedSousDomaineId) filter.nSousDomaine = parseInt(selectedSousDomaineId);
-      if (selectedLevelId) filter.niveau = parseInt(selectedLevelId);
-      if (selectedMatiereId) filter.matiere = parseInt(selectedMatiereId);
+      if (selectedDomainId && domainNom) filter.domaine = domainNom;
+      if (selectedSousDomaineId && sousDomaineNom) filter.sousDomaine = sousDomaineNom;
+      if (selectedLevelId && levelNom) filter.niveau = levelNom;
+      if (selectedMatiereId && matiereNom) filter.matiere = matiereNom;
       if (selectedStatus !== 'all') filter.status = selectedStatus;
 
+      console.log('[API] Filtres envoyés:', filter);
       const response = await getQuestions(filter);
 
       let questionsData = [];
       if (Array.isArray(response)) questionsData = response;
       else if (response?.data && Array.isArray(response.data)) questionsData = response.data;
       else if (response?.data?.data && Array.isArray(response.data.data)) questionsData = response.data.data;
+      else if (response?.success && Array.isArray(response.data)) questionsData = response.data;
 
       const normalized = questionsData.map(q => ({
         ...q,
@@ -150,87 +158,13 @@ const QCMBankPage = () => {
         typeInfo: QUESTION_TYPES.find(t => t.id === q.typeQuestion) || QUESTION_TYPES[0],
         imageUrl: q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null),
         createdAtDate: new Date(q.createdAt),
-        approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null
+        approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null,
+        authorName: q.createdBy?.name || q.matriculeAuteur || 'Inconnu',
+        authorId: q.createdBy?._id || q.matriculeAuteur || 'inconnu'
       }));
 
       setQuestions(normalized);
-
-      // Calcul des statistiques avancées
-      const statsCalc = {
-        total: normalized.length,
-        byType: { 1: 0, 2: 0, 3: 0 },
-        byStatus: { approved: 0, pending: 0, rejected: 0 },
-        avgPoints: 0,
-        avgTime: 0,
-        byLevel: {},
-        byMatiere: {},
-        monthlyGrowth: {},
-        validationRate: 0,
-        avgValidationDays: 0
-      };
-
-      let totalPoints = 0;
-      let totalTime = 0;
-      let totalValidationDays = 0;
-      let validationCount = 0;
-      let rejectedCount = 0;
-
-      // Analyse temporelle
-      const monthlyData = {};
-
-      normalized.forEach(q => {
-        // Par type
-        if (q.typeQuestion && statsCalc.byType[q.typeQuestion] !== undefined) {
-          statsCalc.byType[q.typeQuestion]++;
-        }
-        
-        // Par statut
-        if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
-        
-        // Par niveau
-        if (q.niveau) {
-          statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
-        }
-        
-        // Par matière
-        if (q.matiere) {
-          statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
-        }
-        
-        totalPoints += q.points || 1;
-        totalTime += q.tempsMin || 1;
-        
-        // Temps de validation
-        if (q.status === 'approved' && q.createdAtDate && q.approvedAtDate) {
-          const days = (q.approvedAtDate - q.createdAtDate) / (1000 * 60 * 60 * 24);
-          totalValidationDays += days;
-          validationCount++;
-        }
-        
-        if (q.status === 'rejected') rejectedCount++;
-        
-        // Croissance mensuelle
-        if (q.createdAtDate) {
-          const monthKey = `${q.createdAtDate.getFullYear()}-${q.createdAtDate.getMonth() + 1}`;
-          monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
-        }
-      });
-      
-      statsCalc.avgPoints = normalized.length ? (totalPoints / normalized.length).toFixed(1) : 0;
-      statsCalc.avgTime = normalized.length ? (totalTime / normalized.length).toFixed(0) : 0;
-      statsCalc.avgValidationDays = validationCount ? (totalValidationDays / validationCount).toFixed(1) : 0;
-      statsCalc.validationRate = normalized.length ? ((validationCount / (validationCount + rejectedCount)) * 100).toFixed(0) : 0;
-      
-      // Convertir monthlyData en tableau trié
-      statsCalc.monthlyGrowth = Object.entries(monthlyData)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .slice(-12)
-        .map(([month, count]) => ({ month, count }));
-
-      setStats(statsCalc);
-      
-      // Générer les insights IA
-      generateAIInsights(normalized, statsCalc);
+      calculateStatistics(normalized);
       
     } catch (err) {
       console.error('Erreur chargement questions:', err);
@@ -241,7 +175,111 @@ const QCMBankPage = () => {
     }
   };
 
-  // IA : Génération des insights
+  // Calcul des statistiques complètes
+  const calculateStatistics = (normalized) => {
+    const statsCalc = {
+      total: normalized.length,
+      byType: { 1: 0, 2: 0, 3: 0 },
+      byStatus: { approved: 0, pending: 0, rejected: 0 },
+      avgPoints: 0,
+      avgTime: 0,
+      byLevel: {},
+      byMatiere: {},
+      monthlyGrowth: [],
+      validationRate: 0,
+      avgValidationDays: 0,
+      topAuthors: [],
+      authorStats: {},
+      totalAuthors: 0
+    };
+
+    let totalPoints = 0;
+    let totalTime = 0;
+    let totalValidationDays = 0;
+    let validationCount = 0;
+    let rejectedCount = 0;
+    const monthlyData = {};
+    const authorMap = new Map();
+
+    normalized.forEach(q => {
+      // Par type
+      if (q.typeQuestion && statsCalc.byType[q.typeQuestion] !== undefined) {
+        statsCalc.byType[q.typeQuestion]++;
+      }
+      
+      // Par statut
+      if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
+      
+      // Par niveau
+      if (q.niveau) {
+        statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
+      }
+      
+      // Par matière
+      if (q.matiere) {
+        statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
+      }
+      
+      totalPoints += q.points || 1;
+      totalTime += q.tempsMin || 1;
+      
+      // Temps de validation
+      if (q.status === 'approved' && q.createdAtDate && q.approvedAtDate) {
+        const days = (q.approvedAtDate - q.createdAtDate) / (1000 * 60 * 60 * 24);
+        totalValidationDays += days;
+        validationCount++;
+      }
+      if (q.status === 'rejected') rejectedCount++;
+      
+      // Croissance mensuelle
+      if (q.createdAtDate) {
+        const monthKey = `${q.createdAtDate.getFullYear()}-${q.createdAtDate.getMonth() + 1}`;
+        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+      }
+      
+      // Statistiques auteurs
+      const authorId = q.authorId;
+      const authorName = q.authorName;
+      if (!authorMap.has(authorId)) {
+        authorMap.set(authorId, {
+          id: authorId,
+          name: authorName,
+          total: 0,
+          approved: 0,
+          pending: 0,
+          rejected: 0
+        });
+      }
+      const author = authorMap.get(authorId);
+      author.total++;
+      if (q.status === 'approved') author.approved++;
+      else if (q.status === 'pending') author.pending++;
+      else if (q.status === 'rejected') author.rejected++;
+    });
+    
+    statsCalc.avgPoints = normalized.length ? (totalPoints / normalized.length).toFixed(1) : 0;
+    statsCalc.avgTime = normalized.length ? (totalTime / normalized.length).toFixed(0) : 0;
+    statsCalc.avgValidationDays = validationCount ? (totalValidationDays / validationCount).toFixed(1) : 0;
+    statsCalc.validationRate = validationCount + rejectedCount > 0 
+      ? ((validationCount / (validationCount + rejectedCount)) * 100).toFixed(0) 
+      : 0;
+    statsCalc.monthlyGrowth = Object.entries(monthlyData)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-12)
+      .map(([month, count]) => ({ month, count }));
+    
+    // Top auteurs
+    statsCalc.topAuthors = Array.from(authorMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+    statsCalc.authorStats = Object.fromEntries(authorMap);
+    statsCalc.totalAuthors = authorMap.size;
+
+    setStats(statsCalc);
+    generateAIInsights(normalized, statsCalc);
+  };
+
+  // IA : Génération des insights basée sur les données RÉELLES
   const generateAIInsights = (questionsData, statsCalc) => {
     const insights = {
       strengths: [],
@@ -253,86 +291,121 @@ const QCMBankPage = () => {
       coverageScore: 0
     };
     
-    // Analyse des forces
+    const total = statsCalc.total;
+    if (total === 0) {
+      insights.recommendations.push("Aucune question dans la base. Commencez par créer des questions.");
+      insights.qualityScore = 0;
+      insights.balanceScore = 0;
+      insights.coverageScore = 0;
+      setAiInsights(insights);
+      return;
+    }
+    
+    // Forces : matières les plus représentées
     const topMatieres = Object.entries(statsCalc.byMatiere)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3);
-    
     topMatieres.forEach(([matiere, count]) => {
-      insights.strengths.push(`${matiere} (${count} questions)`);
+      const percentage = Math.round((count / total) * 100);
+      insights.strengths.push(`${matiere} (${count} questions, ${percentage}% du total)`);
     });
     
-    // Analyse des faiblesses
+    // Faiblesses : matières sous-représentées
     const weakMatieres = Object.entries(statsCalc.byMatiere)
+      .filter(([_, count]) => count < 5)
       .sort((a, b) => a[1] - b[1])
       .slice(0, 3);
-    
     weakMatieres.forEach(([matiere, count]) => {
-      if (count < 5) {
-        insights.weaknesses.push(`${matiere} (seulement ${count} questions)`);
-      }
+      insights.weaknesses.push(`${matiere} (seulement ${count} question${count > 1 ? 's' : ''})`);
     });
     
-    // Analyse de l'équilibre des types
-    const total = statsCalc.total;
+    // Équilibre des types (basé sur données réelles)
     const type1Percent = (statsCalc.byType[1] / total) * 100;
     const type2Percent = (statsCalc.byType[2] / total) * 100;
     const type3Percent = (statsCalc.byType[3] / total) * 100;
     
+    // Score d'équilibre (plus il est proche de 100, plus la répartition est équilibrée)
     insights.balanceScore = Math.round(100 - (Math.abs(type1Percent - 33) + Math.abs(type2Percent - 33) + Math.abs(type3Percent - 34)) / 2);
     
+    // Recommandations basées sur l'équilibre réel
     if (type1Percent > 50) {
-      insights.recommendations.push("Ajouter plus de questions de type 'Savoir-Faire' et 'Savoir-être' pour équilibrer");
+      insights.recommendations.push(`📚 Trop de questions "Savoir" (${Math.round(type1Percent)}%). Ajoutez plus de "Savoir-Faire" et "Savoir-être".`);
     }
-    if (type2Percent < 20) {
-      insights.recommendations.push("Augmenter les questions pratiques (Savoir-Faire)");
+    if (type2Percent < 20 && type2Percent > 0) {
+      insights.recommendations.push(`🔧 Peu de questions pratiques "Savoir-Faire" (${Math.round(type2Percent)}%). Augmentez les exercices d'application.`);
     }
-    if (type3Percent < 10) {
-      insights.recommendations.push("Intégrer des questions d'évaluation comportementale (Savoir-être)");
+    if (type3Percent < 10 && type3Percent > 0) {
+      insights.recommendations.push(`💡 Manque de questions "Savoir-être" (${Math.round(type3Percent)}%). Intégrez des mises en situation.`);
+    }
+    if (type2Percent === 0 && type3Percent === 0 && type1Percent > 0) {
+      insights.recommendations.push("⚠️ Seulement des questions théoriques. Diversifiez avec du pratique et du comportemental.");
     }
     
-    // Analyse de la qualité
+    // Score de qualité (basé sur explications et images réelles)
     const explanationRate = questionsData.filter(q => q.explanation && q.explanation.length > 10).length / total * 100;
     const imageRate = questionsData.filter(q => q.imageQuestion || q.imageBase64).length / total * 100;
-    
     insights.qualityScore = Math.round((explanationRate * 0.6 + imageRate * 0.4));
     
-    if (explanationRate < 50) {
-      insights.recommendations.push("Améliorer les explications des réponses (taux actuel: ${explanationRate.toFixed(0)}%)");
-    }
-    if (imageRate < 20) {
-      insights.recommendations.push("Ajouter des illustrations pour enrichir les questions");
-    }
-    
-    // Analyse de la couverture
-    const uniqueLevels = new Set(questionsData.map(q => q.niveau)).size;
-    const targetLevels = 20; // Estimation
-    insights.coverageScore = Math.round((uniqueLevels / targetLevels) * 100);
-    
-    if (uniqueLevels < 10) {
-      insights.recommendations.push("Diversifier les niveaux couverts par les questions");
+    if (explanationRate < 30) {
+      insights.recommendations.push(`📝 Peu d'explications (${Math.round(explanationRate)}%). Ajoutez des explications pédagogiques.`);
+    } else if (explanationRate < 60) {
+      insights.recommendations.push(`📖 Améliorez les explications (${Math.round(explanationRate)}% des questions en ont).`);
     }
     
-    // Prédiction de croissance (basée sur les 3 derniers mois)
+    if (imageRate < 10 && total > 5) {
+      insights.recommendations.push(`🖼️ Très peu d'illustrations (${Math.round(imageRate)}%). Ajoutez des images pour enrichir les questions.`);
+    }
+    
+    // Score de couverture des niveaux
+    const uniqueLevels = new Set(questionsData.map(q => q.niveau).filter(Boolean)).size;
+    const targetLevels = Math.min(20, Math.max(5, uniqueLevels + 5));
+    insights.coverageScore = Math.min(100, Math.round((uniqueLevels / targetLevels) * 100));
+    
+    if (uniqueLevels < 5 && total > 10) {
+      insights.recommendations.push(`🎓 Faible diversité des niveaux (${uniqueLevels} niveaux seulement). Élargissez votre cible pédagogique.`);
+    }
+    
+    // Prédiction de croissance (basée sur les 3 derniers mois réels)
+    const monthlyData = statsCalc.monthlyGrowth;
     const growthRates = [];
-    for (let i = 1; i < statsCalc.monthlyGrowth.length; i++) {
-      const prev = statsCalc.monthlyGrowth[i-1]?.count || 0;
-      const curr = statsCalc.monthlyGrowth[i]?.count || 0;
-      if (prev > 0) {
-        growthRates.push((curr - prev) / prev);
-      }
+    for (let i = 1; i < monthlyData.length; i++) {
+      const prev = monthlyData[i-1]?.count || 0;
+      const curr = monthlyData[i]?.count || 0;
+      if (prev > 0) growthRates.push((curr - prev) / prev);
     }
     const avgGrowth = growthRates.length > 0 
       ? growthRates.reduce((a, b) => a + b, 0) / growthRates.length 
-      : 0.1;
-    insights.predictedGrowth = Math.round(avgGrowth * 100);
+      : (monthlyData.length >= 2 ? 0.05 : 0.1);
+    insights.predictedGrowth = Math.min(100, Math.max(-50, Math.round(avgGrowth * 100)));
     
-    // Recommandations supplémentaires
-    if (statsCalc.avgValidationDays > 7) {
-      insights.recommendations.push(`Accélérer le circuit de validation (moyenne: ${statsCalc.avgValidationDays} jours)`);
+    if (insights.predictedGrowth > 20) {
+      insights.recommendations.push(`📈 Forte dynamique : +${insights.predictedGrowth}% de croissance projetée. Continuez sur cette lancée !`);
+    } else if (insights.predictedGrowth < -10) {
+      insights.recommendations.push(`📉 Baisse d'activité détectée. Relancez la création de questions.`);
     }
-    if (statsCalc.validationRate < 70) {
-      insights.recommendations.push("Améliorer la qualité des questions soumises (taux validation: ${statsCalc.validationRate}%)");
+    
+    // Recommandations sur la validation
+    if (statsCalc.avgValidationDays > 10) {
+      insights.recommendations.push(`⏳ Validation lente (${statsCalc.avgValidationDays} jours en moyenne). Accélérez le circuit de validation.`);
+    } else if (statsCalc.avgValidationDays > 5) {
+      insights.recommendations.push(`⌛ Délai de validation moyen : ${statsCalc.avgValidationDays} jours. Optimisez le processus.`);
+    }
+    
+    if (statsCalc.validationRate < 60 && statsCalc.validationRate > 0) {
+      insights.recommendations.push(`⚠️ Taux de validation faible (${statsCalc.validationRate}%). Formez les créateurs de questions.`);
+    } else if (statsCalc.validationRate > 85) {
+      insights.recommendations.push(`✅ Excellent taux de validation (${statsCalc.validationRate}%). La qualité est au rendez-vous !`);
+    }
+    
+    // Recommandations sur les auteurs
+    const topAuthor = statsCalc.topAuthors[0];
+    if (topAuthor && topAuthor.total > 20) {
+      insights.recommendations.push(`🏆 Félicitations à ${topAuthor.name} pour ses ${topAuthor.total} contributions !`);
+    }
+    
+    const lowQualityAuthors = statsCalc.topAuthors.filter(a => a.total >= 3 && (a.rejected / a.total) > 0.5);
+    if (lowQualityAuthors.length > 0) {
+      insights.recommendations.push(`📚 ${lowQualityAuthors.length} auteur(s) ont un taux de rejet élevé. Proposez un accompagnement personnalisé.`);
     }
     
     setAiInsights(insights);
@@ -350,7 +423,8 @@ const QCMBankPage = () => {
       q.libQuestion?.toLowerCase().includes(term) ||
       q.matiere?.toLowerCase().includes(term) ||
       q.niveau?.toLowerCase().includes(term) ||
-      q.domaine?.toLowerCase().includes(term)
+      q.domaine?.toLowerCase().includes(term) ||
+      q.authorName?.toLowerCase().includes(term)
     );
   }, [questions, searchTerm]);
 
@@ -366,7 +440,7 @@ const QCMBankPage = () => {
 
   const hasActiveFilters = searchTerm || selectedDomainId || selectedSousDomaineId || selectedLevelId || selectedMatiereId || selectedType || selectedStatus !== 'approved';
 
-  // Export CSV amélioré
+  // Export CSV enrichi
   const exportToCSV = () => {
     const headers = ['N°Question', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
     const rows = filteredQuestions.map((q, idx) => [
@@ -382,7 +456,7 @@ const QCMBankPage = () => {
       q.status === 'approved' ? 'Validée' : q.status === 'pending' ? 'En attente' : 'Rejetée',
       new Date(q.createdAt).toLocaleDateString('fr-FR'),
       q.approvedAt ? new Date(q.approvedAt).toLocaleDateString('fr-FR') : '',
-      q.matriculeAuteur || q.createdBy?.name || ''
+      q.authorName
     ]);
 
     const csvContent = [headers, ...rows].map(row => row.join(';')).join('\n');
@@ -422,9 +496,7 @@ const QCMBankPage = () => {
   const growthChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: { labels: { color: '#94a3b8' } }
-    },
+    plugins: { legend: { labels: { color: '#94a3b8' } } },
     scales: {
       y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
       x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
@@ -434,12 +506,9 @@ const QCMBankPage = () => {
   const typeChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: { labels: { color: '#94a3b8' } }
-    }
+    plugins: { legend: { labels: { color: '#94a3b8' } } }
   };
 
-  // Top matières
   const topMatieres = Object.entries(stats.byMatiere)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
@@ -514,6 +583,7 @@ const QCMBankPage = () => {
               <span>📚 {question.domaine || '—'}</span>
               <span>🎓 {question.niveau || '—'}</span>
               <span>📖 {question.matiere || '—'}</span>
+              <span>👤 {question.authorName}</span>
             </div>
           </div>
 
@@ -573,7 +643,7 @@ const QCMBankPage = () => {
                 )}
 
                 <div style={{ display: 'flex', gap: 16, fontSize: '0.65rem', color: '#64748b', marginTop: 8 }}>
-                  <span>👤 Auteur: {question.matriculeAuteur || question.createdBy?.name || 'Inconnu'}</span>
+                  <span>👤 Auteur: {question.authorName}</span>
                   <span>📅 Créée: {new Date(question.createdAt).toLocaleDateString('fr-FR')}</span>
                   {question.approvedAt && <span>✅ Validée: {new Date(question.approvedAt).toLocaleDateString('fr-FR')}</span>}
                 </div>
@@ -689,11 +759,7 @@ const QCMBankPage = () => {
 
         {/* DASHBOARD ANALYTIQUE */}
         {dashboardView === 'analytics' && !loading && questions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ marginBottom: 24 }}
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 24 }}>
             {/* KPIs avancés */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
               <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 12 }}>
@@ -774,87 +840,155 @@ const QCMBankPage = () => {
 
         {/* INSIGHTS IA */}
         {dashboardView === 'insights' && !loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}
-          >
-            {/* Scores */}
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-              <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Activity size={16} color="#8b5cf6" /> Scores de qualité
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Qualité des questions</span>
-                    <span style={{ color: '#f59e0b', fontWeight: 600 }}>{aiInsights.qualityScore}%</span>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Scores de qualité */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Activity size={16} color="#8b5cf6" /> Scores de qualité
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Qualité des questions</span>
+                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>{aiInsights.qualityScore}%</span>
+                    </div>
+                    <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
+                      <div style={{ width: `${aiInsights.qualityScore}%`, height: '100%', background: 'linear-gradient(90deg, #f59e0b, #10b981)', borderRadius: 3 }} />
+                    </div>
                   </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.qualityScore}%`, height: '100%', background: 'linear-gradient(90deg, #f59e0b, #10b981)', borderRadius: 3 }} />
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Équilibre des types</span>
+                      <span style={{ color: '#10b981', fontWeight: 600 }}>{aiInsights.balanceScore}%</span>
+                    </div>
+                    <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
+                      <div style={{ width: `${aiInsights.balanceScore}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', borderRadius: 3 }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Couverture des niveaux</span>
+                      <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{aiInsights.coverageScore}%</span>
+                    </div>
+                    <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
+                      <div style={{ width: `${aiInsights.coverageScore}%`, height: '100%', background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)', borderRadius: 3 }} />
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Équilibre des types</span>
-                    <span style={{ color: '#10b981', fontWeight: 600 }}>{aiInsights.balanceScore}%</span>
+              </div>
+
+              {/* Analyse SWOT */}
+              <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Target size={16} color="#10b981" /> Analyse SWOT
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <p style={{ color: '#10b981', fontSize: '0.75rem', marginBottom: 8 }}>📈 Forces</p>
+                    {aiInsights.strengths.map((s, i) => (
+                      <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={10} color="#10b981" /> {s}
+                      </div>
+                    ))}
+                    {aiInsights.strengths.length === 0 && (
+                      <p style={{ color: '#64748b', fontSize: '0.7rem' }}>Aucune force identifiée</p>
+                    )}
                   </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.balanceScore}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', borderRadius: 3 }} />
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Couverture des niveaux</span>
-                    <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{aiInsights.coverageScore}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.coverageScore}%`, height: '100%', background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)', borderRadius: 3 }} />
+                  <div>
+                    <p style={{ color: '#ef4444', fontSize: '0.75rem', marginBottom: 8 }}>📉 Faiblesses</p>
+                    {aiInsights.weaknesses.map((w, i) => (
+                      <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <AlertTriangle size={10} color="#ef4444" /> {w}
+                      </div>
+                    ))}
+                    {aiInsights.weaknesses.length === 0 && (
+                      <p style={{ color: '#10b981', fontSize: '0.7rem' }}>✅ Bonne couverture</p>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Forces et Faiblesses */}
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-              <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Target size={16} color="#10b981" /> Analyse SWOT
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <p style={{ color: '#10b981', fontSize: '0.75rem', marginBottom: 8 }}>📈 Forces</p>
-                  {aiInsights.strengths.map((s, i) => (
-                    <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <CheckCircle size={10} color="#10b981" /> {s}
-                    </div>
-                  ))}
-                  {aiInsights.strengths.length === 0 && (
-                    <p style={{ color: '#64748b', fontSize: '0.7rem' }}>Aucune donnée</p>
-                  )}
-                </div>
-                <div>
-                  <p style={{ color: '#ef4444', fontSize: '0.75rem', marginBottom: 8 }}>📉 Faiblesses</p>
-                  {aiInsights.weaknesses.map((w, i) => (
-                    <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <AlertTriangle size={10} color="#ef4444" /> {w}
-                    </div>
-                  ))}
-                  {aiInsights.weaknesses.length === 0 && (
-                    <p style={{ color: '#10b981', fontSize: '0.7rem' }}>✅ Bonne couverture</p>
-                  )}
+            {/* Top contributeurs */}
+            {stats.topAuthors.length > 0 && (
+              <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+                <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Users size={16} color="#ec4899" /> Top contributeurs ({stats.totalAuthors} auteurs)
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {stats.topAuthors.slice(0, 5).map((author, idx) => {
+                    const approvalRate = author.total ? Math.round((author.approved / author.total) * 100) : 0;
+                    return (
+                      <div key={author.id} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        background: 'rgba(236,72,153,0.05)',
+                        border: '1px solid rgba(236,72,153,0.15)',
+                        borderRadius: 10,
+                        flexWrap: 'wrap',
+                        gap: 8
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: 8,
+                            background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(236,72,153,0.2)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 700, color: idx < 3 ? '#000' : '#ec4899'
+                          }}>
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                          </div>
+                          <div>
+                            <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.85rem' }}>
+                              {author.name}
+                            </div>
+                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                              ID: {author.id.substring(0, 12)}...
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#3b82f6' }}>{author.total}</div>
+                            <div style={{ fontSize: '0.6rem', color: '#64748b' }}>Total</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>{author.approved}</div>
+                            <div style={{ fontSize: '0.6rem', color: '#64748b' }}>Validées</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f59e0b' }}>{author.pending}</div>
+                            <div style={{ fontSize: '0.6rem', color: '#64748b' }}>Attente</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ef4444' }}>{author.rejected}</div>
+                            <div style={{ fontSize: '0.6rem', color: '#64748b' }}>Rejetées</div>
+                          </div>
+                          <div style={{
+                            padding: '4px 10px',
+                            borderRadius: 20,
+                            background: approvalRate >= 80 ? 'rgba(16,185,129,0.15)' : approvalRate >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                            color: approvalRate >= 80 ? '#10b981' : approvalRate >= 50 ? '#f59e0b' : '#ef4444',
+                            fontSize: '0.7rem',
+                            fontWeight: 600
+                          }}>
+                            {approvalRate}% validé
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
+            )}
           </motion.div>
         )}
 
         {/* RECOMMANDATIONS IA */}
         {dashboardView === 'recommendations' && !loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 24, marginBottom: 24 }}
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
             <h3 style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Sparkles size={18} color="#f59e0b" /> Recommandations pédagogiques IA
             </h3>
@@ -877,6 +1011,9 @@ const QCMBankPage = () => {
                 <div style={{ textAlign: 'center', padding: 40 }}>
                   <CheckCircle size={40} color="#10b981" />
                   <p style={{ color: '#10b981', marginTop: 12 }}>✅ Tout est optimal !</p>
+                  <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: 8 }}>
+                    La banque de QCM est bien équilibrée et de bonne qualité.
+                  </p>
                 </div>
               )}
             </div>
@@ -886,12 +1023,13 @@ const QCMBankPage = () => {
               <p style={{ color: '#a5b4fc', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Brain size={14} />
                 Projection IA : Croissance estimée à <strong>{aiInsights.predictedGrowth}%</strong> dans les 3 prochains mois
+                {stats.monthlyGrowth.length > 0 && ` (basée sur ${stats.monthlyGrowth.length} mois de données)`}
               </p>
             </div>
           </motion.div>
         )}
 
-        {/* Barre de recherche et filtres (toujours visible) */}
+        {/* Barre de recherche et filtres */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
@@ -900,7 +1038,7 @@ const QCMBankPage = () => {
                 type="text"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Rechercher par question, matière, niveau..."
+                placeholder="Rechercher par question, matière, niveau, auteur..."
                 style={{
                   width: '100%', padding: '10px 12px 10px 38px',
                   background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)',
