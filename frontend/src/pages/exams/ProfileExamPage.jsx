@@ -1,6 +1,6 @@
 // src/pages/exams/ProfileExamPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
@@ -34,6 +34,7 @@ const itemVariants = {
 
 const ProfileExamPage = () => {
   const { examId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [exam, setExam] = useState(null);
@@ -49,6 +50,9 @@ const ProfileExamPage = () => {
   const socketRef = useRef(null);
   const isMounted = useRef(true);
 
+  // ✅ Récupérer l'option depuis l'URL (définie par le superviseur)
+  const urlOption = searchParams.get('option');
+
   // ✅ Fonction pour récupérer le token
   const getAuthToken = () => {
     const token = localStorage.getItem('userToken') || localStorage.getItem('token');
@@ -62,6 +66,7 @@ const ProfileExamPage = () => {
     const fetchExam = async () => {
       try {
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
+        console.log('[ProfileExamPage] 📌 Option depuis URL:', urlOption);
         
         // ✅ Récupérer le token
         const token = getAuthToken();
@@ -126,7 +131,22 @@ const ProfileExamPage = () => {
         console.log('[ProfileExamPage] 📊 Questions:', normalizedExam.questions?.length);
         console.log('[ProfileExamPage] ⏱️ Durée:', normalizedExam.duration);
 
-        if (normalizedExam.examOption) {
+        // ✅ GESTION DE L'OPTION : L'URL prime sur l'option stockée
+        if (urlOption && ['A', 'B', 'C', 'D'].includes(urlOption)) {
+          // Option définie par le superviseur via la distribution
+          setSelectedExamOption(urlOption);
+          setIsOptionLocked(true);
+          toast(`Option ${urlOption} définie par le superviseur.`, { 
+            icon: '🎯', 
+            duration: 4000,
+            style: {
+              background: '#1e293b',
+              color: '#f8fafc',
+              border: '1px solid #f59e0b',
+            }
+          });
+        } else if (normalizedExam.examOption) {
+          // Fallback : option stockée dans l'épreuve
           setSelectedExamOption(normalizedExam.examOption);
           setIsOptionLocked(true);
           toast(`Cette épreuve est pré-configurée en Option ${normalizedExam.examOption}.`, { 
@@ -138,6 +158,10 @@ const ProfileExamPage = () => {
               border: '1px solid #3b82f6',
             }
           });
+        } else {
+          // Option par défaut
+          setSelectedExamOption('A');
+          setIsOptionLocked(false);
         }
       } catch (error) {
         console.error('[ProfileExamPage] ❌ Erreur chargement:', error);
@@ -166,7 +190,7 @@ const ProfileExamPage = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [examId, navigate]);
+  }, [examId, navigate, urlOption]);
 
   // Connexion WebSocket
   useEffect(() => {
@@ -174,10 +198,11 @@ const ProfileExamPage = () => {
     
     socketRef.current = io(NODE_BACKEND_URL, { 
       path: '/socket.io',
-      transports: ['polling', 'websocket'],
+      transports: ['polling'],  // ✅ Polling uniquement
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      upgrade: false  // ✅ Désactiver WebSocket
     });
 
     socketRef.current.on('connect', () => {
@@ -667,7 +692,7 @@ const ProfileExamPage = () => {
               >
                 <Lock size={14} color="#3b82f6" />
                 <p style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
-                  Option définie par le superviseur
+                  {urlOption ? 'Option définie par le superviseur' : 'Option définie par l\'épreuve'}
                 </p>
               </motion.div>
             )}

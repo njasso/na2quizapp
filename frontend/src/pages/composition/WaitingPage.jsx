@@ -96,14 +96,15 @@ const WaitingPage = () => {
 
       // Configuration Socket.IO
       socketRef.current = io(SOCKET_URL, {
-        transports: ['websocket', 'polling'],
+        transports: ['polling'],  // ✅ Polling uniquement
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 10000,
         timeout: 20000,
         forceNew: false,
-        autoConnect: true
+        autoConnect: true,
+        upgrade: false  // ✅ Désactiver WebSocket
       });
 
       // Événements Socket.IO
