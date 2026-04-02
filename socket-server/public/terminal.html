@@ -852,23 +852,18 @@
     console.log('[Terminal] 📋 examDistributed reçu:', data);
     if(!data || isRedirecting) return;
     
-    // ✅ Récupérer l'examId (plus de url)
+    // ✅ Utiliser examId (plus de url)
     var examId = data.examId;
     var option = data.examOption || 'C';
     
-    console.log('[Terminal] examId reçu:', examId);
-    console.log('[Terminal] Option:', option);
-    
     if(!examId) {
-        console.error('[Terminal] Aucun examId trouvé');
+        console.error('[Terminal] Aucun examId reçu');
         addFeed('error', 'Erreur de distribution', 'examId manquant');
         return;
     }
     
-    // ✅ Construire l'URL de redirection vers le profil
     var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId;
-    
-    console.log('[Terminal] URL finale de redirection:', redirectUrl);
+    console.log('[Terminal] Redirection vers:', redirectUrl);
     
     isRedirecting = true;
     cleanup();
