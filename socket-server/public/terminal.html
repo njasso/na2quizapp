@@ -379,6 +379,7 @@
             isRegistered = false;
         });
         
+        // ✅ VERSION CORRIGÉE : Ajout du paramètre option dans l'URL
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
@@ -394,11 +395,13 @@
             
             // ✅ Récupérer le token JWT du localStorage
             var token = localStorage.getItem('userToken');
-            var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId;
+            
+            // ✅ Construire l'URL avec l'option et le token
+            var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
             // ✅ Ajouter le token en paramètre de requête s'il existe
             if (token) {
-                redirectUrl += '?token=' + encodeURIComponent(token);
+                redirectUrl += '&token=' + encodeURIComponent(token);
                 console.log('[Terminal] ✅ Token ajouté à l\'URL');
             } else {
                 console.warn('[Terminal] ⚠️ Aucun token trouvé dans localStorage');
