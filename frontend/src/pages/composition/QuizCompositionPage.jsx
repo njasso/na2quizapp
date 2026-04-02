@@ -572,36 +572,64 @@ const QuizCompositionPage = () => {
   };
 };
 
-    // Connexion socket
-    const newSocket = io(SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: 20,
-      reconnectionDelay: 1000,
-      transports: ['polling', 'websocket'],
-    });
-    setSocket(newSocket);
-    socketRef.current = newSocket;
+    // Connexion socket - Version finale stable
+const newSocket = io(SOCKET_URL, {
+  reconnection: true,
+  reconnectionAttempts: 20,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  transports: ['polling'],  // ✅ POLLING UNIQUEMENT
+  upgrade: false,           // ✅ Désactiver WebSocket
+  forceNew: true,
+  timeout: 20000
+});
 
-    const stableKey = `studentSessionId_${examId}`;
-    let stableId = sessionStorage.getItem(stableKey);
-    if (!stableId) {
-      stableId = `STU_${examId.slice(-8)}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-      sessionStorage.setItem(stableKey, stableId);
-    }
-    stableSessionIdRef.current = stableId;
+setSocket(newSocket);
+socketRef.current = newSocket;
 
-    newSocket.on('connect', () => {
-      newSocket.emit('registerSession', { type: 'student', sessionId: stableSessionIdRef.current });
-      const currentStatus = parsed.examOption === 'B' ? 'waiting' : 'composing';
-      newSocket.emit('studentReadyForExam', {
-        examId,
-        studentInfo: parsed.info,
-        sessionId: stableSessionIdRef.current,
-        status: currentStatus,
-        terminalSessionId: terminalSessionIdRef.current,
-        examOption: parsed.examOption
-      });
-    });
+const stableKey = `studentSessionId_${examId}`;
+let stableId = sessionStorage.getItem(stableKey);
+if (!stableId) {
+  stableId = `STU_${examId.slice(-8)}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  sessionStorage.setItem(stableKey, stableId);
+}
+stableSessionIdRef.current = stableId;
+
+newSocket.on('connect', () => {
+  console.log('[QuizCompositionPage] ✅ Socket connecté (polling), ID:', newSocket.id);
+  
+  newSocket.emit('registerSession', { 
+    type: 'student', 
+    sessionId: stableSessionIdRef.current,
+    examId: examId
+  });
+  
+  const currentStatus = parsed.examOption === 'B' ? 'waiting' : 'composing';
+  console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
+  
+  newSocket.emit('studentReadyForExam', {
+    examId,
+    studentInfo: parsed.info,
+    sessionId: stableSessionIdRef.current,
+    status: currentStatus,
+    terminalSessionId: terminalSessionIdRef.current,
+    examOption: parsed.examOption
+  });
+});
+
+newSocket.on('connect_error', (error) => {
+  console.error('[QuizCompositionPage] ❌ Erreur Socket:', error.message);
+  toast.error("Problème de connexion. Reconnexion en cours...");
+});
+
+newSocket.on('disconnect', (reason) => {
+  console.log('[QuizCompositionPage] 👋 Socket déconnecté:', reason);
+});
+
+newSocket.on('reconnect', (attemptNumber) => {
+  console.log('[QuizCompositionPage] 🔄 Socket reconnecté après', attemptNumber, 'tentatives');
+  toast.success("Reconnecté au serveur");
+});
 
     newSocket.on('examStartedForOptionB', (data) => {
       if (data.examId !== examId) return;
