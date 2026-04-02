@@ -1189,10 +1189,28 @@ io.on('connection', (socket) => {
   });
 
   socket.on('distributeExam', (data) => {
-    if (!data.examId || !data.examOption) return;
-    activeDistributedExams.set(data.examId, { option: data.examOption, distributedAt: new Date(), questionCount: data.questionCount || 0 });
-    io.to('terminals').emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${data.examId}`, examId: data.examId, examOption: data.examOption });
+  if (!data.examId || !data.examOption) {
+    console.error('[Socket] distributeExam: examId ou examOption manquant', data);
+    return;
+  }
+  
+  console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
+  
+  activeDistributedExams.set(data.examId, { 
+    option: data.examOption, 
+    distributedAt: new Date(), 
+    questionCount: data.questionCount || 0 
   });
+  
+  // ✅ Envoyer l'examId et l'option séparément (pas besoin d'url)
+  io.to('terminals').emit('examDistributed', { 
+    examId: data.examId, 
+    examOption: data.examOption,
+    timestamp: Date.now()
+  });
+  
+  console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
+});
 
   socket.on('startExam', ({ examId, option }) => {
     const waitingStudents = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');
