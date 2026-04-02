@@ -267,7 +267,10 @@ const ProfileExamPage = () => {
       }));
 
       if (socketRef.current?.connected) {
-        const status = selectedExamOption === 'B' ? 'waiting' : 'composing';
+        let status = 'composing';
+if (selectedExamOption === 'A' || selectedExamOption === 'B') {
+  status = 'waiting';  // ✅ Options A et B → salle d'attente
+}
         
         socketRef.current.emit('studentReadyForExam', {
           examId: examId,
