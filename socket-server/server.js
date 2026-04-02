@@ -830,13 +830,13 @@ app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGU
 // ==================== IA ROUTES ====================
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
-// Fonction pour nettoyer et extraire le JSON d'une réponse
+// Fonction pour extraire et nettoyer le JSON d'une réponse
 function extractJSONFromResponse(content) {
   if (!content) return null;
   
   let cleanContent = content.trim();
   
-  // Supprimer les balises markdown ```json et ```
+  // Supprimer les balises markdown
   cleanContent = cleanContent.replace(/```json\s*/gi, '');
   cleanContent = cleanContent.replace(/```\s*/g, '');
   
@@ -846,23 +846,65 @@ function extractJSONFromResponse(content) {
   
   cleanContent = cleanContent.trim();
   
-  const firstBrace = cleanContent.indexOf('{');
-  const lastBrace = cleanContent.lastIndexOf('}');
-  
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleanContent = cleanContent.substring(firstBrace, lastBrace + 1);
+  // Chercher un tableau de questions
+  const arrayMatch = cleanContent.match(/\[\s*\{[\s\S]*\}\s*\]/);
+  if (arrayMatch) {
+    let extracted = arrayMatch[0];
+    // Nettoyer les virgules en trop
+    extracted = extracted.replace(/,\s*}/g, '}');
+    extracted = extracted.replace(/,\s*]/g, ']');
+    extracted = extracted.replace(/},\s*,/g, '},');
+    return extracted;
   }
   
-  return cleanContent;
+  // Chercher un objet avec "questions"
+  const objMatch = cleanContent.match(/\{\s*"questions"\s*:\s*\[[\s\S]*\]\s*\}/);
+  if (objMatch) {
+    let extracted = objMatch[0];
+    extracted = extracted.replace(/,\s*}/g, '}');
+    extracted = extracted.replace(/,\s*]/g, ']');
+    return extracted;
+  }
+  
+  // Fallback : trouver le premier [ et le dernier ]
+  const firstBracket = cleanContent.indexOf('[');
+  const lastBracket = cleanContent.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    let extracted = cleanContent.substring(firstBracket, lastBracket + 1);
+    extracted = extracted.replace(/,\s*}/g, '}');
+    extracted = extracted.replace(/,\s*]/g, ']');
+    return extracted;
+  }
+  
+  return null;
+}
+
+// Fonction pour extraire les questions par regex (fallback ultime)
+function extractQuestionsByRegex(content) {
+  const questions = [];
+  // Pattern plus robuste pour capturer les questions
+  const regex = /"text"\s*:\s*"([^"]+)"\s*,\s*"options"\s*:\s*\[([^\]]+)\]\s*,\s*"answer"\s*:\s*"([^"]+)"/g;
+  let match;
+  
+  while ((match = regex.exec(content)) !== null) {
+    const options = match[2].split(',').map(o => o.trim().replace(/^"|"$/g, ''));
+    questions.push({
+      text: match[1],
+      options: options,
+      answer: match[3],
+      explanation: ''
+    });
+  }
+  
+  return questions;
 }
 
 // Fonction pour valider une question générée
 function validateQuestion(q) {
   return q && 
-         typeof q.text === 'string' && q.text.trim().length > 10 &&
-         Array.isArray(q.options) && q.options.length >= 3 && q.options.length <= 5 &&
-         typeof q.answer === 'string' && q.answer.trim().length > 0 &&
-         q.options.includes(q.answer);
+         typeof q.text === 'string' && q.text.trim().length > 5 &&
+         Array.isArray(q.options) && q.options.length >= 2 &&
+         typeof q.answer === 'string' && q.answer.trim().length > 0;
 }
 
 // Fonction pour corriger une question mal formée
@@ -873,7 +915,7 @@ function fixQuestion(q, index, subject, level) {
     fixed.text = `Question ${index + 1} sur ${subject} (niveau ${level})`;
   }
   
-  if (!Array.isArray(fixed.options) || fixed.options.length < 3) {
+  if (!Array.isArray(fixed.options) || fixed.options.length < 2) {
     fixed.options = ['Option A', 'Option B', 'Option C', 'Option D'];
   }
   
@@ -885,8 +927,8 @@ function fixQuestion(q, index, subject, level) {
     fixed.explanation = `La bonne réponse est : ${fixed.answer}`;
   }
   
-  if (!fixed.points) fixed.points = 1;
-  if (!fixed.difficulty) fixed.difficulty = 'moyen';
+  fixed.points = fixed.points || 1;
+  fixed.difficulty = fixed.difficulty || 'moyen';
   
   return fixed;
 }
@@ -902,6 +944,7 @@ app.get('/api/ai/config', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), (re
   });
 });
 
+// Route de génération IA - CORRIGÉE
 app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { 
@@ -919,27 +962,31 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       });
     }
 
-    const prompt = `Génère ${numQuestions} questions QCM de qualité sur "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
-    
-${keywords ? `Thèmes spécifiques: ${keywords}` : ''}
-Niveau de difficulté: ${difficulty}
-Type: ${typeQuestion === 2 ? 'choix multiples (une ou plusieurs bonnes réponses possibles)' : 'choix unique (une seule bonne réponse)'}
+    // Prompt plus strict
+    const prompt = `Génère EXACTEMENT ${numQuestions} questions QCM au format JSON VALIDE.
+RÈGLES IMPÉRATIVES:
+1. Réponds UNIQUEMENT avec un tableau JSON, rien d'autre
+2. Pas de markdown, pas de backticks, pas de texte explicatif
+3. Le JSON doit être valide (pas de virgules en trop)
+4. Utilise des guillemets doubles partout
 
-IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks, sans markdown.
+Exemple VALIDE:
+[
+  {
+    "text": "Question ?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": "Option A",
+    "explanation": "Explication"
+  }
+]
 
-Format JSON attendu EXACTEMENT:
-{
-  "questions": [
-    {
-      "text": "Énoncé complet de la question",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "answer": "Option A",
-      "explanation": "Explication pédagogique de la réponse"
-    }
-  ]
-}
-
-Les questions doivent être pertinentes, précises et adaptées au niveau ${level}.`;
+Sujet: "${subject}"
+Niveau: ${level}
+Domaine: ${domain}
+${sousDomaine ? `Sous-domaine: ${sousDomaine}` : ''}
+${keywords ? `Mots-clés: ${keywords}` : ''}
+Difficulté: ${difficulty}
+Nombre: ${numQuestions}`;
 
     let generatedQuestions = [];
 
@@ -958,12 +1005,12 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
             messages: [
               { 
                 role: 'system', 
-                content: 'Tu es un expert pédagogique spécialisé dans la création de QCM de qualité. Tu réponds UNIQUEMENT au format JSON brut, sans aucun texte additionnel.' 
+                content: 'Tu es un expert QCM. Réponds UNIQUEMENT au format JSON valide. Tu ne mets JAMAIS de virgule après le dernier élément d\'un tableau ou d\'un objet.' 
               },
               { role: 'user', content: prompt }
             ],
-            temperature: 0.7,
-            max_tokens: 2000
+            temperature: 0.5,
+            max_tokens: 3000
           })
         });
 
@@ -977,18 +1024,45 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
           
           if (cleanJson) {
             try {
-              const parsed = JSON.parse(cleanJson);
-              if (parsed.questions && Array.isArray(parsed.questions)) {
+              let parsed = JSON.parse(cleanJson);
+              
+              // Si c'est un tableau direct
+              if (Array.isArray(parsed)) {
+                generatedQuestions = parsed;
+                console.log(`[IA] ✅ ${generatedQuestions.length} questions (tableau direct)`);
+              }
+              // Si c'est un objet avec questions
+              else if (parsed.questions && Array.isArray(parsed.questions)) {
                 generatedQuestions = parsed.questions;
-                console.log(`[IA] ✅ ${generatedQuestions.length} questions parsées avec succès`);
-              } else {
-                console.error('[IA] Structure JSON invalide: missing questions array');
+                console.log(`[IA] ✅ ${generatedQuestions.length} questions (objet questions)`);
+              }
+              // Si c'est un objet avec une autre propriété contenant le tableau
+              else {
+                for (const key in parsed) {
+                  if (Array.isArray(parsed[key]) && parsed[key].length > 0 && parsed[key][0].text) {
+                    generatedQuestions = parsed[key];
+                    console.log(`[IA] ✅ ${generatedQuestions.length} questions (propriété ${key})`);
+                    break;
+                  }
+                }
               }
             } catch (parseError) {
               console.error('[IA] Erreur parsing JSON:', parseError.message);
+              
+              // Tentative de récupération par regex
+              const regexQuestions = extractQuestionsByRegex(cleanJson);
+              if (regexQuestions.length > 0) {
+                generatedQuestions = regexQuestions;
+                console.log(`[IA] ✅ ${regexQuestions.length} questions récupérées par regex`);
+              }
             }
           } else {
-            console.error('[IA] Impossible d\'extraire le JSON de la réponse');
+            console.error('[IA] Impossible d\'extraire le JSON, tentative regex...');
+            const regexQuestions = extractQuestionsByRegex(rawContent);
+            if (regexQuestions.length > 0) {
+              generatedQuestions = regexQuestions;
+              console.log(`[IA] ✅ ${regexQuestions.length} questions récupérées par regex (fallback)`);
+            }
           }
         } else {
           console.error('[IA] Erreur DeepSeek API:', response.status, response.statusText);
@@ -1023,6 +1097,7 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
       generatedQuestions = [...generatedQuestions, ...fallbackQuestions];
     }
 
+    // Limiter au nombre demandé
     generatedQuestions = generatedQuestions.slice(0, numQuestions);
 
     console.log(`[IA] ✅ Final: ${generatedQuestions.length} questions générées`);
@@ -1106,7 +1181,6 @@ function generateMockQuestions(domain, subject, level, count) {
 
   return mockQuestions;
 }
-
 // ==================== RANKINGS ====================
 app.get('/api/rankings/:examId', protect, async (req, res) => {
   try {
