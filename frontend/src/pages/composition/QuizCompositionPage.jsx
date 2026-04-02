@@ -1,4 +1,4 @@
-// src/pages/composition/QuizCompositionPage.jsx - Version avec double stockage d'images et token JWT
+// src/pages/composition/QuizCompositionPage.jsx - Version corrigée
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,7 +22,6 @@ const SOCKET_URL = NODE_BACKEND_URL;
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const timerRef = useRef(null);
-  const lastResetRef = useRef(Date.now());
 
   useEffect(() => {
     setTimeLeft(initialTime);
@@ -138,60 +137,57 @@ const QuizCompositionPage = () => {
     return array;
   };
 
-  // Normaliser une question du nouveau format (AVEC IMAGES)
+  // ✅ Normaliser une question du format MongoDB (opRep1..opRep5)
   const normalizeQuestion = (q) => {
-  // ✅ Construire le tableau options depuis opRep1..opRep5
-  let options = [];
-  if (q.options && q.options.length > 0) {
-    options = q.options;
-  } else {
-    ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
-      if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
-    });
-  }
-  
-  // ✅ Déterminer la bonne réponse
-  let correctAnswer = null;
-  let bonOpRep = q.bonOpRep;
-  
-  // Si bonOpRep est un nombre, l'utiliser directement
-  if (typeof bonOpRep === 'number' && options[bonOpRep]) {
-    correctAnswer = options[bonOpRep];
-  } else if (q.correctAnswer) {
-    correctAnswer = q.correctAnswer;
-    bonOpRep = options.findIndex(opt => opt === correctAnswer);
-  }
-  
-  // ✅ Récupérer l'URL de l'image
-  let imageUrl = q.imageQuestion || '';
-  if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
-    imageUrl = q.imageBase64;
-  }
-  
-  return {
-    _id: q._id,
-    libQuestion: q.libQuestion || q.question || q.text || '',
-    question: q.libQuestion || q.question || q.text || '',
-    text: q.libQuestion || q.question || q.text || '',
-    options: options.filter(opt => opt !== ''),
-    correctAnswer: correctAnswer,
-    bonOpRep: bonOpRep,
-    points: q.points || 1,
-    explanation: q.explanation || '',
-    typeQuestion: q.typeQuestion || 1,
-    type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
-    tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
-    tempsMin: q.tempsMin || 1,
-    domaine: q.domaine || '',
-    sousDomaine: q.sousDomaine || '',
-    niveau: q.niveau || '',
-    matiere: q.matiere || '',
-    imageQuestion: q.imageQuestion || '',
-    imageBase64: q.imageBase64 || '',
-    imageMetadata: q.imageMetadata || {},
-    imageUrl: imageUrl
+    let options = [];
+    if (q.options && q.options.length > 0) {
+      options = q.options;
+    } else {
+      ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
+        if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
+      });
+    }
+    
+    let correctAnswer = null;
+    let bonOpRep = q.bonOpRep;
+    
+    if (typeof bonOpRep === 'number' && options[bonOpRep]) {
+      correctAnswer = options[bonOpRep];
+    } else if (q.correctAnswer) {
+      correctAnswer = q.correctAnswer;
+      bonOpRep = options.findIndex(opt => opt === correctAnswer);
+    }
+    
+    let imageUrl = q.imageQuestion || '';
+    if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
+      imageUrl = q.imageBase64;
+    }
+    
+    return {
+      _id: q._id,
+      libQuestion: q.libQuestion || q.question || q.text || '',
+      question: q.libQuestion || q.question || q.text || '',
+      text: q.libQuestion || q.question || q.text || '',
+      options: options.filter(opt => opt !== ''),
+      correctAnswer: correctAnswer,
+      bonOpRep: bonOpRep,
+      points: q.points || 1,
+      explanation: q.explanation || '',
+      typeQuestion: q.typeQuestion || 1,
+      type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
+      tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
+      tempsMin: q.tempsMin || 1,
+      domaine: q.domaine || '',
+      sousDomaine: q.sousDomaine || '',
+      niveau: q.niveau || '',
+      matiere: q.matiere || '',
+      imageQuestion: q.imageQuestion || '',
+      imageBase64: q.imageBase64 || '',
+      imageMetadata: q.imageMetadata || {},
+      imageUrl: imageUrl
+    };
   };
-};
+
   // Obtenir l'URL de l'image pour l'affichage
   const getImageUrl = (question) => {
     if (question.imageQuestion) return question.imageQuestion;
@@ -336,7 +332,6 @@ const QuizCompositionPage = () => {
     }
 
     try {
-      // ✅ Récupérer le token pour l'appel API
       const token = getAuthToken();
       const axiosConfig = token ? {
         headers: { Authorization: `Bearer ${token}` }
@@ -535,101 +530,153 @@ const QuizCompositionPage = () => {
     configRef.current = parsed.config;
     terminalSessionIdRef.current = parsed.terminalSessionId || null;
 
-    const normalizeQuestion = (q) => {
-  // ✅ Construire options depuis opRep1..opRep5
-  let options = [];
-  if (q.options && q.options.length > 0) {
-    options = q.options;
-  } else {
-    ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
-      if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
-    });
-  }
-  
-  // ✅ Déterminer la bonne réponse
-  let correctAnswer = '';
-  let bonOpRep = q.bonOpRep;
-  
-  if (typeof bonOpRep === 'number' && options[bonOpRep]) {
-    correctAnswer = options[bonOpRep];
-  } else if (q.correctAnswer) {
-    correctAnswer = q.correctAnswer;
-    bonOpRep = options.findIndex(opt => opt === correctAnswer);
-  }
-  
-  return {
-    _id: q._id,
-    libQuestion: q.libQuestion || q.question || q.text || '',
-    options: options.filter(opt => opt !== ''),
-    correctAnswer: correctAnswer,
-    bonOpRep: bonOpRep,
-    points: q.points || 1,
-    explanation: q.explanation || '',
-    typeQuestion: q.typeQuestion || 1,
-    tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
-    imageQuestion: q.imageQuestion || '',
-    imageBase64: q.imageBase64 || '',
-  };
-};
+    const fetchExam = async () => {
+      try {
+        const token = getAuthToken();
+        const axiosConfig = token ? {
+          headers: { Authorization: `Bearer ${token}` }
+        } : {};
+        
+        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+          timeout: 10000,
+          ...axiosConfig
+        });
+        
+        // Extraction robuste de l'examen
+        let examData = res.data;
+        if (examData?.data?.questions) examData = examData.data;
+        else if (examData?.exam?.questions) examData = examData.exam;
+        else if (examData?.success && examData?.data?.questions) examData = examData.data;
+        
+        if (!examData || !examData.questions || !Array.isArray(examData.questions) || examData.questions.length === 0) {
+          throw new Error("Données d'examen invalides");
+        }
+        
+        console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
+        console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
+        
+        let fetchedQuestions = examData.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
+        
+        console.log('[QuizCompositionPage] 📝 Questions normalisées:', fetchedQuestions.length);
+        
+        if (fetchedQuestions.length > 0) {
+          console.log('[QuizCompositionPage] Exemple question:', {
+            libQuestion: fetchedQuestions[0].libQuestion?.substring(0, 50),
+            options: fetchedQuestions[0].options,
+            correctAnswer: fetchedQuestions[0].correctAnswer
+          });
+        }
+
+        if (parsed.config?.openRange && parsed.config.requiredQuestions > 0 && parsed.config.requiredQuestions < fetchedQuestions.length) {
+          const shuffled = shuffleArray([...fetchedQuestions]);
+          fetchedQuestions = shuffled.slice(0, parsed.config.requiredQuestions);
+        }
+
+        if (parsed.config?.sequencing === 'randomPerStudent') {
+          fetchedQuestions = shuffleArray(fetchedQuestions);
+        }
+
+        if (parsed.examOption === 'D' && parsed.config?.sequencing !== 'randomPerStudent') {
+          fetchedQuestions = shuffleArray(fetchedQuestions);
+        }
+
+        setQuestions(fetchedQuestions);
+        setExam({ ...examData, questions: fetchedQuestions });
+        examRef.current = { ...examData, questions: fetchedQuestions };
+
+        if (parsed.config?.timerPerQuestion) {
+          setRemainingTime(parsed.config.timePerQuestion);
+        } else {
+          setRemainingTime(parsed.config.totalTime * 60);
+        }
+
+        setQuizStarted(true);
+
+        const opt = parsed.examOption;
+        if (opt === 'A' || opt === 'B') {
+          setWaitingForStart(true);
+          waitingForStartRef.current = true;
+        } else {
+          setWaitingForStart(false);
+          waitingForStartRef.current = false;
+        }
+
+      } catch (error) {
+        console.error("Erreur chargement examen:", error);
+        if (error.response?.status === 401) {
+          toast.error("Session expirée. Veuillez vous reconnecter.");
+          localStorage.removeItem('userToken');
+          localStorage.removeItem('token');
+          setTimeout(() => navigate('/login'), 2000);
+        } else {
+          toast.error("Échec du chargement de l'examen.");
+          navigate('/', { replace: true });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchExam();
 
     // Connexion socket - Version finale stable
-const newSocket = io(SOCKET_URL, {
-  reconnection: true,
-  reconnectionAttempts: 20,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  transports: ['polling'],  // ✅ POLLING UNIQUEMENT
-  upgrade: false,           // ✅ Désactiver WebSocket
-  forceNew: true,
-  timeout: 20000
-});
+    const newSocket = io(SOCKET_URL, {
+      reconnection: true,
+      reconnectionAttempts: 20,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      transports: ['polling'],
+      upgrade: false,
+      forceNew: true,
+      timeout: 20000
+    });
 
-setSocket(newSocket);
-socketRef.current = newSocket;
+    setSocket(newSocket);
+    socketRef.current = newSocket;
 
-const stableKey = `studentSessionId_${examId}`;
-let stableId = sessionStorage.getItem(stableKey);
-if (!stableId) {
-  stableId = `STU_${examId.slice(-8)}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-  sessionStorage.setItem(stableKey, stableId);
-}
-stableSessionIdRef.current = stableId;
+    const stableKey = `studentSessionId_${examId}`;
+    let stableId = sessionStorage.getItem(stableKey);
+    if (!stableId) {
+      stableId = `STU_${examId.slice(-8)}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      sessionStorage.setItem(stableKey, stableId);
+    }
+    stableSessionIdRef.current = stableId;
 
-newSocket.on('connect', () => {
-  console.log('[QuizCompositionPage] ✅ Socket connecté (polling), ID:', newSocket.id);
-  
-  newSocket.emit('registerSession', { 
-    type: 'student', 
-    sessionId: stableSessionIdRef.current,
-    examId: examId
-  });
-  
-  const currentStatus = parsed.examOption === 'B' ? 'waiting' : 'composing';
-  console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
-  
-  newSocket.emit('studentReadyForExam', {
-    examId,
-    studentInfo: parsed.info,
-    sessionId: stableSessionIdRef.current,
-    status: currentStatus,
-    terminalSessionId: terminalSessionIdRef.current,
-    examOption: parsed.examOption
-  });
-});
+    newSocket.on('connect', () => {
+      console.log('[QuizCompositionPage] ✅ Socket connecté (polling), ID:', newSocket.id);
+      
+      newSocket.emit('registerSession', { 
+        type: 'student', 
+        sessionId: stableSessionIdRef.current,
+        examId: examId
+      });
+      
+      const currentStatus = parsed.examOption === 'B' ? 'waiting' : 'composing';
+      console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
+      
+      newSocket.emit('studentReadyForExam', {
+        examId,
+        studentInfo: parsed.info,
+        sessionId: stableSessionIdRef.current,
+        status: currentStatus,
+        terminalSessionId: terminalSessionIdRef.current,
+        examOption: parsed.examOption
+      });
+    });
 
-newSocket.on('connect_error', (error) => {
-  console.error('[QuizCompositionPage] ❌ Erreur Socket:', error.message);
-  toast.error("Problème de connexion. Reconnexion en cours...");
-});
+    newSocket.on('connect_error', (error) => {
+      console.error('[QuizCompositionPage] ❌ Erreur Socket:', error.message);
+      toast.error("Problème de connexion. Reconnexion en cours...");
+    });
 
-newSocket.on('disconnect', (reason) => {
-  console.log('[QuizCompositionPage] 👋 Socket déconnecté:', reason);
-});
+    newSocket.on('disconnect', (reason) => {
+      console.log('[QuizCompositionPage] 👋 Socket déconnecté:', reason);
+    });
 
-newSocket.on('reconnect', (attemptNumber) => {
-  console.log('[QuizCompositionPage] 🔄 Socket reconnecté après', attemptNumber, 'tentatives');
-  toast.success("Reconnecté au serveur");
-});
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('[QuizCompositionPage] 🔄 Socket reconnecté après', attemptNumber, 'tentatives');
+      toast.success("Reconnecté au serveur");
+    });
 
     newSocket.on('examStartedForOptionB', (data) => {
       if (data.examId !== examId) return;
@@ -681,8 +728,6 @@ newSocket.on('reconnect', (attemptNumber) => {
     newSocket.on('waitingCountUpdate', (data) => {
       if (data.examId === examId) setWaitingCount(data.count);
     });
-
-    newSocket.on('connect_error', () => toast.error("Problème de connexion. Reconnexion en cours..."));
 
     return () => {
       if (newSocket) newSocket.disconnect();
@@ -764,7 +809,6 @@ newSocket.on('reconnect', (attemptNumber) => {
       {showConfetti && <Confetti recycle={false} numberOfPieces={200} gravity={0.1} />}
       <main style={styles.main}>
         <div style={styles.quizCard}>
-          {/* En-tête */}
           <div style={styles.header}>
             <div>
               <div style={styles.titleRow}>
@@ -799,7 +843,6 @@ newSocket.on('reconnect', (attemptNumber) => {
             </div>
           </div>
 
-          {/* Progression */}
           <div style={styles.progressArea}>
             <div style={styles.progressLabels}>
               <span>Progression</span>
@@ -810,7 +853,6 @@ newSocket.on('reconnect', (attemptNumber) => {
             </div>
           </div>
 
-          {/* Navigation pour Option C */}
           {config?.examOption === 'C' && (
             <div style={styles.navGrid}>
               <h3>Navigation des questions</h3>
@@ -833,7 +875,6 @@ newSocket.on('reconnect', (attemptNumber) => {
             </div>
           )}
 
-          {/* Question courante AVEC IMAGE */}
           <AnimatePresence mode="wait">
             <motion.div key={currentQuestionIndex} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
               <div style={styles.questionCard}>
@@ -849,7 +890,6 @@ newSocket.on('reconnect', (attemptNumber) => {
                   )}
                 </div>
                 
-                {/* AFFICHAGE DE L'IMAGE */}
                 {getImageUrl(currentQuestion) && (
                   <div style={{ marginBottom: 16, textAlign: 'center' }}>
                     <img 
@@ -903,7 +943,6 @@ newSocket.on('reconnect', (attemptNumber) => {
             </motion.div>
           </AnimatePresence>
 
-          {/* Boutons de navigation et soumission */}
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
               {config?.examOption === 'B' ? (
@@ -950,7 +989,6 @@ newSocket.on('reconnect', (attemptNumber) => {
         </div>
       </main>
 
-      {/* Modal de confirmation */}
       {showSubmitConfirm && (
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
