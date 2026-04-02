@@ -140,38 +140,58 @@ const QuizCompositionPage = () => {
 
   // Normaliser une question du nouveau format (AVEC IMAGES)
   const normalizeQuestion = (q) => {
-    let imageUrl = q.imageQuestion || '';
-    if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
-      imageUrl = q.imageBase64;
-    }
-    
-    return {
-      _id: q._id,
-      libQuestion: q.libQuestion || q.question || q.text,
-      question: q.libQuestion || q.question || q.text,
-      text: q.libQuestion || q.question || q.text,
-      options: q.options || [],
-      correctAnswer: q.options && typeof q.bonOpRep === 'number' 
-        ? q.options[q.bonOpRep] 
-        : (q.correctAnswer || q.bonOpRep),
-      bonOpRep: q.bonOpRep,
-      points: q.points || 1,
-      explanation: q.explanation || '',
-      typeQuestion: q.typeQuestion || 1,
-      type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
-      tempsMinParQuestion: (q.tempsMin || 1) * 60,
-      tempsMin: q.tempsMin || 1,
-      domaine: q.domaine || '',
-      sousDomaine: q.sousDomaine || '',
-      niveau: q.niveau || '',
-      matiere: q.matiere || '',
-      imageQuestion: q.imageQuestion || '',
-      imageBase64: q.imageBase64 || '',
-      imageMetadata: q.imageMetadata || {},
-      imageUrl: imageUrl
-    };
+  // ✅ Construire le tableau options depuis opRep1..opRep5
+  let options = [];
+  if (q.options && q.options.length > 0) {
+    options = q.options;
+  } else {
+    ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
+      if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
+    });
+  }
+  
+  // ✅ Déterminer la bonne réponse
+  let correctAnswer = null;
+  let bonOpRep = q.bonOpRep;
+  
+  // Si bonOpRep est un nombre, l'utiliser directement
+  if (typeof bonOpRep === 'number' && options[bonOpRep]) {
+    correctAnswer = options[bonOpRep];
+  } else if (q.correctAnswer) {
+    correctAnswer = q.correctAnswer;
+    bonOpRep = options.findIndex(opt => opt === correctAnswer);
+  }
+  
+  // ✅ Récupérer l'URL de l'image
+  let imageUrl = q.imageQuestion || '';
+  if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
+    imageUrl = q.imageBase64;
+  }
+  
+  return {
+    _id: q._id,
+    libQuestion: q.libQuestion || q.question || q.text || '',
+    question: q.libQuestion || q.question || q.text || '',
+    text: q.libQuestion || q.question || q.text || '',
+    options: options.filter(opt => opt !== ''),
+    correctAnswer: correctAnswer,
+    bonOpRep: bonOpRep,
+    points: q.points || 1,
+    explanation: q.explanation || '',
+    typeQuestion: q.typeQuestion || 1,
+    type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
+    tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
+    tempsMin: q.tempsMin || 1,
+    domaine: q.domaine || '',
+    sousDomaine: q.sousDomaine || '',
+    niveau: q.niveau || '',
+    matiere: q.matiere || '',
+    imageQuestion: q.imageQuestion || '',
+    imageBase64: q.imageBase64 || '',
+    imageMetadata: q.imageMetadata || {},
+    imageUrl: imageUrl
   };
-
+};
   // Obtenir l'URL de l'image pour l'affichage
   const getImageUrl = (question) => {
     if (question.imageQuestion) return question.imageQuestion;
@@ -515,75 +535,42 @@ const QuizCompositionPage = () => {
     configRef.current = parsed.config;
     terminalSessionIdRef.current = parsed.terminalSessionId || null;
 
-    const fetchExam = async () => {
-      try {
-        // ✅ Récupérer le token pour l'appel API
-        const token = getAuthToken();
-        const axiosConfig = token ? {
-          headers: { Authorization: `Bearer ${token}` }
-        } : {};
-        
-        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
-          timeout: 10000,
-          ...axiosConfig
-        });
-        
-        if (!res.data || !Array.isArray(res.data.questions) || res.data.questions.length === 0) {
-          throw new Error("Données d'examen invalides");
-        }
-
-        let fetchedQuestions = res.data.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
-
-        if (parsed.config?.openRange && parsed.config.requiredQuestions > 0 && parsed.config.requiredQuestions < fetchedQuestions.length) {
-          const shuffled = shuffleArray([...fetchedQuestions]);
-          fetchedQuestions = shuffled.slice(0, parsed.config.requiredQuestions);
-        }
-
-        if (parsed.config?.sequencing === 'randomPerStudent') {
-          fetchedQuestions = shuffleArray(fetchedQuestions);
-        }
-
-        if (parsed.examOption === 'D' && parsed.config?.sequencing !== 'randomPerStudent') {
-          fetchedQuestions = shuffleArray(fetchedQuestions);
-        }
-
-        setQuestions(fetchedQuestions);
-        setExam({ ...res.data, questions: fetchedQuestions });
-        examRef.current = { ...res.data, questions: fetchedQuestions };
-
-        if (parsed.config?.timerPerQuestion) {
-          setRemainingTime(parsed.config.timePerQuestion);
-        } else {
-          setRemainingTime(parsed.config.totalTime * 60);
-        }
-
-        setQuizStarted(true);
-
-        const opt = parsed.examOption;
-        if (opt === 'A' || opt === 'B') {
-          setWaitingForStart(true);
-          waitingForStartRef.current = true;
-        } else {
-          setWaitingForStart(false);
-          waitingForStartRef.current = false;
-        }
-
-      } catch (error) {
-        console.error("Erreur chargement examen:", error);
-        if (error.response?.status === 401) {
-          toast.error("Session expirée. Veuillez vous reconnecter.");
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('token');
-          setTimeout(() => navigate('/login'), 2000);
-        } else {
-          toast.error("Échec du chargement de l'examen.");
-          navigate('/', { replace: true });
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchExam();
+    const normalizeQuestion = (q) => {
+  // ✅ Construire options depuis opRep1..opRep5
+  let options = [];
+  if (q.options && q.options.length > 0) {
+    options = q.options;
+  } else {
+    ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
+      if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
+    });
+  }
+  
+  // ✅ Déterminer la bonne réponse
+  let correctAnswer = '';
+  let bonOpRep = q.bonOpRep;
+  
+  if (typeof bonOpRep === 'number' && options[bonOpRep]) {
+    correctAnswer = options[bonOpRep];
+  } else if (q.correctAnswer) {
+    correctAnswer = q.correctAnswer;
+    bonOpRep = options.findIndex(opt => opt === correctAnswer);
+  }
+  
+  return {
+    _id: q._id,
+    libQuestion: q.libQuestion || q.question || q.text || '',
+    options: options.filter(opt => opt !== ''),
+    correctAnswer: correctAnswer,
+    bonOpRep: bonOpRep,
+    points: q.points || 1,
+    explanation: q.explanation || '',
+    typeQuestion: q.typeQuestion || 1,
+    tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
+    imageQuestion: q.imageQuestion || '',
+    imageBase64: q.imageBase64 || '',
+  };
+};
 
     // Connexion socket
     const newSocket = io(SOCKET_URL, {
