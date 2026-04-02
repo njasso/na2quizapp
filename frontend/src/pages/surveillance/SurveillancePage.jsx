@@ -32,7 +32,10 @@ import { getExams, getResults, getActiveSessions, getSurveillanceData } from '..
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
+// ══════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ══════════════════════════════════════════════════════════════
+const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
 
 console.log('[Surveillance] Backend URL:', NODE_BACKEND_URL);
@@ -115,7 +118,7 @@ const TerminalCard = React.memo(({ terminal }) => {
   );
 });
 
-const StudentCard = React.memo(({ student, examTitle, backendUrl, onAlert }) => {
+const StudentCard = React.memo(({ student, examTitle, examInfo, backendUrl, onAlert }) => {
   const statusConfig = {
     composing:       { color: '#3b82f6', label: 'En cours' },
     finished:        { color: '#10b981', label: 'Terminé' },
@@ -184,24 +187,24 @@ const StudentCard = React.memo(({ student, examTitle, backendUrl, onAlert }) => 
       </div>
 
       {/* Affichage des infos de l'épreuve (domaine, niveau, matière) */}
-      {student.examInfo && (
+      {examInfo && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-          {student.examInfo.domain && (
+          {examInfo.domain && (
             <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(59,130,246,0.15)', borderRadius: '4px', color: '#60a5fa' }}>
               <Tag size={8} style={{ display: 'inline', marginRight: 2 }} />
-              {student.examInfo.domain}
+              {examInfo.domain}
             </span>
           )}
-          {student.examInfo.level && (
+          {examInfo.level && (
             <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(139,92,246,0.15)', borderRadius: '4px', color: '#a78bfa' }}>
               <Layers size={8} style={{ display: 'inline', marginRight: 2 }} />
-              {student.examInfo.level}
+              {examInfo.level}
             </span>
           )}
-          {student.examInfo.subject && (
+          {examInfo.subject && (
             <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(16,185,129,0.15)', borderRadius: '4px', color: '#34d399' }}>
               <BookOpen size={8} style={{ display: 'inline', marginRight: 2 }} />
-              {student.examInfo.subject}
+              {examInfo.subject}
             </span>
           )}
         </div>
@@ -393,7 +396,6 @@ const SessionHistoryPanel = ({ history, onClose, onExport, onClear }) => {
                       <div>Option: {session.examOption}</div>
                       <div>Domaine: {session.domain || 'N/A'}</div>
                       <div>Niveau: {session.level || 'N/A'}</div>
-                      {/* ✅ AFFICHAGE DE L'IMAGE DE LA SESSION */}
                       {session.coverImage && (
                         <div style={{ marginTop: '8px' }}>
                           <img 
@@ -407,6 +409,7 @@ const SessionHistoryPanel = ({ history, onClose, onExport, onClear }) => {
                               background: 'rgba(0,0,0,0.3)',
                               padding: '4px'
                             }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
                           />
                         </div>
                       )}
@@ -461,7 +464,6 @@ const SurveillancePage = () => {
   const [rankingsData, setRankingsData] = useState([]);
   const [isLoadingRankings, setIsLoadingRankings] = useState(false);
   const [resultsData, setResultsData] = useState([]);
-  const [expandedSessionKeys, setExpandedSessionKeys] = useState({});
 
   // Refs
   const socketRef = useRef(null);
@@ -486,6 +488,19 @@ const SurveillancePage = () => {
     toast.error(alert.message, { duration: 5000 });
   }, []);
 
+  const getImageUrl = useCallback((exam) => {
+    if (!exam) return null;
+    if (exam.coverImage) return exam.coverImage;
+    if (exam.questions && exam.questions.length > 0) {
+      const firstQuestionWithImage = exam.questions.find(q => q.imageQuestion || q.imageBase64);
+      if (firstQuestionWithImage) {
+        return firstQuestionWithImage.imageQuestion || 
+               (firstQuestionWithImage.imageBase64?.startsWith('data:') ? firstQuestionWithImage.imageBase64 : null);
+      }
+    }
+    return null;
+  }, []);
+
   const getUniqueSessions = useCallback((sessions) => {
     const terminalMap = new Map();
     const studentMap = new Map();
@@ -507,6 +522,21 @@ const SurveillancePage = () => {
     return [...terminalMap.values(), ...studentMap.values()];
   }, []);
 
+  const getExamTitle = useCallback((examId) => {
+    const exam = Array.isArray(exams) ? exams.find(e => e._id === examId) : null;
+    return exam?.title || 'Examen inconnu';
+  }, [exams]);
+  
+  const getExamInfo = useCallback((examId) => {
+    const exam = Array.isArray(exams) ? exams.find(e => e._id === examId) : null;
+    return {
+      domain: exam?.domain || '',
+      level: exam?.level || '',
+      subject: exam?.subject || '',
+      coverImage: getImageUrl(exam),
+    };
+  }, [exams, getImageUrl]);
+
   const getFilteredSessions = useCallback(() => {
     const unique = getUniqueSessions(activeSessions);
     return {
@@ -520,40 +550,9 @@ const SurveillancePage = () => {
   }, [activeSessions, getUniqueSessions]);
 
   const filtered = getFilteredSessions();
-  const { uniqueSessions, terminalsWaiting, terminalsWithExam, studentsWaitingForStart, studentsReady, studentsActive } = filtered;
+  const { terminalsWaiting, terminalsWithExam, studentsWaitingForStart, studentsReady, studentsActive } = filtered;
   const totalTerminals = terminalsWaiting.length + terminalsWithExam.length;
   const totalStudents = studentsWaitingForStart.length + studentsReady.length + studentsActive.length;
-
-  const getExamTitle = useCallback((examId) => {
-    const exam = Array.isArray(exams) ? exams.find(e => e._id === examId) : null;
-    return exam?.title || 'Examen inconnu';
-  }, [exams]);
-  
-  const getExamInfo = useCallback((examId) => {
-    const exam = Array.isArray(exams) ? exams.find(e => e._id === examId) : null;
-    return {
-      domain: exam?.domain || '',
-      level: exam?.level || '',
-      subject: exam?.subject || '',
-      coverImage: exam?.coverImage || '',
-    };
-  }, [exams]);
-
-  // ✅ FONCTION POUR RÉCUPÉRER L'URL DE L'IMAGE D'UNE ÉPREUVE
-  const getImageUrl = useCallback((exam) => {
-    if (!exam) return null;
-    // Priorité à l'image de couverture de l'épreuve
-    if (exam.coverImage) return exam.coverImage;
-    // Sinon, chercher la première question avec image
-    if (exam.questions && exam.questions.length > 0) {
-      const firstQuestionWithImage = exam.questions.find(q => q.imageQuestion || q.imageBase64);
-      if (firstQuestionWithImage) {
-        return firstQuestionWithImage.imageQuestion || 
-               (firstQuestionWithImage.imageBase64?.startsWith('data:') ? firstQuestionWithImage.imageBase64 : null);
-      }
-    }
-    return null;
-  }, []);
 
   // ══════════════════════════════════════════════════════════════
   //  CONNEXION SOCKET.IO
@@ -623,7 +622,6 @@ const SurveillancePage = () => {
     socket.on('sessionUpdate', (data) => {
       if (!isMounted.current) return;
       const sessions = data.activeSessions || [];
-      // Enrichir les sessions avec les infos d'épreuve
       const enrichedSessions = sessions.map(s => {
         if (s.type === 'student' && s.currentExamId) {
           return { ...s, examInfo: getExamInfo(s.currentExamId) };
@@ -790,7 +788,7 @@ const SurveillancePage = () => {
   }, [selectedExamOption, selectedExamId, autoAdvanceOptionA, currentQIdx, exams, handleAdvanceQuestion]);
 
   // ══════════════════════════════════════════════════════════════
-  //  SAUVEGARDE DES SESSIONS AVEC IMAGE
+  //  SAUVEGARDE DES SESSIONS
   // ══════════════════════════════════════════════════════════════
   
   const saveSessionToHistory = useCallback((examId, examTitle, examOption, students) => {
@@ -841,6 +839,7 @@ const SurveillancePage = () => {
   // ══════════════════════════════════════════════════════════════
   
   const exportLogs = useCallback(() => {
+    const uniqueSessions = getUniqueSessions(activeSessions);
     const logs = {
       timestamp: new Date().toISOString(),
       activeSessions: uniqueSessions,
@@ -857,7 +856,7 @@ const SurveillancePage = () => {
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Logs exportés');
-  }, [uniqueSessions, sessionHistory, alerts, realtimeStats]);
+  }, [activeSessions, sessionHistory, alerts, realtimeStats, getUniqueSessions]);
 
   const clearHistory = useCallback(() => {
     if (window.confirm('Supprimer tout l\'historique des sessions ?')) {
@@ -894,27 +893,13 @@ const SurveillancePage = () => {
       }
       
       // Normalisation des examens avec images
-      const normalizedExams = examsData.map(exam => {
-        // Récupérer l'image de couverture de l'épreuve
-        let coverImage = exam.coverImage || '';
-        
-        // Si pas d'image de couverture, chercher dans les questions
-        if (!coverImage && exam.questions && exam.questions.length > 0) {
-          const firstQuestionWithImage = exam.questions.find(q => q.imageQuestion || q.imageBase64);
-          if (firstQuestionWithImage) {
-            coverImage = firstQuestionWithImage.imageQuestion || 
-                        (firstQuestionWithImage.imageBase64?.startsWith('data:') ? firstQuestionWithImage.imageBase64 : '');
-          }
-        }
-        
-        return {
-          ...exam,
-          domain: exam.domain || exam.metadata?.domain || '',
-          level: exam.level || exam.metadata?.level || '',
-          subject: exam.subject || exam.metadata?.subject || '',
-          coverImage: coverImage,
-        };
-      });
+      const normalizedExams = examsData.map(exam => ({
+        ...exam,
+        domain: exam.domain || exam.metadata?.domain || '',
+        level: exam.level || exam.metadata?.level || '',
+        subject: exam.subject || exam.metadata?.subject || '',
+        coverImage: getImageUrl(exam),
+      }));
       
       // Extraction des résultats
       let results = [];
@@ -946,7 +931,7 @@ const SurveillancePage = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [navigate]);
+  }, [navigate, getImageUrl]);
 
   // ══════════════════════════════════════════════════════════════
   //  HANDLERS
@@ -1119,7 +1104,7 @@ const SurveillancePage = () => {
       .exam-image{max-width:200px;margin-bottom:20px;border-radius:8px;}
     </style></head><body>
       <h1>Classement - ${examTitle}</h1>
-      ${coverImage ? `<img src="${coverImage}" alt="${examTitle}" class="exam-image" />` : ''}
+      ${coverImage ? `<img src="${coverImage}" alt="${examTitle}" class="exam-image" onerror="this.style.display='none'" />` : ''}
       ${examDomain ? `<p><strong>Domaine:</strong> ${examDomain}</p>` : ''}
       ${examLevel ? `<p><strong>Niveau:</strong> ${examLevel}</p>` : ''}
       <p>Moyenne: ${avg}% | Taux de réussite: ${((passed/rankingsData.length)*100).toFixed(1)}% | ${rankingsData.length} candidats</p>
@@ -1556,7 +1541,7 @@ const SurveillancePage = () => {
             </div>
           </motion.div>
 
-          {/* Panneau terminaux (inchangé mais enrichi avec les infos d'épreuve) */}
+          {/* Panneau terminaux */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
             style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}
@@ -1573,7 +1558,7 @@ const SurveillancePage = () => {
                 ? <p style={{ color: '#475569', fontSize: '0.8rem', textAlign: 'center', padding: '12px 0' }}>Aucun terminal connecté</p>
                 : <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <AnimatePresence>
-                      {terminalsWaiting.map(t => <TerminalCard key={t.socketId} terminal={t} />)}
+                      {terminalsWaiting.map(t => <TerminalCard key={t.socketId || t.sessionId} terminal={t} />)}
                     </AnimatePresence>
                   </div>
               }
@@ -1620,7 +1605,7 @@ const SurveillancePage = () => {
                   <AnimatePresence>
                     {studentsWaitingForStart.map(s => (
                       <motion.div
-                        key={s.socketId || s.matricule}
+                        key={s.socketId || s.studentInfo?.matricule || s.sessionId}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.9 }}
@@ -1668,7 +1653,7 @@ const SurveillancePage = () => {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <AnimatePresence>
-                    {terminalsWithExam.map(t => <TerminalCard key={t.socketId} terminal={t} />)}
+                    {terminalsWithExam.map(t => <TerminalCard key={t.socketId || t.sessionId} terminal={t} />)}
                   </AnimatePresence>
                 </div>
               </div>
@@ -1685,7 +1670,7 @@ const SurveillancePage = () => {
             </div>
           </motion.div>
 
-          {/* Stats temps réel (inchangé) */}
+          {/* Stats temps réel */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
             style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}
@@ -1743,7 +1728,7 @@ const SurveillancePage = () => {
           </motion.div>
         </div>
 
-        {/* LIGNE 2 : Étudiants en composition (inchangé) */}
+        {/* LIGNE 2 : Étudiants en composition */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}
@@ -1774,9 +1759,10 @@ const SurveillancePage = () => {
               <AnimatePresence>
                 {studentsActive.map(student => (
                   <StudentCard
-                    key={student.socketId}
+                    key={student.socketId || student.sessionId || student.studentInfo?.matricule || Math.random()}
                     student={student}
                     examTitle={getExamTitle(student.currentExamId)}
+                    examInfo={getExamInfo(student.currentExamId)}
                     backendUrl={NODE_BACKEND_URL}
                     onAlert={addAlert}
                   />
@@ -1868,7 +1854,7 @@ const SurveillancePage = () => {
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>%</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Domaine</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Niveau</th>
-                  </tr>
+                   </tr>
                 </thead>
                 <tbody>
                   {rankingsData.slice(0, 10).map((entry, index) => {

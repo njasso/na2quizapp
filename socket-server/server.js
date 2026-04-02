@@ -624,6 +624,7 @@ app.delete('/api/questions/:id', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+
 // ==================== EXAM ROUTES ====================
 app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
@@ -782,6 +783,152 @@ app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGU
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
+
+// ==================== IA ROUTES ====================
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+
+app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { 
+      domain, sousDomaine, level, subject, 
+      numQuestions = 5, 
+      typeQuestion = 1,
+      tempsMinParQuestion = 60,
+      difficulty = 'moyen',
+      keywords = '' 
+    } = req.body;
+
+    // Validation des entrées
+    if (!domain || !level || !subject) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Domain, level et subject sont requis' 
+      });
+    }
+
+    // Construction du prompt pour l'IA
+    const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
+    
+    ${keywords ? `Mots-clés spécifiques: ${keywords}` : ''}
+    Difficulté: ${difficulty}
+    
+    Pour chaque question, fournis:
+    - La question
+    - 4 options de réponse
+    - La bonne réponse (index 0-3)
+    - Une brève explication
+    
+    Format JSON attendu:
+    {
+      "questions": [
+        {
+          "text": "question",
+          "options": ["opt1", "opt2", "opt3", "opt4"],
+          "answer": "opt2",
+          "explanation": "explication"
+        }
+      ]
+    }`;
+
+    let generatedQuestions = [];
+
+    // Si clé API DeepSeek configurée
+    if (DEEPSEEK_API_KEY) {
+      try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: 'Tu es un générateur de QCM pédagogique. Réponds uniquement au format JSON demandé.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 4000
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.choices[0]?.message?.content || '';
+          try {
+            const parsed = JSON.parse(content);
+            generatedQuestions = parsed.questions || [];
+          } catch (e) {
+            console.error('Erreur parsing JSON IA:', e);
+          }
+        }
+      } catch (err) {
+        console.error('Erreur appel DeepSeek:', err.message);
+      }
+    }
+
+    // Fallback si IA non disponible ou erreur
+    if (generatedQuestions.length === 0) {
+      generatedQuestions = generateMockQuestions(domain, subject, level, numQuestions);
+    }
+
+    res.json({
+      success: true,
+      questions: generatedQuestions,
+      metadata: {
+        model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock',
+        generatedAt: new Date().toISOString(),
+        count: generatedQuestions.length,
+        domain,
+        level,
+        subject
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur génération IA:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Erreur lors de la génération des questions' 
+    });
+  }
+});
+
+// Fonction de fallback (questions mock)
+function generateMockQuestions(domain, subject, level, count) {
+  const mockQuestions = [];
+  const templates = [
+    { text: `Qu'est-ce que ${subject} ?`, options: [`Définition de ${subject}`, 'Une science', 'Un art', 'Une technique'], answer: `Définition de ${subject}`, explanation: `Le ${subject} est la discipline qui étudie...` },
+    { text: `Quelle est l'importance de ${subject} dans le ${level} ?`, options: ['Très importante', 'Peu importante', 'Non essentielle', 'Dépend du contexte'], answer: 'Très importante', explanation: `Le ${subject} est fondamental à ce niveau.` },
+    { text: `Quel est le concept clé en ${subject} ?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], answer: 'Concept A', explanation: `Le concept A est central dans ${subject}.` }
+  ];
+
+  for (let i = 0; i < Math.min(count, templates.length); i++) {
+    const t = templates[i % templates.length];
+    mockQuestions.push({
+      text: t.text,
+      options: t.options,
+      answer: t.answer,
+      explanation: t.explanation,
+      points: 1,
+      difficulty: 'moyen'
+    });
+  }
+
+  // Compléter avec des questions génériques si nécessaire
+  while (mockQuestions.length < count) {
+    mockQuestions.push({
+      text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`,
+      options: ['Option A', 'Option B', 'Option C', 'Option D'],
+      answer: 'Option A',
+      explanation: `Explication pour la question ${mockQuestions.length + 1}`,
+      points: 1,
+      difficulty: 'moyen'
+    });
+  }
+
+  return mockQuestions;
+}
 
 // ==================== RANKINGS ====================
 app.get('/api/rankings/:examId', protect, async (req, res) => {

@@ -10,9 +10,9 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const NODE_BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
-  : 'http://localhost:5000';
+const NODE_BACKEND_URL = 
+  process.env.REACT_APP_BACKEND_URL ||
+  'https://na2quizapp.onrender.com';
 
 // Fonction pour obtenir les en-têtes d'authentification
 const getAuthHeaders = () => {

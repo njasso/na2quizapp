@@ -8,12 +8,21 @@
   CI                 = "false"
   GENERATE_SOURCEMAP = "false"
 
+# ✅ Redirection des appels API vers Render
 [[redirects]]
   from   = "/api/*"
   to     = "https://na2quizapp.onrender.com/api/:splat"
   status = 200
   force  = true
 
+# ✅ Redirection des appels Socket.IO vers Render (AJOUT OBLIGATOIRE)
+[[redirects]]
+  from   = "/socket.io/*"
+  to     = "https://na2quizapp.onrender.com/socket.io/:splat"
+  status = 200
+  force  = true
+
+# SPA fallback
 [[redirects]]
   from   = "/*"
   to     = "/index.html"

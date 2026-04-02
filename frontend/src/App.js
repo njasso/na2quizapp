@@ -1,4 +1,4 @@
-// src/App.jsx - Version avec protection des routes (corrigée et complète)
+// src/App.jsx - Version avec protection des routes et nouvelle page QCMBank
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -10,12 +10,12 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 
-// Pages de création d'examens (ENSEIGNANT)
+// Pages de création (ENSEIGNANT)
 import ManualQuizCreation from './pages/creation/ManualQuizCreation';
 import DatabaseQuizCreation from './pages/creation/DatabaseQuizCreation';
 import AIQuizCreation from './pages/creation/AIQuizCreation';
 import EvaluationSummative from './pages/creation/EvaluationSummative';
-import CreateQuestion from './pages/creation/CreateQuestion';           // ✅ NOUVEAU
+import CreateQuestion from './pages/creation/CreateQuestion';
 
 // Pages d'examens
 import ExamsPage from './pages/exams/ExamsPage';
@@ -36,14 +36,17 @@ import MyResultsPage from './pages/student/MyResultsPage';
 import SurveillancePage from './pages/surveillance/SurveillancePage';
 import ReportsPage from './pages/surveillance/ReportsPage';
 
-// Pages enseignant - Rapports de classe et questions
+// Pages enseignant - Rapports et suivi
 import TeacherReportsPage from './pages/teacher/TeacherReportsPage';
-import TeacherQuestionsPage from './pages/teacher/TeacherQuestionsPage';     // ✅ NOUVEAU
+import TeacherQuestionsPage from './pages/teacher/TeacherQuestionsPage';
 
 // Pages d'administration (ADMIN_DELEGUE, ADMIN_SYSTEME)
 import QCMValidationPage from './pages/admin/QCMValidationPage';
 import ImportQuestions from './pages/admin/ImportQuestions';
 import UserManagementPage from './pages/admin/UserManagementPage';
+
+// ✅ NOUVEAU - Consultation analytique de la Banque de QCM
+import QCMBankPage from './pages/qcm/QCMBankPage';
 
 // Composant de chargement
 const LoadingSpinner = () => (
@@ -88,7 +91,7 @@ function App() {
         <div style={{ minHeight: '100vh' }}>
           <Routes>
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES PUBLIQUES (sans authentification) */}
+            {/* ROUTES PUBLIQUES */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
@@ -105,8 +108,15 @@ function App() {
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES ENSEIGNANT - Création d'épreuves et questions */}
+            {/* PÔLE QUESTIONS (ENSEIGNANT, ADMIN) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
+            
+            {/* Création de question individuelle (avec validation) */}
+            <Route path="/create/question" element={
+              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
+                <CreateQuestion />
+              </ProtectedRoute>
+            } />
             
             {/* Création d'épreuves */}
             <Route path="/create/manual" element={
@@ -125,15 +135,22 @@ function App() {
               </ProtectedRoute>
             } />
             
-            {/* Création de question individuelle (avec validation) */}
-            <Route path="/create/question" element={
+            {/* ✅ Consultation analytique de la Banque de QCM */}
+            <Route path="/qcm-bank" element={
+              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
+                <QCMBankPage />
+              </ProtectedRoute>
+            } />
+            
+            {/* Gestion des questions par l'enseignant */}
+            <Route path="/teacher/questions" element={
               <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
-                <CreateQuestion />
+                <TeacherQuestionsPage />
               </ProtectedRoute>
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES EXAMENS (ENSEIGNANT, OPERATEUR, ADMIN) */}
+            {/* PÔLE ÉPREUVES (ENSEIGNANT, OPERATEUR, ADMIN) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/exams" element={
               <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
@@ -152,7 +169,7 @@ function App() {
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES APPRENANT - Composition */}
+            {/* PÔLE ÉVALUATION OPÉRATIONNELLE (APPRENANT) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/exam/profile/:examId" element={
               <ProtectedRoute allowedRoles={['APPRENANT']}>
@@ -176,7 +193,7 @@ function App() {
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES APPRENANT - Tableau de bord étudiant */}
+            {/* PÔLE APPRENANT - Tableau de bord */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/available-exams" element={
               <ProtectedRoute allowedRoles={['APPRENANT']}>
@@ -190,22 +207,13 @@ function App() {
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES ENSEIGNANT - Rapports et suivi des questions */}
+            {/* PÔLE ÉVALUATION - Rapports (ENSEIGNANT, ADMIN) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/teacher/reports" element={
               <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
                 <TeacherReportsPage />
               </ProtectedRoute>
             } />
-            <Route path="/teacher/questions" element={
-              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
-                <TeacherQuestionsPage />
-              </ProtectedRoute>
-            } />
-            
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES OPERATEUR_EVALUATION - Surveillance */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/surveillance" element={
               <ProtectedRoute allowedRoles={['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION']}>
                 <SurveillancePage />
@@ -218,7 +226,7 @@ function App() {
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ROUTES ADMINISTRATION */}
+            {/* PÔLE ADMINISTRATION */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/admin/qcm-validation" element={
               <ProtectedRoute allowedRoles={['ADMIN_SYSTEME', 'ADMIN_DELEGUE']}>
