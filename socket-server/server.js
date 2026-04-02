@@ -79,6 +79,9 @@ if (isProduction) {
   app.use(compression());
 }
 
+// Trust proxy (Render passe par un reverse proxy — obligatoire pour express-rate-limit)
+app.set('trust proxy', 1);
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -159,7 +162,7 @@ const questionSchema = new mongoose.Schema({
   tempsMin: { type: Number, default: 1, min: 0.5 },
   matriculeAuteur: { type: String, required: true },
   dateCreation: { type: Date, default: Date.now },
-  cleInterne: { type: String, sparse: true },
+  cleInterne: { type: String, default: '' },
   points: { type: Number, default: 1 },
   explanation: { type: String, default: '' },
   type: { type: String, enum: ['single', 'multiple'], default: 'single' },
