@@ -1,1001 +1,1255 @@
-// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION PRO
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Library, Search, Filter, Eye, Download, FileText, BookOpen,
-  Layers, Tag, Clock, Award, CheckCircle, XCircle, AlertCircle,
-  ChevronDown, ChevronUp, ArrowLeft, Home, User, RefreshCw,
-  BarChart3, TrendingUp, PieChart, FilterX, Copy, Trash2,
-  Brain, Zap, Target, AlertTriangle, Lightbulb, Settings, Sparkles,
-  Calendar, TrendingDown, Activity, BarChart, LineChart
-} from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
-import { getQuestions } from '../../services/api';
-import DOMAIN_DATA, {
-  getAllDomaines,
-  getAllSousDomaines,
-  getAllLevels,
-  getAllMatieres,
-  getDomainNom,
-  getSousDomaineNom,
-  getLevelNom,
-  getMatiereNom
-} from '../../data/domainConfig';
-import { Bar, Line, Doughnut } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-  Filler
-} from 'chart.js';
-import toast from 'react-hot-toast';
+// socket-server/server.js - Version finale avec terminal.html
+import express from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
+import fs from 'fs';
 
-ChartJS.register(
-  CategoryScale, LinearScale, BarElement, LineElement,
-  PointElement, Title, Tooltip, Legend, ArcElement, Filler
-);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const QUESTION_TYPES = [
-  { id: 1, nom: "Savoir", color: "#3b82f6", description: "Notions de base" },
-  { id: 2, nom: "Savoir-Faire", color: "#10b981", description: "Intelligence pratique" },
-  { id: 3, nom: "Savoir-être", color: "#8b5cf6", description: "Potentiel psychologique" }
+dotenv.config();
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════════
+const PORT = process.env.PORT || 10000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://na2quizapp.netlify.app';
+const JWT_SECRET = process.env.JWT_SECRET || 'na2quiz_secret_key';
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProduction = NODE_ENV === 'production';
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI non défini');
+  if (isProduction) process.exit(1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORS - Configuration complète
+// ═══════════════════════════════════════════════════════════════
+const CORS_ORIGINS = [
+  FRONTEND_URL,
+  'https://na2quizapp.netlify.app',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://localhost:5001',
+  'http://127.0.0.1:3000',
+  'http://192.168.0.1:3000',
+  'http://192.168.106.51:5000',
 ];
 
-const QCMBankPage = () => {
-  const navigate = useNavigate();
-  const { user, hasRole } = useAuth();
+// ═══════════════════════════════════════════════════════════════
+// INITIALISATION EXPRESS
+// ═══════════════════════════════════════════════════════════════
+const app = express();
+const server = createServer(app);
 
-  // ========== ÉTATS ==========
-  const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [dashboardView, setDashboardView] = useState('analytics');
-  const [timeRange, setTimeRange] = useState('month');
+// CORS
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!isProduction) return callback(null, true);
+    if (CORS_ORIGINS.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Origine bloquée: ${origin}`);
+    callback(new Error('CORS non autorisé'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
 
-  // Filtres
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDomainId, setSelectedDomainId] = useState('');
-  const [selectedSousDomaineId, setSelectedSousDomaineId] = useState('');
-  const [selectedLevelId, setSelectedLevelId] = useState('');
-  const [selectedMatiereId, setSelectedMatiereId] = useState('');
-  const [selectedType, setSelectedType] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('approved');
-  const [showFilters, setShowFilters] = useState(true);
-  const [expandedQuestion, setExpandedQuestion] = useState(null);
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Noms (pour les filtres API)
-  const [domainNom, setDomainNom] = useState('');
-  const [sousDomaineNom, setSousDomaineNom] = useState('');
-  const [levelNom, setLevelNom] = useState('');
-  const [matiereNom, setMatiereNom] = useState('');
+// Security (désactivé en dev pour éviter les blocages)
+if (isProduction) {
+  app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" }, contentSecurityPolicy: false }));
+  app.use(compression());
+}
 
-  // IA Insights
-  const [aiInsights, setAiInsights] = useState({
-    strengths: [],
-    weaknesses: [],
-    recommendations: [],
-    predictedGrowth: 12,
-    qualityScore: 78,
-    balanceScore: 65,
-    coverageScore: 82
-  });
+// Trust proxy (Render passe par un reverse proxy — obligatoire pour express-rate-limit)
+app.set('trust proxy', 1);
 
-  // Statistiques avancées
-  const [stats, setStats] = useState({
-    total: 0,
-    byType: { 1: 0, 2: 0, 3: 0 },
-    byStatus: { approved: 0, pending: 0, rejected: 0 },
-    avgPoints: 0,
-    avgTime: 0,
-    byLevel: {},
-    byMatiere: {},
-    monthlyGrowth: [],
-    validationRate: 0,
-    avgValidationDays: 0
-  });
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 500 : 5000,
+  skip: (req) => req.path === '/health',
+});
+app.use(limiter);
 
-  // Mise à jour des noms (pour affichage)
-  useEffect(() => {
-    if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
-  }, [selectedDomainId]);
+// ═══════════════════════════════════════════════════════════════
+// SERVEUR STATIQUE POUR UPLOADS ET FICHIERS STATIQUES
+// ═══════════════════════════════════════════════════════════════
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+const uploadsDir = path.join(publicDir, 'uploads/questions');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId) {
-      setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId]);
+// Servir les fichiers statiques (uploads + terminal.html)
+app.use(express.static(publicDir));
+app.use('/uploads', express.static(path.join(publicDir, 'uploads')));
 
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
-      setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
+// ═══════════════════════════════════════════════════════════════
+// SCHÉMAS MONGOOSE (COMPLETS)
+// ═══════════════════════════════════════════════════════════════
 
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
-      setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
+// === User Schema ===
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true, lowercase: true },
+  username: { type: String, unique: true, sparse: true, lowercase: true },
+  password: { type: String, required: true, select: false },
+  matricule: { type: String, unique: true, sparse: true, uppercase: true },
+  level: { type: String, default: '' },
+  grade: { type: String, default: '' },
+  department: { type: String, default: '' },
+  role: { type: String, enum: ['APPRENANT', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'], default: 'APPRENANT' },
+  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+  isAdmin: { type: Boolean, default: false },
+  lastLogin: { type: Date },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
 
-  // Chargement des questions (CORRIGÉ : utilise les noms pour l'API)
-  const loadQuestions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const filter = {};
-      // ✅ CORRECTION : Utiliser les noms (textes) pour l'API backend
-      if (selectedDomainId && domainNom) filter.domaine = domainNom;
-      if (selectedSousDomaineId && sousDomaineNom) filter.sousDomaine = sousDomaineNom;
-      if (selectedLevelId && levelNom) filter.niveau = levelNom;
-      if (selectedMatiereId && matiereNom) filter.matiere = matiereNom;
-      if (selectedStatus !== 'all') filter.status = selectedStatus;
+userSchema.pre('save', async function(next) {
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  next();
+});
 
-      console.log('[API] Filtres envoyés:', filter);
-      const response = await getQuestions(filter);
-
-      let questionsData = [];
-      if (Array.isArray(response)) questionsData = response;
-      else if (response?.data && Array.isArray(response.data)) questionsData = response.data;
-      else if (response?.data?.data && Array.isArray(response.data.data)) questionsData = response.data.data;
-      else if (response?.success && Array.isArray(response.data)) questionsData = response.data;
-
-      const normalized = questionsData.map(q => ({
-        ...q,
-        libQuestion: q.libQuestion || q.question || q.text,
-        typeInfo: QUESTION_TYPES.find(t => t.id === q.typeQuestion) || QUESTION_TYPES[0],
-        imageUrl: q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null),
-        createdAtDate: new Date(q.createdAt),
-        approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null
-      }));
-
-      setQuestions(normalized);
-      calculateStatistics(normalized);
-      
-    } catch (err) {
-      console.error('Erreur chargement questions:', err);
-      setError(err.message || 'Erreur lors du chargement');
-      toast.error('Impossible de charger les questions');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Calcul des statistiques
-  const calculateStatistics = (normalized) => {
-    const statsCalc = {
-      total: normalized.length,
-      byType: { 1: 0, 2: 0, 3: 0 },
-      byStatus: { approved: 0, pending: 0, rejected: 0 },
-      avgPoints: 0,
-      avgTime: 0,
-      byLevel: {},
-      byMatiere: {},
-      monthlyGrowth: [],
-      validationRate: 0,
-      avgValidationDays: 0
-    };
-
-    let totalPoints = 0;
-    let totalTime = 0;
-    let totalValidationDays = 0;
-    let validationCount = 0;
-    let rejectedCount = 0;
-    const monthlyData = {};
-
-    normalized.forEach(q => {
-      if (q.typeQuestion && statsCalc.byType[q.typeQuestion] !== undefined) {
-        statsCalc.byType[q.typeQuestion]++;
-      }
-      if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
-      if (q.niveau) statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
-      if (q.matiere) statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
-      
-      totalPoints += q.points || 1;
-      totalTime += q.tempsMin || 1;
-      
-      if (q.status === 'approved' && q.createdAtDate && q.approvedAtDate) {
-        const days = (q.approvedAtDate - q.createdAtDate) / (1000 * 60 * 60 * 24);
-        totalValidationDays += days;
-        validationCount++;
-      }
-      if (q.status === 'rejected') rejectedCount++;
-      
-      if (q.createdAtDate) {
-        const monthKey = `${q.createdAtDate.getFullYear()}-${q.createdAtDate.getMonth() + 1}`;
-        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
-      }
-    });
-    
-    statsCalc.avgPoints = normalized.length ? (totalPoints / normalized.length).toFixed(1) : 0;
-    statsCalc.avgTime = normalized.length ? (totalTime / normalized.length).toFixed(0) : 0;
-    statsCalc.avgValidationDays = validationCount ? (totalValidationDays / validationCount).toFixed(1) : 0;
-    statsCalc.validationRate = normalized.length ? ((validationCount / (validationCount + rejectedCount)) * 100).toFixed(0) : 0;
-    statsCalc.monthlyGrowth = Object.entries(monthlyData)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-12)
-      .map(([month, count]) => ({ month, count }));
-
-    setStats(statsCalc);
-    generateAIInsights(normalized, statsCalc);
-  };
-
-  // IA : Génération des insights
-  const generateAIInsights = (questionsData, statsCalc) => {
-    const insights = {
-      strengths: [],
-      weaknesses: [],
-      recommendations: [],
-      predictedGrowth: 0,
-      qualityScore: 0,
-      balanceScore: 0,
-      coverageScore: 0
-    };
-    
-    // Forces
-    const topMatieres = Object.entries(statsCalc.byMatiere)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3);
-    topMatieres.forEach(([matiere, count]) => {
-      insights.strengths.push(`${matiere} (${count} questions)`);
-    });
-    
-    // Faiblesses
-    const weakMatieres = Object.entries(statsCalc.byMatiere)
-      .sort((a, b) => a[1] - b[1])
-      .slice(0, 3);
-    weakMatieres.forEach(([matiere, count]) => {
-      if (count < 5) insights.weaknesses.push(`${matiere} (seulement ${count} questions)`);
-    });
-    
-    // Équilibre des types
-    const total = statsCalc.total;
-    if (total > 0) {
-      const type1Percent = (statsCalc.byType[1] / total) * 100;
-      const type2Percent = (statsCalc.byType[2] / total) * 100;
-      const type3Percent = (statsCalc.byType[3] / total) * 100;
-      
-      insights.balanceScore = Math.round(100 - (Math.abs(type1Percent - 33) + Math.abs(type2Percent - 33) + Math.abs(type3Percent - 34)) / 2);
-      
-      if (type1Percent > 50) insights.recommendations.push("Ajouter plus de questions de type 'Savoir-Faire' et 'Savoir-être' pour équilibrer");
-      if (type2Percent < 20) insights.recommendations.push("Augmenter les questions pratiques (Savoir-Faire)");
-      if (type3Percent < 10) insights.recommendations.push("Intégrer des questions d'évaluation comportementale (Savoir-être)");
-    }
-    
-    // Qualité
-    const explanationRate = questionsData.filter(q => q.explanation && q.explanation.length > 10).length / total * 100;
-    const imageRate = questionsData.filter(q => q.imageQuestion || q.imageBase64).length / total * 100;
-    insights.qualityScore = Math.round((explanationRate * 0.6 + imageRate * 0.4));
-    
-    if (explanationRate < 50) insights.recommendations.push(`Améliorer les explications des réponses (taux actuel: ${explanationRate.toFixed(0)}%)`);
-    if (imageRate < 20) insights.recommendations.push("Ajouter des illustrations pour enrichir les questions");
-    
-    // Couverture
-    const uniqueLevels = new Set(questionsData.map(q => q.niveau)).size;
-    const targetLevels = 20;
-    insights.coverageScore = Math.min(100, Math.round((uniqueLevels / targetLevels) * 100));
-    if (uniqueLevels < 10) insights.recommendations.push("Diversifier les niveaux couverts par les questions");
-    
-    // Prédiction de croissance
-    const growthRates = [];
-    for (let i = 1; i < statsCalc.monthlyGrowth.length; i++) {
-      const prev = statsCalc.monthlyGrowth[i-1]?.count || 0;
-      const curr = statsCalc.monthlyGrowth[i]?.count || 0;
-      if (prev > 0) growthRates.push((curr - prev) / prev);
-    }
-    const avgGrowth = growthRates.length > 0 ? growthRates.reduce((a, b) => a + b, 0) / growthRates.length : 0.1;
-    insights.predictedGrowth = Math.min(100, Math.max(-50, Math.round(avgGrowth * 100)));
-    
-    // Recommandations supplémentaires
-    if (statsCalc.avgValidationDays > 7) {
-      insights.recommendations.push(`Accélérer le circuit de validation (moyenne: ${statsCalc.avgValidationDays} jours)`);
-    }
-    if (statsCalc.validationRate < 70) {
-      insights.recommendations.push(`Améliorer la qualité des questions soumises (taux validation: ${statsCalc.validationRate}%)`);
-    }
-    
-    setAiInsights(insights);
-  };
-
-  useEffect(() => {
-    loadQuestions();
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, selectedStatus]);
-
-  // Filtrage textuel
-  const filteredQuestions = useMemo(() => {
-    if (!searchTerm) return questions;
-    const term = searchTerm.toLowerCase();
-    return questions.filter(q =>
-      q.libQuestion?.toLowerCase().includes(term) ||
-      q.matiere?.toLowerCase().includes(term) ||
-      q.niveau?.toLowerCase().includes(term) ||
-      q.domaine?.toLowerCase().includes(term)
-    );
-  }, [questions, searchTerm]);
-
-  const resetFilters = () => {
-    setSearchTerm('');
-    setSelectedDomainId('');
-    setSelectedSousDomaineId('');
-    setSelectedLevelId('');
-    setSelectedMatiereId('');
-    setSelectedType('');
-    setSelectedStatus('approved');
-  };
-
-  const hasActiveFilters = searchTerm || selectedDomainId || selectedSousDomaineId || selectedLevelId || selectedMatiereId || selectedType || selectedStatus !== 'approved';
-
-  // Export CSV
-  const exportToCSV = () => {
-    const headers = ['N°Question', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
-    const rows = filteredQuestions.map((q, idx) => [
-      idx + 1,
-      q.domaine || '',
-      q.sousDomaine || '',
-      q.niveau || '',
-      q.matiere || '',
-      q.libQuestion || '',
-      q.typeInfo?.nom || '',
-      q.points || 1,
-      q.tempsMin || 1,
-      q.status === 'approved' ? 'Validée' : q.status === 'pending' ? 'En attente' : 'Rejetée',
-      new Date(q.createdAt).toLocaleDateString('fr-FR'),
-      q.approvedAt ? new Date(q.approvedAt).toLocaleDateString('fr-FR') : '',
-      q.matriculeAuteur || q.createdBy?.name || ''
-    ]);
-
-    const csvContent = [headers, ...rows].map(row => row.join(';')).join('\n');
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `banque_qcm_analytics_${new Date().toISOString().slice(0, 19)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Export CSV réussi');
-  };
-
-  // Graphiques
-  const typeChartData = {
-    labels: QUESTION_TYPES.map(t => t.nom),
-    datasets: [{
-      data: [stats.byType[1], stats.byType[2], stats.byType[3]],
-      backgroundColor: QUESTION_TYPES.map(t => t.color + '80'),
-      borderColor: QUESTION_TYPES.map(t => t.color),
-      borderWidth: 2,
-    }]
-  };
-
-  const growthChartData = {
-    labels: stats.monthlyGrowth.map(m => m.month),
-    datasets: [{
-      label: 'Nouvelles questions',
-      data: stats.monthlyGrowth.map(m => m.count),
-      borderColor: '#3b82f6',
-      backgroundColor: 'rgba(59,130,246,0.1)',
-      fill: true,
-      tension: 0.4,
-    }]
-  };
-
-  const growthChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: '#94a3b8' } } },
-    scales: {
-      y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-      x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
-    }
-  };
-
-  const typeChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: '#94a3b8' } } }
-  };
-
-  const topMatieres = Object.entries(stats.byMatiere)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  // Composant de carte de question
-  const QuestionCard = ({ question, index }) => {
-    const isExpanded = expandedQuestion === question._id;
-    const typeInfo = question.typeInfo;
-    const imageUrl = question.imageUrl;
-
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.03 }}
-        style={{
-          background: 'rgba(15,23,42,0.7)',
-          border: `1px solid ${typeInfo?.color || '#6366f1'}30`,
-          borderRadius: 16,
-          overflow: 'hidden',
-          backdropFilter: 'blur(8px)'
-        }}
-      >
-        <div
-          onClick={() => setExpandedQuestion(isExpanded ? null : question._id)}
-          style={{
-            padding: '16px 20px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12,
-            transition: 'background 0.2s'
-          }}
-        >
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: `${typeInfo?.color}20`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <FileText size={16} color={typeInfo?.color} />
-          </div>
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-              <span style={{
-                padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600,
-                background: `${typeInfo?.color}20`, color: typeInfo?.color
-              }}>
-                {typeInfo?.nom}
-              </span>
-              <span style={{
-                padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600,
-                background: question.status === 'approved' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                color: question.status === 'approved' ? '#10b981' : '#f59e0b'
-              }}>
-                {question.status === 'approved' ? '✓ Validée' : question.status === 'pending' ? '⏳ En attente' : '✗ Rejetée'}
-              </span>
-              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>
-                ⭐ {question.points || 1} pt
-              </span>
-              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>
-                ⏱️ {question.tempsMin || 1} min
-              </span>
-            </div>
-
-            <p style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 500, lineHeight: 1.4 }}>
-              {index + 1}. {question.libQuestion}
-            </p>
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: '0.65rem', color: '#64748b', flexWrap: 'wrap' }}>
-              <span>📚 {question.domaine || '—'}</span>
-              <span>🎓 {question.niveau || '—'}</span>
-              <span>📖 {question.matiere || '—'}</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {imageUrl && <img src={imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover' }} />}
-            {isExpanded ? <ChevronUp size={16} color="#64748b" /> : <ChevronDown size={16} color="#64748b" />}
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              style={{ borderTop: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}
-            >
-              <div style={{ padding: '16px 20px 20px 64px' }}>
-                {imageUrl && (
-                  <div style={{ marginBottom: 12 }}>
-                    <img src={imageUrl} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 8, objectFit: 'contain' }} />
-                  </div>
-                )}
-
-                <div style={{ marginBottom: 12 }}>
-                  <p style={{ color: '#94a3b8', fontSize: '0.7rem', marginBottom: 6 }}>Options :</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {question.options?.map((opt, i) => {
-                      const isCorrect = typeof question.bonOpRep === 'number'
-                        ? i === question.bonOpRep
-                        : opt === question.correctAnswer;
-                      return (
-                        <div key={i} style={{
-                          padding: '6px 12px',
-                          background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)',
-                          border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
-                          borderRadius: 8,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8
-                        }}>
-                          <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
-                            {String.fromCharCode(65 + i)}.
-                          </span>
-                          <span style={{ color: '#94a3b8' }}>{opt}</span>
-                          {isCorrect && <CheckCircle size={12} color="#10b981" style={{ marginLeft: 'auto' }} />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {question.explanation && (
-                  <div style={{ padding: 8, background: 'rgba(59,130,246,0.05)', borderRadius: 8, marginBottom: 12 }}>
-                    <p style={{ color: '#64748b', fontSize: '0.75rem' }}>💡 {question.explanation}</p>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', gap: 16, fontSize: '0.65rem', color: '#64748b', marginTop: 8 }}>
-                  <span>👤 Auteur: {question.matriculeAuteur || question.createdBy?.name || 'Inconnu'}</span>
-                  <span>📅 Créée: {new Date(question.createdAt).toLocaleDateString('fr-FR')}</span>
-                  {question.approvedAt && <span>✅ Validée: {new Date(question.approvedAt).toLocaleDateString('fr-FR')}</span>}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    );
-  };
-
-  return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
-      padding: '24px'
-    }}>
-      <div style={{
-        position: 'fixed', inset: 0,
-        backgroundImage: 'linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px)',
-        backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0
-      }} />
-
-      <main style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/evaluate')}
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(99,102,241,0.2)',
-              borderRadius: 12, padding: 12,
-              color: '#94a3b8', cursor: 'pointer'
-            }}
-          >
-            <ArrowLeft size={20} />
-          </motion.button>
-          <div>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '4px 12px', background: 'rgba(99,102,241,0.1)',
-              border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20,
-              marginBottom: 8
-            }}>
-              <Library size={14} color="#6366f1" />
-              <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>BANQUE DE QCM</span>
-            </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>
-              Dashboard Analytique
-            </h1>
-            <p style={{ color: '#64748b' }}>
-              Analyse avancée, insights IA et recommandations pédagogiques
-            </p>
-          </div>
-        </div>
-
-        {/* Vue Dashboard / Liste */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12 }}>
-          <button
-            onClick={() => setDashboardView('analytics')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'analytics' ? '#3b82f6' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'analytics' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
-            <BarChart3 size={16} /> Tableau de bord
-          </button>
-          <button
-            onClick={() => setDashboardView('insights')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'insights' ? '#8b5cf6' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'insights' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
-            <Brain size={16} /> Insights IA
-          </button>
-          <button
-            onClick={() => setDashboardView('recommendations')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'recommendations' ? '#10b981' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'recommendations' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
-            <Lightbulb size={16} /> Recommandations
-          </button>
-        </div>
-
-        {/* DASHBOARD ANALYTIQUE */}
-        {dashboardView === 'analytics' && !loading && questions.length > 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 24 }}>
-            {/* KPIs avancés */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
-              <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 12 }}>
-                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6' }}>{stats.total}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Total questions</div>
-                <div style={{ fontSize: '0.6rem', color: '#10b981', marginTop: 4 }}>+{aiInsights.predictedGrowth}% croissance</div>
-              </div>
-              <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: 12 }}>
-                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#10b981' }}>{stats.byStatus.approved || 0}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Validées</div>
-                <div style={{ fontSize: '0.6rem', color: '#f59e0b' }}>{stats.validationRate}% taux validation</div>
-              </div>
-              <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, padding: 12 }}>
-                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#a78bfa' }}>{stats.avgPoints}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Points moyen</div>
-                <div style={{ fontSize: '0.6rem', color: '#f59e0b' }}>{stats.avgTime} min/question</div>
-              </div>
-              <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, padding: 12 }}>
-                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#f59e0b' }}>{stats.byStatus.pending || 0}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>En attente</div>
-                <div style={{ fontSize: '0.6rem', color: '#ef4444' }}>{stats.avgValidationDays} jours validation</div>
-              </div>
-            </div>
-
-            {/* Graphiques */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
-              <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-                <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <PieChart size={16} color="#8b5cf6" /> Répartition par type
-                </h3>
-                <div style={{ height: 200 }}>
-                  <Doughnut data={typeChartData} options={typeChartOptions} />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 16 }}>
-                  {QUESTION_TYPES.map(type => (
-                    <div key={type.id} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: type.color }}>{stats.byType[type.id] || 0}</div>
-                      <div style={{ fontSize: '0.6rem', color: '#64748b' }}>{type.nom}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-                <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <LineChart size={16} color="#3b82f6" /> Croissance mensuelle
-                </h3>
-                <div style={{ height: 200 }}>
-                  <Line data={growthChartData} options={growthChartOptions} />
-                </div>
-              </div>
-            </div>
-
-            {/* Top matières */}
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20, marginBottom: 24 }}>
-              <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <TrendingUp size={16} color="#10b981" /> Top matières
-              </h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                {topMatieres.map(([matiere, count]) => (
-                  <div key={matiere} style={{
-                    background: 'rgba(16,185,129,0.1)',
-                    border: '1px solid rgba(16,185,129,0.2)',
-                    borderRadius: 8,
-                    padding: '8px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                  }}>
-                    <span style={{ color: '#10b981', fontWeight: 600 }}>{count}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{matiere}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* INSIGHTS IA */}
-        {dashboardView === 'insights' && !loading && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-              <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Activity size={16} color="#8b5cf6" /> Scores de qualité
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Qualité des questions</span>
-                    <span style={{ color: '#f59e0b', fontWeight: 600 }}>{aiInsights.qualityScore}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.qualityScore}%`, height: '100%', background: 'linear-gradient(90deg, #f59e0b, #10b981)', borderRadius: 3 }} />
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Équilibre des types</span>
-                    <span style={{ color: '#10b981', fontWeight: 600 }}>{aiInsights.balanceScore}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.balanceScore}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', borderRadius: 3 }} />
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Couverture des niveaux</span>
-                    <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{aiInsights.coverageScore}%</span>
-                  </div>
-                  <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                    <div style={{ width: `${aiInsights.coverageScore}%`, height: '100%', background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)', borderRadius: 3 }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
-              <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Target size={16} color="#10b981" /> Analyse SWOT
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <p style={{ color: '#10b981', fontSize: '0.75rem', marginBottom: 8 }}>📈 Forces</p>
-                  {aiInsights.strengths.map((s, i) => (
-                    <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <CheckCircle size={10} color="#10b981" /> {s}
-                    </div>
-                  ))}
-                  {aiInsights.strengths.length === 0 && <p style={{ color: '#64748b', fontSize: '0.7rem' }}>Aucune donnée</p>}
-                </div>
-                <div>
-                  <p style={{ color: '#ef4444', fontSize: '0.75rem', marginBottom: 8 }}>📉 Faiblesses</p>
-                  {aiInsights.weaknesses.map((w, i) => (
-                    <div key={i} style={{ padding: '6px 0', color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <AlertTriangle size={10} color="#ef4444" /> {w}
-                    </div>
-                  ))}
-                  {aiInsights.weaknesses.length === 0 && <p style={{ color: '#10b981', fontSize: '0.7rem' }}>✅ Bonne couverture</p>}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* RECOMMANDATIONS IA */}
-        {dashboardView === 'recommendations' && !loading && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
-            <h3 style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={18} color="#f59e0b" /> Recommandations pédagogiques IA
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {aiInsights.recommendations.map((rec, i) => (
-                <div key={i} style={{
-                  padding: '12px 16px',
-                  background: 'rgba(245,158,11,0.05)',
-                  border: '1px solid rgba(245,158,11,0.2)',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12
-                }}>
-                  <Lightbulb size={18} color="#f59e0b" />
-                  <span style={{ color: '#e2e8f0', fontSize: '0.85rem' }}>{rec}</span>
-                </div>
-              ))}
-              {aiInsights.recommendations.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 40 }}>
-                  <CheckCircle size={40} color="#10b981" />
-                  <p style={{ color: '#10b981', marginTop: 12 }}>✅ Tout est optimal !</p>
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: 20, padding: 12, background: 'rgba(99,102,241,0.1)', borderRadius: 10 }}>
-              <p style={{ color: '#a5b4fc', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Brain size={14} />
-                Projection IA : Croissance estimée à <strong>{aiInsights.predictedGrowth}%</strong> dans les 3 prochains mois
-              </p>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Barre de recherche et filtres */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Rechercher par question, matière, niveau..."
-                style={{
-                  width: '100%', padding: '10px 12px 10px 38px',
-                  background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)',
-                  borderRadius: 10, color: '#f8fafc', outline: 'none'
-                }}
-              />
-            </div>
-
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 16px', background: 'rgba(99,102,241,0.1)',
-                border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10,
-                color: '#a5b4fc', cursor: 'pointer'
-              }}
-            >
-              <Filter size={14} /> Filtres {showFilters ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            </button>
-
-            <button
-              onClick={exportToCSV}
-              disabled={filteredQuestions.length === 0}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 16px', background: 'rgba(16,185,129,0.1)',
-                border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10,
-                color: '#10b981', cursor: filteredQuestions.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: filteredQuestions.length === 0 ? 0.5 : 1
-              }}
-            >
-              <Download size={14} /> Exporter CSV
-            </button>
-
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '10px 16px', background: 'rgba(239,68,68,0.1)',
-                  border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10,
-                  color: '#ef4444', cursor: 'pointer'
-                }}
-              >
-                <FilterX size={14} /> Réinitialiser
-              </button>
-            )}
-          </div>
-
-          <AnimatePresence>
-            {showFilters && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                style={{ overflow: 'hidden' }}
-              >
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 12, marginTop: 12, padding: 16,
-                  background: 'rgba(15,23,42,0.5)', borderRadius: 12,
-                  border: '1px solid rgba(99,102,241,0.15)'
-                }}>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label>
-                    <select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="">Tous</option>
-                      {getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Sous-domaine</label>
-                    <select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedDomainId ? 0.5 : 1 }}>
-                      <option value="">Tous</option>
-                      {getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Niveau</label>
-                    <select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
-                      <option value="">Tous</option>
-                      {getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Matière</label>
-                    <select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
-                      <option value="">Toutes</option>
-                      {getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Type</label>
-                    <select value={selectedType} onChange={e => setSelectedType(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="">Tous</option>
-                      {QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label>
-                    <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="approved">Validées</option>
-                      <option value="pending">En attente</option>
-                      <option value="all">Toutes</option>
-                    </select>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Liste des questions */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 60 }}>
-            <RefreshCw size={32} color="#3b82f6" style={{ animation: 'spin 1s linear infinite' }} />
-            <p style={{ color: '#64748b', marginTop: 16 }}>Chargement des questions...</p>
-          </div>
-        ) : error ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#ef4444', background: 'rgba(239,68,68,0.1)', borderRadius: 16 }}>
-            <AlertCircle size={32} />
-            <p style={{ marginTop: 12 }}>{error}</p>
-            <button onClick={loadQuestions} style={{ marginTop: 16, padding: '8px 20px', background: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>Réessayer</button>
-          </div>
-        ) : filteredQuestions.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#64748b', background: 'rgba(15,23,42,0.5)', borderRadius: 16 }}>
-            <Library size={48} color="#1e293b" style={{ marginBottom: 12 }} />
-            <p>Aucune question trouvée{hasActiveFilters ? ' avec ces critères' : ''}</p>
-            {hasActiveFilters && <button onClick={resetFilters} style={{ marginTop: 12, padding: '6px 16px', background: 'rgba(99,102,241,0.2)', border: 'none', borderRadius: 8, color: '#a5b4fc', cursor: 'pointer' }}>Effacer les filtres</button>}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <p style={{ color: '#64748b', fontSize: '0.8rem' }}>{filteredQuestions.length} question(s) trouvée(s)</p>
-              <button onClick={loadQuestions} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'rgba(99,102,241,0.1)', border: 'none', borderRadius: 6, color: '#a5b4fc', cursor: 'pointer', fontSize: '0.7rem' }}>
-                <RefreshCw size={12} /> Actualiser
-              </button>
-            </div>
-            {filteredQuestions.map((q, idx) => (
-              <QuestionCard key={q._id || idx} question={q} index={idx} />
-            ))}
-          </div>
-        )}
-      </main>
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 10px; }
-      `}</style>
-    </div>
-  );
+userSchema.methods.matchPassword = async function(password) {
+  return await bcrypt.compare(password, this.password);
 };
 
-export default QCMBankPage;
+userSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+// === Question Schema ===
+const questionSchema = new mongoose.Schema({
+  domaine: { type: String, required: true },
+  sousDomaine: { type: String, default: '' },
+  niveau: { type: String, required: true },
+  matiere: { type: String, required: true },
+  libChapitre: { type: String, default: '' },
+  libQuestion: { type: String, required: true },
+  imageQuestion: { type: String, default: '' },
+  imageBase64: { type: String, default: '', select: false },
+  imageMetadata: {
+    originalName: { type: String, default: '' },
+    mimeType: { type: String, default: '' },
+    size: { type: Number, default: 0 },
+    storageType: { type: String, enum: ['url', 'base64', 'none'], default: 'none' }
+  },
+  typeQuestion: { type: Number, enum: [1, 2, 3], required: true },
+  options: { type: [String], required: true, validate: { validator: v => v && v.length >= 3 && v.length <= 5 } },
+  bonOpRep: { type: Number, required: true, validate: { validator: function(v) { return v >= 0 && v < this.options.length; } } },
+  tempsMin: { type: Number, default: 1, min: 0.5 },
+  matriculeAuteur: { type: String, required: true },
+  dateCreation: { type: Date, default: Date.now },
+  cleInterne: { type: String, default: '' },
+  points: { type: Number, default: 1 },
+  explanation: { type: String, default: '' },
+  type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+  difficulty: { type: String, enum: ['facile', 'moyen', 'difficile'], default: 'moyen' },
+  tags: { type: [String], default: [] },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date },
+  rejectionComment: { type: String, default: '' }
+}, { timestamps: true });
+
+questionSchema.index({ cleInterne: 1 }, { unique: true, sparse: true });
+questionSchema.index({ matiere: 1, libQuestion: 1 }, { unique: true });
+questionSchema.index({ domaine: 1, niveau: 1, matiere: 1 });
+questionSchema.index({ status: 1 });
+
+questionSchema.pre('save', function(next) {
+  if (!this.cleInterne && this.matiere && this.libQuestion) {
+    this.cleInterne = `${this.matiere}::${this.libQuestion}`;
+  }
+  if (this.imageQuestion && this.imageQuestion.trim()) {
+    this.imageMetadata.storageType = 'url';
+  } else if (this.imageBase64 && this.imageBase64.trim()) {
+    this.imageMetadata.storageType = 'base64';
+  } else {
+    this.imageMetadata.storageType = 'none';
+  }
+  next();
+});
+
+// === Exam Schema ===
+const examSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, default: '' },
+  duration: { type: Number, required: true },
+  domain: { type: String, required: true },
+  category: { type: String, default: '' },
+  level: { type: String, required: true },
+  subject: { type: String, required: true },
+  questions: { type: Array, default: [] },
+  passingScore: { type: Number, default: 70 },
+  status: { type: String, enum: ['draft', 'published', 'archived'], default: 'published' },
+  source: { type: String, enum: ['manual', 'database', 'ai_generated'], default: 'manual' },
+  teacherName: { type: String, default: '' },
+  teacherGrade: { type: String, default: '' },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  cleExterne: { type: String, default: '' }
+}, { timestamps: true });
+
+examSchema.virtual('totalPoints').get(function() {
+  return this.questions?.reduce((sum, q) => sum + (q.points || 1), 0) || 0;
+});
+
+examSchema.virtual('questionCount').get(function() {
+  return this.questions?.length || 0;
+});
+
+// === Result Schema ===
+const resultSchema = new mongoose.Schema({
+  examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
+  studentInfo: {
+    firstName: { type: String, required: true },
+    lastName: { type: String, required: true },
+    matricule: { type: String, uppercase: true },
+    level: { type: String }
+  },
+  answers: { type: Map, of: mongoose.Schema.Types.Mixed, required: true },
+  score: { type: Number, required: true },
+  percentage: { type: Number, required: true },
+  passed: { type: Boolean, required: true },
+  totalQuestions: { type: Number },
+  examTitle: { type: String },
+  examLevel: { type: String },
+  domain: { type: String },
+  subject: { type: String },
+  category: { type: String },
+  duration: { type: Number },
+  passingScore: { type: Number },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  examQuestions: { type: Array, default: [] },
+  pdfPath: { type: String, default: null },
+  cleExterne: { type: String, default: '' }
+}, { timestamps: true });
+
+resultSchema.virtual('fullName').get(function() {
+  return `${this.studentInfo.firstName} ${this.studentInfo.lastName}`;
+});
+
+resultSchema.virtual('note20').get(function() {
+  return ((this.percentage / 100) * 20).toFixed(2);
+});
+
+// === Domain Schema ===
+const subDomainSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  code: { type: String, required: true, uppercase: true },
+  description: { type: String, default: '' },
+  order: { type: Number, default: 0 },
+  isActive: { type: Boolean, default: true }
+}, { _id: true });
+
+const domainSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  code: { type: String, uppercase: true, unique: true, sparse: true },
+  icon: { type: String, default: '🏛️' },
+  color: { type: String, default: '#6366f1' },
+  order: { type: Number, default: 0 },
+  isActive: { type: Boolean, default: true },
+  subDomains: { type: [subDomainSchema], default: [] },
+  categories: [{ name: String, description: String, order: Number }]
+}, { timestamps: true });
+
+// === Subject Schema ===
+const subjectSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  domain: { type: mongoose.Schema.Types.ObjectId, ref: 'Domain', required: true },
+  sousDomaine: { type: String, default: '' },
+  code: { type: String, uppercase: true, unique: true, sparse: true },
+  icon: { type: String, default: '📚' },
+  color: { type: String, default: '#3b82f6' },
+  isActive: { type: Boolean, default: true },
+  order: { type: Number, default: 0 },
+  matriculeAuteur: { type: String }
+}, { timestamps: true });
+
+// Modèles
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+const Question = mongoose.models.Question || mongoose.model('Question', questionSchema);
+const Exam = mongoose.models.Exam || mongoose.model('Exam', examSchema);
+const Result = mongoose.models.Result || mongoose.model('Result', resultSchema);
+const Domain = mongoose.models.Domain || mongoose.model('Domain', domainSchema);
+const Subject = mongoose.models.Subject || mongoose.model('Subject', subjectSchema);
+
+// ═══════════════════════════════════════════════════════════════
+// CONNEXION MONGODB
+// ═══════════════════════════════════════════════════════════════
+let isConnected = false;
+
+mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 })
+  .then(async () => {
+    isConnected = true;
+    console.log('[DB] ✅ Connecté à MongoDB');
+    await createDefaultData();
+  })
+  .catch(err => console.error('[DB] ❌ Erreur:', err.message));
+
+async function createDefaultData() {
+  try {
+    const adminExists = await User.findOne({ role: 'ADMIN_SYSTEME' });
+    if (!adminExists) {
+      const hashedPassword = await bcrypt.hash('Admin123!', 10);
+      await User.create({
+        name: 'Administrateur Système',
+        email: 'admin@na2quiz.com',
+        username: 'admin_systeme',
+        password: hashedPassword,
+        role: 'ADMIN_SYSTEME',
+        matricule: 'ADMIN001',
+      });
+      console.log('✅ Admin système créé');
+    }
+
+    const teacherExists = await User.findOne({ role: 'ENSEIGNANT' });
+    if (!teacherExists) {
+      const hashedPassword = await bcrypt.hash('Teacher123!', 10);
+      await User.create({
+        name: 'Enseignant Test',
+        email: 'teacher@na2quiz.com',
+        username: 'teacher_test',
+        password: hashedPassword,
+        role: 'ENSEIGNANT',
+        matricule: 'TCH001',
+      });
+      console.log('✅ Enseignant créé');
+    }
+
+    const studentExists = await User.findOne({ role: 'APPRENANT' });
+    if (!studentExists) {
+      const hashedPassword = await bcrypt.hash('Student123!', 10);
+      await User.create({
+        name: 'Étudiant Test',
+        email: 'student@na2quiz.com',
+        username: 'student_test',
+        password: hashedPassword,
+        role: 'APPRENANT',
+        matricule: 'STU001',
+      });
+      console.log('✅ Apprenant créé');
+    }
+  } catch (err) {
+    console.error('❌ Erreur création données:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MIDDLEWARE AUTH
+// ═══════════════════════════════════════════════════════════════
+const protect = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Non autorisé' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = await User.findById(decoded.id).select('-password');
+    if (!req.user) throw new Error();
+    next();
+  } catch {
+    res.status(401).json({ message: 'Token invalide' });
+  }
+};
+
+const authorize = (...roles) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Non autorisé' });
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ message: `Rôle ${req.user.role} non autorisé. Rôles requis: ${roles.join(', ')}` });
+  }
+  next();
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ROUTES API
+// ═══════════════════════════════════════════════════════════════
+
+// Route racine
+app.get('/', (req, res) => {
+  res.json({
+    name: 'NA²QUIZ API',
+    version: '2.0.0',
+    status: 'running',
+    environment: NODE_ENV,
+    mongodb: isConnected ? 'connected' : 'disconnected',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      terminal: '/terminal.html',
+      socket: '/socket.io'
+    }
+  });
+});
+
+// Servir terminal.html
+app.get('/terminal.html', (req, res) => {
+  const terminalPath = path.join(publicDir, 'terminal.html');
+  if (fs.existsSync(terminalPath)) {
+    res.sendFile(terminalPath);
+  } else {
+    res.status(404).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Terminal non trouvé</title></head>
+      <body>
+        <h1>❌ terminal.html non trouvé</h1>
+        <p>Placez le fichier terminal.html dans le dossier public/</p>
+        <p>Chemin attendu: ${publicDir}/terminal.html</p>
+      </body>
+      </html>
+    `);
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', timestamp: new Date() });
+});
+
+// ==================== AUTH ROUTES ====================
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
+    if (!(await user.matchPassword(password))) return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
+    
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({
+      token, _id: user._id, email: user.email, name: user.name,
+      username: user.username, role: user.role, matricule: user.matricule, isAdmin: user.isAdmin
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  res.status(200).json({ success: true, message: 'Déconnexion réussie' });
+});
+
+app.get('/api/auth/me', protect, async (req, res) => {
+  res.json({ _id: req.user._id, email: req.user.email, name: req.user.name, username: req.user.username, role: req.user.role, matricule: req.user.matricule });
+});
+
+app.post('/api/auth/register', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { name, email, username, password, role, matricule, level, grade } = req.body;
+    const userExists = await User.findOne({ $or: [{ email }, { username }] });
+    if (userExists) return res.status(400).json({ message: 'Utilisateur déjà existant' });
+    const user = await User.create({ name, email, username, password, role, matricule, level, grade, createdBy: req.user._id });
+    res.status(201).json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// ==================== USERS ROUTES ====================
+app.get('/api/users', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.json({ success: true, data: users });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/users/:id', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT'), async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true, data: user });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/users/:id', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== QUESTIONS ROUTES ====================
+app.get('/api/questions/public', async (req, res) => {
+  try {
+    const { domaine, sousDomaine, niveau, matiere, limit = 1000 } = req.query;
+    const filter = { status: 'approved' };
+    if (domaine) filter.domaine = domaine;
+    if (sousDomaine) filter.sousDomaine = sousDomaine;
+    if (niveau) filter.niveau = niveau;
+    if (matiere) filter.matiere = matiere;
+    const questions = await Question.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit));
+    res.json({ success: true, data: questions, count: questions.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const questions = await Question.find({ status: 'pending' }).populate('createdBy', 'name email').sort({ createdAt: -1 });
+    res.json({ success: true, data: questions });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions', protect, async (req, res) => {
+  try {
+    const { domaine, sousDomaine, niveau, matiere, status, limit = 1000, page = 1 } = req.query;
+    const filter = {};
+    if (domaine) filter.domaine = domaine;
+    if (sousDomaine) filter.sousDomaine = sousDomaine;
+    if (niveau) filter.niveau = niveau;
+    if (matiere) filter.matiere = matiere;
+    if (status) filter.status = status;
+    else if (req.user.role !== 'ADMIN_DELEGUE') filter.status = 'approved';
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const questions = await Question.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)).populate('createdBy', 'name email');
+    const total = await Question.countDocuments(filter);
+    res.json({ success: true, data: questions, count: questions.length, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id).populate('createdBy', 'name email').select('+imageBase64');
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canView = req.user.role === 'ADMIN_DELEGUE' || (req.user.role === 'ENSEIGNANT' && (question.status === 'approved' || question.createdBy?._id?.toString() === req.user._id?.toString()));
+    if (!canView) return res.status(403).json({ success: false, error: 'Accès non autorisé' });
+    res.json({ success: true, data: question });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { libQuestion, question, options, correctAnswer, bonOpRep, matiere, niveau, domaine, sousDomaine, typeQuestion, points, explanation, type, difficulty, imageQuestion, imageBase64 } = req.body;
+    const questionText = libQuestion || question;
+    if (!questionText) return res.status(400).json({ success: false, error: 'libQuestion requis' });
+    if (!options || !Array.isArray(options) || options.length < 3 || options.length > 5) return res.status(400).json({ success: false, error: '3 à 5 options requises' });
+    if (!matiere) return res.status(400).json({ success: false, error: 'matiere requis' });
+    if (!niveau) return res.status(400).json({ success: false, error: 'niveau requis' });
+    if (!domaine) return res.status(400).json({ success: false, error: 'domaine requis' });
+    
+    let finalBonOpRep = bonOpRep;
+    if (finalBonOpRep === undefined && correctAnswer !== undefined) finalBonOpRep = options.findIndex(opt => opt === correctAnswer);
+    if (finalBonOpRep === undefined || finalBonOpRep < 0) return res.status(400).json({ success: false, error: 'correctAnswer ou bonOpRep requis' });
+    
+    const newQuestion = new Question({
+      libQuestion: questionText, options, bonOpRep: finalBonOpRep, matiere, niveau, domaine, sousDomaine: sousDomaine || '',
+      imageQuestion: imageQuestion || '', imageBase64: imageBase64 || '', typeQuestion: typeQuestion || 1,
+      points: points || 1, explanation: explanation || '', type: type || 'single', difficulty: difficulty || 'moyen',
+      createdBy: req.user._id, matriculeAuteur: req.user.matricule, status: 'pending'
+    });
+    await newQuestion.save();
+    res.json({ success: true, message: 'Question créée et en attente de validation', data: newQuestion });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { questions } = req.body;
+    if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ success: false, error: 'Array de questions requis' });
+    
+    const questionsWithMetadata = questions.map(q => {
+      const questionText = q.libQuestion || q.question;
+      let bonOpRep = q.bonOpRep;
+      if (bonOpRep === undefined && q.correctAnswer !== undefined) bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
+      return {
+        libQuestion: questionText, options: q.options, bonOpRep, matiere: q.matiere || '', niveau: q.niveau || '', domaine: q.domaine || '',
+        sousDomaine: q.sousDomaine || '', typeQuestion: q.typeQuestion || 1, points: q.points || 1, explanation: q.explanation || '',
+        type: q.type || 'single', difficulty: q.difficulty || 'moyen', createdBy: req.user._id, matriculeAuteur: req.user.matricule,
+        status: 'pending', createdAt: new Date(), updatedAt: new Date()
+      };
+    });
+    const result = await Question.insertMany(questionsWithMetadata);
+    res.json({ success: true, message: `${result.length} questions enregistrées`, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.put('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canEdit = req.user.role === 'ADMIN_DELEGUE' || (question.createdBy?.toString() === req.user._id?.toString() && question.status === 'pending');
+    if (!canEdit) return res.status(403).json({ success: false, error: 'Non autorisé' });
+    const updated = await Question.findByIdAndUpdate(req.params.id, { ...req.body, updatedAt: new Date() }, { new: true });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.put('/api/questions/:id/validate', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { approved, comment } = req.body;
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    question.status = approved ? 'approved' : 'rejected';
+    if (comment) question.rejectionComment = comment;
+    question.approvedBy = req.user._id;
+    question.approvedAt = new Date();
+    await question.save();
+    res.json({ success: true, message: approved ? 'Question approuvée' : 'Question rejetée', data: question });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.delete('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id);
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    const canDelete = req.user.role === 'ADMIN_DELEGUE' || (question.createdBy?.toString() === req.user._id?.toString() && question.status === 'pending');
+    if (!canDelete) return res.status(403).json({ success: false, error: 'Non autorisé' });
+    await Question.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Question supprimée' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+
+// ==================== EXAM ROUTES ====================
+app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/teacher', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/by-subject/:subject', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ subject: req.params.subject, status: 'published' }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/by-domain/:domain', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const filter = { domain: req.params.domain, status: 'published' };
+    if (req.query.subDomain) filter['questions.sousDomaine'] = req.query.subDomain;
+    const exams = await Exam.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const original = await Exam.findById(req.params.id);
+    if (!original) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    const copy = new Exam({ ...original.toObject(), _id: undefined, title: `${original.title} (Copie)`, createdBy: req.user._id, createdAt: new Date() });
+    await copy.save();
+    res.status(201).json({ success: true, data: copy });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const exams = await Exam.find().sort({ createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    res.json({ success: true, data: exam });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/exams', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = new Exam({ ...req.body, createdBy: req.user._id });
+    await exam.save();
+    res.status(201).json({ success: true, data: exam });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.put('/api/exams/:id', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
+    if (!isAdmin && !isOwner) return res.status(403).json({ success: false, message: 'Non autorisé' });
+    const updated = await Exam.findByIdAndUpdate(req.params.id, { ...req.body, updatedAt: Date.now() }, { new: true });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findByIdAndDelete(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// ==================== RESULT ROUTES ====================
+app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const results = await Result.find({ 'studentInfo.matricule': req.user.matricule }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const results = await Result.find({}).populate('examId', 'title domain subject level passingScore').sort({ createdAt: -1 });
+    res.json({ success: true, data: results, count: results.length });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id).populate('examId');
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    const isOwner = result.studentInfo?.matricule === req.user.matricule;
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { examId, studentInfo, answers } = req.body;
+    const exam = await Exam.findById(examId);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    
+    let score = 0;
+    const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
+    const answersMap = new Map(Object.entries(answers));
+    
+    exam.questions.forEach(q => {
+      const studentAnswer = answersMap.get(q._id.toString());
+      const isCorrect = studentAnswer != null && Number(studentAnswer) === q.bonOpRep;
+      if (isCorrect) score += (q.points || 1);
+    });
+    
+    const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
+    
+    const result = new Result({
+      examId, studentInfo: { firstName: studentInfo.firstName, lastName: studentInfo.lastName, matricule: studentInfo.matricule, level: studentInfo.level },
+      answers: answersMap, score, percentage, passed: percentage >= (exam.passingScore || 70), totalQuestions: exam.questions.length,
+      examTitle: exam.title, examLevel: exam.level, domain: exam.domain, subject: exam.subject, category: exam.category,
+      duration: exam.duration, passingScore: exam.passingScore, examOption: exam.examOption, examQuestions: exam.questions
+    });
+    await result.save();
+    res.status(201).json({ success: true, message: 'Résultat soumis avec succès', data: result });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const result = await Result.findByIdAndDelete(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// ==================== IA ROUTES ====================
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+
+app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { 
+      domain, sousDomaine, level, subject, 
+      numQuestions = 5, 
+      typeQuestion = 1,
+      tempsMinParQuestion = 60,
+      difficulty = 'moyen',
+      keywords = '' 
+    } = req.body;
+
+    // Validation des entrées
+    if (!domain || !level || !subject) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Domain, level et subject sont requis' 
+      });
+    }
+
+    // Construction du prompt pour l'IA
+    const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
+    
+    ${keywords ? `Mots-clés spécifiques: ${keywords}` : ''}
+    Difficulté: ${difficulty}
+    
+    Pour chaque question, fournis:
+    - La question
+    - 4 options de réponse
+    - La bonne réponse (index 0-3)
+    - Une brève explication
+    
+    Format JSON attendu:
+    {
+      "questions": [
+        {
+          "text": "question",
+          "options": ["opt1", "opt2", "opt3", "opt4"],
+          "answer": "opt2",
+          "explanation": "explication"
+        }
+      ]
+    }`;
+
+    let generatedQuestions = [];
+
+    // Si clé API DeepSeek configurée
+    if (DEEPSEEK_API_KEY) {
+      try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: 'Tu es un générateur de QCM pédagogique. Réponds uniquement au format JSON demandé.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 4000
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.choices[0]?.message?.content || '';
+          try {
+            const parsed = JSON.parse(content);
+            generatedQuestions = parsed.questions || [];
+          } catch (e) {
+            console.error('Erreur parsing JSON IA:', e);
+          }
+        }
+      } catch (err) {
+        console.error('Erreur appel DeepSeek:', err.message);
+      }
+    }
+
+    // Fallback si IA non disponible ou erreur
+    if (generatedQuestions.length === 0) {
+      generatedQuestions = generateMockQuestions(domain, subject, level, numQuestions);
+    }
+
+    res.json({
+      success: true,
+      questions: generatedQuestions,
+      metadata: {
+        model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock',
+        generatedAt: new Date().toISOString(),
+        count: generatedQuestions.length,
+        domain,
+        level,
+        subject
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur génération IA:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Erreur lors de la génération des questions' 
+    });
+  }
+});
+
+// Fonction de fallback (questions mock)
+function generateMockQuestions(domain, subject, level, count) {
+  const mockQuestions = [];
+  const templates = [
+    { text: `Qu'est-ce que ${subject} ?`, options: [`Définition de ${subject}`, 'Une science', 'Un art', 'Une technique'], answer: `Définition de ${subject}`, explanation: `Le ${subject} est la discipline qui étudie...` },
+    { text: `Quelle est l'importance de ${subject} dans le ${level} ?`, options: ['Très importante', 'Peu importante', 'Non essentielle', 'Dépend du contexte'], answer: 'Très importante', explanation: `Le ${subject} est fondamental à ce niveau.` },
+    { text: `Quel est le concept clé en ${subject} ?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], answer: 'Concept A', explanation: `Le concept A est central dans ${subject}.` }
+  ];
+
+  for (let i = 0; i < Math.min(count, templates.length); i++) {
+    const t = templates[i % templates.length];
+    mockQuestions.push({
+      text: t.text,
+      options: t.options,
+      answer: t.answer,
+      explanation: t.explanation,
+      points: 1,
+      difficulty: 'moyen'
+    });
+  }
+
+  // Compléter avec des questions génériques si nécessaire
+  while (mockQuestions.length < count) {
+    mockQuestions.push({
+      text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`,
+      options: ['Option A', 'Option B', 'Option C', 'Option D'],
+      answer: 'Option A',
+      explanation: `Explication pour la question ${mockQuestions.length + 1}`,
+      points: 1,
+      difficulty: 'moyen'
+    });
+  }
+
+  return mockQuestions;
+}
+
+// ==================== RANKINGS ====================
+app.get('/api/rankings/:examId', protect, async (req, res) => {
+  try {
+    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1, score: -1 });
+    const rankings = results.map((r, i) => ({ ...r.toObject(), rank: i + 1 }));
+    res.json({ success: true, rankings });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== DOMAINS & SUBJECTS ====================
+app.get('/api/domains', async (req, res) => {
+  try {
+    const domains = await Domain.find({ isActive: true }).sort({ order: 1, name: 1 });
+    res.json({ success: true, data: domains });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/subjects', async (req, res) => {
+  try {
+    const subjects = await Subject.find({ isActive: true }).populate('domain', 'name').sort({ domain: 1, order: 1, name: 1 });
+    res.json({ success: true, data: subjects });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/domains/:id/subjects', async (req, res) => {
+  try {
+    const subjects = await Subject.find({ domain: req.params.id, isActive: true }).sort({ order: 1, name: 1 });
+    res.json({ success: true, data: subjects });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ==================== STATS ====================
+app.get('/api/stats', protect, async (req, res) => {
+  try {
+    const [users, questions, exams, results, pendingQuestions] = await Promise.all([
+      User.countDocuments(), Question.countDocuments(), Exam.countDocuments(), Result.countDocuments(), Question.countDocuments({ status: 'pending' })
+    ]);
+    res.json({ success: true, data: { users, questions: { total: questions, pending: pendingQuestions, approved: questions - pendingQuestions }, exams, results } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/check-config', (req, res) => {
+  res.json({ configured: !!process.env.DEEPSEEK_API_KEY, mode: process.env.DEEPSEEK_API_KEY ? 'api' : 'demo', mongodb: isConnected ? 'connected' : 'disconnected', environment: NODE_ENV });
+});
+
+app.get('/api/test-token', protect, async (req, res) => {
+  res.json({ success: true, message: 'Token valide', user: { id: req.user._id, email: req.user.email, role: req.user.role, name: req.user.name, matricule: req.user.matricule } });
+});
+
+app.get('/api/server-info', (req, res) => {
+  const networkInterfaces = os.networkInterfaces();
+  const ips = [];
+  for (const [name, interfaces] of Object.entries(networkInterfaces)) {
+    for (const iface of interfaces) {
+      if (iface.family === 'IPv4' && !iface.internal) ips.push({ interface: name, address: iface.address });
+    }
+  }
+  res.json({ port: PORT, availableIps: ips, mongodbConnected: isConnected, environment: NODE_ENV });
+});
+
+// ==================== UPLOAD ROUTES ====================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `qcm-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  if (allowedTypes.test(path.extname(file.originalname).toLowerCase()) && allowedTypes.test(file.mimetype)) cb(null, true);
+  else cb(new Error('Seules les images sont autorisées'));
+} });
+
+app.post('/api/upload/question-image', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'Aucun fichier uploadé' });
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64Image = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
+    res.json({ success: true, imageUrl: `/uploads/questions/${req.file.filename}`, imageBase64: base64Image, filename: req.file.filename });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/api/upload/question-image-base64', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { base64, mimeType, originalName } = req.body;
+    if (!base64) return res.status(400).json({ success: false, error: 'Base64 requis' });
+    if (base64.startsWith('http')) return res.json({ success: true, imageUrl: base64, imageBase64: '' });
+    res.json({ success: true, imageUrl: '', imageBase64: base64, metadata: { originalName: originalName || 'image.png', mimeType: mimeType || 'image/png', storageType: 'base64' } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.delete('/api/upload/question-image/:filename', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), (req, res) => {
+  try {
+    const filePath = path.join(uploadsDir, req.params.filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ==================== BULLETIN HTML ====================
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text).replace(/[&<>]/g, (m) => {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
+}
+
+app.get('/api/bulletin/:resultId', async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.resultId);
+    if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
+    const exam = await Exam.findById(result.examId);
+    const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
+    const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
+    const noteOn20 = ((result.percentage / 100) * 20).toFixed(2);
+    let mention = '';
+    if (result.percentage >= 90) mention = 'Très Bien';
+    else if (result.percentage >= 75) mention = 'Bien';
+    else if (result.percentage >= 60) mention = 'Assez Bien';
+    else if (result.percentage >= 50) mention = 'Passable';
+    else mention = 'Insuffisant';
+    
+    let rows = '';
+    questions.forEach((q, i) => {
+      const qId = q._id?.toString();
+      const studentAnswer = qId && answers[qId] ? answers[qId] : '—';
+      const correctAnswer = q.correctAnswer || (q.options?.[q.bonOpRep] || '');
+      const isCorrect = studentAnswer !== '—' && String(studentAnswer).trim() === String(correctAnswer).trim();
+      rows += `<tr style="border-bottom:1px solid #e2e8f0;">
+                <td style="padding:12px 8px;">${i+1}<\/td>
+                <td style="padding:12px 8px;">${escapeHtml(q.libQuestion || q.question || '—')}<\/td>
+                <td style="padding:12px 8px; color:${isCorrect ? '#16a34a' : '#dc2626'}">${escapeHtml(studentAnswer)}<\/td>
+                <td style="padding:12px 8px; color:#16a34a;">${escapeHtml(correctAnswer)}<\/td>
+                <td style="padding:12px 8px; text-align:center;">${isCorrect ? '✅' : '❌'}<\/td>
+              <\/tr>`;
+    });
+    
+    const html = `<!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>Bulletin - ${escapeHtml(result.studentInfo?.lastName || 'Candidat')}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:40px 20px;}
+      .container{max-width:1000px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden;}
+      .header{background:linear-gradient(135deg,#1e293b,#0f172a);color:white;padding:30px 40px;text-align:center;}
+      .logo{font-size:2rem;font-weight:800;background:linear-gradient(135deg,#f59e0b,#fbbf24);-webkit-background-clip:text;background-clip:text;color:transparent;}
+      .badge{display:inline-block;padding:6px 16px;border-radius:999px;font-weight:700;margin-top:16px;}
+      .badge.success{background:#10b98120;color:#10b981;border:1px solid #10b98140;}
+      .badge.error{background:#ef444420;color:#ef4444;border:1px solid #ef444440;}
+      .content{padding:32px 40px;}
+      .score-section{background:linear-gradient(135deg,#3b82f6,#2563eb);border-radius:16px;padding:24px;color:white;text-align:center;margin-bottom:32px;}
+      .score-percent{font-size:3rem;font-weight:800;}
+      .mention{display:inline-block;background:white;color:#f59e0b;padding:6px 20px;border-radius:999px;margin-top:16px;}
+      .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px;}
+      .info-card{background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;}
+      .info-label{font-size:0.7rem;text-transform:uppercase;color:#64748b;}
+      .info-value{font-size:0.95rem;font-weight:600;}
+      .question-table{width:100%;border-collapse:collapse;}
+      .question-table th{text-align:left;padding:12px 8px;background:#f1f5f9;color:#64748b;}
+      .question-table td{padding:12px 8px;vertical-align:top;}
+      .footer{background:#f8fafc;padding:20px;text-align:center;font-size:0.7rem;color:#94a3b8;}
+      .btn-print{text-align:center;margin-top:20px;}
+      .btn-print button{background:#3b82f6;color:white;border:none;padding:12px 32px;border-radius:10px;cursor:pointer;}
+      @media print{.btn-print{display:none;}}
+    </style>
+    </head><body>
+    <div class="container">
+      <div class="header"><div class="logo">NA²QUIZ</div><div class="badge ${result.passed ? 'success' : 'error'}">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</div></div>
+      <div class="content">
+        <div class="score-section"><div class="score-percent">${result.percentage}%</div><div>Note : ${noteOn20} / 20</div><div class="mention">${mention}</div></div>
+        <div class="info-grid">
+          <div class="info-card"><div class="info-label">Candidat</div><div class="info-value">${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</div></div>
+          <div class="info-card"><div class="info-label">Matricule</div><div class="info-value">${escapeHtml(result.studentInfo?.matricule || '—')}</div></div>
+          <div class="info-card"><div class="info-label">Épreuve</div><div class="info-value">${escapeHtml(result.examTitle || exam?.title || '—')}</div></div>
+          <div class="info-card"><div class="info-label">Score</div><div class="info-value">${result.score} / ${result.totalQuestions || questions.length}</div></div>
+        </div>
+        <table class="question-table"><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="btn-print"><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
+      </div>
+      <div class="footer"><p>NA²QUIZ - Système d'Évaluation Intelligente</p><p>Africanut Industry - Ebolowa, Cameroun</p></div>
+    </div>
+    </body></html>`;
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    console.error('[API] Erreur bulletin:', err);
+    res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>');
+  }
+});
+
+// ==================== SOCKET.IO ====================
+const activeSessions = new Map();
+const activeDistributedExams = new Map();
+const pendingReconnections = new Map();
+
+const io = new Server(server, {
+  cors: { origin: isProduction ? CORS_ORIGINS : '*', credentials: true },
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000,
+});
+
+const emitSessionUpdate = () => {
+  const sessionsToSend = Array.from(activeSessions.values()).filter(s => s.type !== 'surveillance');
+  io.emit('sessionUpdate', { activeSessions: sessionsToSend });
+};
+
+io.on('connection', (socket) => {
+  console.log(`[Socket] 🔌 Connexion: ${socket.id}`);
+
+  socket.on('registerSession', (data) => {
+    const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
+    if (existing) {
+      const pending = pendingReconnections.get(data.sessionId);
+      if (pending) clearTimeout(pending);
+      activeSessions.delete(existing.socketId);
+      Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
+      activeSessions.set(socket.id, existing);
+      if (existing.type === 'student' && existing.currentExamId) socket.join(`exam:${existing.currentExamId}`);
+      emitSessionUpdate();
+      return;
+    }
+
+    const session = {
+      socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id, status: data.status || 'idle',
+      currentExamId: data.examId || null, studentInfo: data.studentInfo || null, examOption: data.examOption || null,
+      progress: 0, lastUpdate: Date.now(), isOnline: true,
+    };
+    activeSessions.set(socket.id, session);
+    if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
+    if (data.type === 'terminal') socket.join('terminals');
+    if (data.type === 'surveillance') socket.join('surveillance');
+    emitSessionUpdate();
+  });
+
+  socket.on('studentReadyForExam', ({ examId, studentInfo, status, examOption }) => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.status = status || 'waiting';
+      session.currentExamId = examId;
+      session.studentInfo = studentInfo;
+      session.examOption = examOption;
+      if (status === 'waiting') {
+        const waitingCount = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting').length;
+        io.emit('waitingCountUpdate', { examId, count: waitingCount });
+      }
+      emitSessionUpdate();
+    }
+  });
+
+  socket.on('distributeExam', (data) => {
+    if (!data.examId || !data.examOption) return;
+    activeDistributedExams.set(data.examId, { option: data.examOption, distributedAt: new Date(), questionCount: data.questionCount || 0 });
+    io.to('terminals').emit('examDistributed', { url: `${FRONTEND_URL}/exam/profile/${data.examId}`, examId: data.examId, examOption: data.examOption });
+  });
+
+  socket.on('startExam', ({ examId, option }) => {
+    const waitingStudents = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');
+    waitingStudents.forEach(s => {
+      const studentSocket = io.sockets.sockets.get(s.socketId);
+      if (studentSocket) {
+        s.status = 'composing';
+        studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
+      }
+    });
+    io.emit('waitingCountUpdate', { examId, count: 0 });
+    emitSessionUpdate();
+  });
+
+  socket.on('disconnect', () => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.isOnline = false;
+      const timeout = setTimeout(() => {
+        const current = activeSessions.get(socket.id);
+        if (current && !current.isOnline) {
+          activeSessions.delete(socket.id);
+          emitSessionUpdate();
+        }
+        pendingReconnections.delete(session.sessionId);
+      }, 45000);
+      pendingReconnections.set(session.sessionId, timeout);
+    }
+  });
+});
+
+app.get('/api/active-sessions', (req, res) => {
+  const sessions = Array.from(activeSessions.values());
+  res.json({ success: true, count: sessions.length, sessions });
+});
+
+app.get('/api/surveillance-data', (req, res) => {
+  const sessions = Array.from(activeSessions.values());
+  const waitingStudents = sessions.filter(s => s.type === 'student' && s.status === 'waiting');
+  res.json({ success: true, activeSessions: sessions, waitingStudents });
+});
+
+// ==================== 404 ====================
+app.use('*', (req, res) => {
+  res.status(404).json({ error: `Route ${req.method} ${req.path} introuvable` });
+});
+
+// ==================== DÉMARRAGE ====================
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[NA²QUIZ] 🚀 Serveur Socket.IO`);
+  console.log(`[NA²QUIZ] 🌍 Environnement: ${NODE_ENV}`);
+  console.log(`[NA²QUIZ] 📡 Port: ${PORT}`);
+  console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
+  console.log(`[NA²QUIZ] 📄 Terminal: ${FRONTEND_URL}/terminal.html (via Netlify) ou /terminal.html (local)`);
+  console.log(`[NA²QUIZ] 💾 MongoDB: ${isConnected ? '✅ Connecté' : '❌ Déconnecté'}`);
+  console.log(`${'='.repeat(60)}\n`);
+});
+
+export default app;
