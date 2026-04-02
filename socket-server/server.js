@@ -1,4 +1,4 @@
-// socket-server/server.js - Version finale avec terminal.html
+// socket-server/server.js - Version finale corrigée
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -175,15 +175,22 @@ const questionSchema = new mongoose.Schema({
   rejectionComment: { type: String, default: '' }
 }, { timestamps: true });
 
-questionSchema.index({ cleInterne: 1 }, { unique: true, sparse: true });
-questionSchema.index({ matiere: 1, libQuestion: 1 }, { unique: true });
+// Index (cleInterne sans unicité pour éviter les doublons)
+questionSchema.index({ cleInterne: 1 });
+questionSchema.index({ matiere: 1, libQuestion: 1 });
 questionSchema.index({ domaine: 1, niveau: 1, matiere: 1 });
 questionSchema.index({ status: 1 });
 
+// Génération de cleInterne unique avant sauvegarde
 questionSchema.pre('save', function(next) {
-  if (!this.cleInterne && this.matiere && this.libQuestion) {
-    this.cleInterne = `${this.matiere}::${this.libQuestion}`;
+  if (this.matiere && this.libQuestion) {
+    const cleanMatiere = this.matiere.replace(/[^a-zA-Z0-9]/g, '_');
+    const cleanLib = this.libQuestion.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '_');
+    this.cleInterne = `${cleanMatiere}::${cleanLib}::${Date.now()}`;
+  } else if (!this.cleInterne) {
+    this.cleInterne = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
+  
   if (this.imageQuestion && this.imageQuestion.trim()) {
     this.imageMetadata.storageType = 'url';
   } else if (this.imageBase64 && this.imageBase64.trim()) {
@@ -575,20 +582,54 @@ app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'
     const { questions } = req.body;
     if (!Array.isArray(questions) || questions.length === 0) return res.status(400).json({ success: false, error: 'Array de questions requis' });
     
-    const questionsWithMetadata = questions.map(q => {
+    const questionsWithMetadata = [];
+    for (const q of questions) {
+      // Vérifier si la question existe déjà (éviter doublons)
+      const existing = await Question.findOne({ 
+        matiere: q.matiere, 
+        libQuestion: q.libQuestion 
+      });
+      
+      if (existing) {
+        console.log(`[Questions] Question dupliquée ignorée: ${q.libQuestion?.substring(0, 50)}`);
+        continue;
+      }
+      
       const questionText = q.libQuestion || q.question;
       let bonOpRep = q.bonOpRep;
       if (bonOpRep === undefined && q.correctAnswer !== undefined) bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
-      return {
-        libQuestion: questionText, options: q.options, bonOpRep, matiere: q.matiere || '', niveau: q.niveau || '', domaine: q.domaine || '',
-        sousDomaine: q.sousDomaine || '', typeQuestion: q.typeQuestion || 1, points: q.points || 1, explanation: q.explanation || '',
-        type: q.type || 'single', difficulty: q.difficulty || 'moyen', createdBy: req.user._id, matriculeAuteur: req.user.matricule,
-        status: 'pending', createdAt: new Date(), updatedAt: new Date()
-      };
-    });
+      
+      questionsWithMetadata.push({
+        libQuestion: questionText, 
+        options: q.options, 
+        bonOpRep, 
+        matiere: q.matiere || '', 
+        niveau: q.niveau || '', 
+        domaine: q.domaine || '',
+        sousDomaine: q.sousDomaine || '', 
+        typeQuestion: q.typeQuestion || 1, 
+        points: q.points || 1, 
+        explanation: q.explanation || '',
+        type: q.type || 'single', 
+        difficulty: q.difficulty || 'moyen', 
+        createdBy: req.user._id, 
+        matriculeAuteur: req.user.matricule,
+        status: 'pending', 
+        createdAt: new Date(), 
+        updatedAt: new Date()
+      });
+    }
+    
+    if (questionsWithMetadata.length === 0) {
+      return res.json({ success: true, message: 'Aucune nouvelle question à ajouter', data: [] });
+    }
+    
     const result = await Question.insertMany(questionsWithMetadata);
     res.json({ success: true, message: `${result.length} questions enregistrées`, data: result });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { 
+    console.error('[Questions] Erreur save:', err);
+    res.status(500).json({ success: false, error: err.message }); 
+  }
 });
 
 app.put('/api/questions/:id', protect, async (req, res) => {
@@ -626,7 +667,6 @@ app.delete('/api/questions/:id', protect, async (req, res) => {
     res.json({ success: true, message: 'Question supprimée' });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
-
 
 // ==================== EXAM ROUTES ====================
 app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
@@ -800,14 +840,12 @@ function extractJSONFromResponse(content) {
   cleanContent = cleanContent.replace(/```json\s*/gi, '');
   cleanContent = cleanContent.replace(/```\s*/g, '');
   
-  // Si le contenu commence par 'json' sans backticks
   if (cleanContent.startsWith('json')) {
     cleanContent = cleanContent.substring(4);
   }
   
   cleanContent = cleanContent.trim();
   
-  // Trouver le premier { et le dernier }
   const firstBrace = cleanContent.indexOf('{');
   const lastBrace = cleanContent.lastIndexOf('}');
   
@@ -853,6 +891,17 @@ function fixQuestion(q, index, subject, level) {
   return fixed;
 }
 
+// Route de configuration IA
+app.get('/api/ai/config', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), (req, res) => {
+  res.json({
+    success: true,
+    configured: !!DEEPSEEK_API_KEY,
+    model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock',
+    maxQuestions: 30,
+    supportedTypes: [1, 2]
+  });
+});
+
 app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { 
@@ -863,7 +912,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       keywords = '' 
     } = req.body;
 
-    // Validation des entrées
     if (!domain || !level || !subject) {
       return res.status(400).json({ 
         success: false, 
@@ -871,7 +919,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       });
     }
 
-    // Construction du prompt amélioré pour l'IA
     const prompt = `Génère ${numQuestions} questions QCM de qualité sur "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
     
 ${keywords ? `Thèmes spécifiques: ${keywords}` : ''}
@@ -896,7 +943,6 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
 
     let generatedQuestions = [];
 
-    // Appel à DeepSeek
     if (DEEPSEEK_API_KEY) {
       try {
         console.log('[IA] Appel à DeepSeek API...');
@@ -917,7 +963,7 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
               { role: 'user', content: prompt }
             ],
             temperature: 0.7,
-            max_tokens: 4000
+            max_tokens: 2000
           })
         });
 
@@ -927,7 +973,6 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
           
           console.log('[IA] Réponse brute reçue, longueur:', rawContent.length);
           
-          // Nettoyer et extraire le JSON
           const cleanJson = extractJSONFromResponse(rawContent);
           
           if (cleanJson) {
@@ -941,11 +986,9 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
               }
             } catch (parseError) {
               console.error('[IA] Erreur parsing JSON:', parseError.message);
-              console.error('[IA] Contenu nettoyé (premier 500 chars):', cleanJson.substring(0, 500));
             }
           } else {
             console.error('[IA] Impossible d\'extraire le JSON de la réponse');
-            console.error('[IA] Réponse brute (premier 500 chars):', rawContent.substring(0, 500));
           }
         } else {
           console.error('[IA] Erreur DeepSeek API:', response.status, response.statusText);
@@ -980,7 +1023,6 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
       generatedQuestions = [...generatedQuestions, ...fallbackQuestions];
     }
 
-    // Limiter au nombre demandé
     generatedQuestions = generatedQuestions.slice(0, numQuestions);
 
     console.log(`[IA] ✅ Final: ${generatedQuestions.length} questions générées`);
@@ -1008,7 +1050,7 @@ Les questions doivent être pertinentes, précises et adaptées au niveau ${leve
   }
 });
 
-// Fonction de fallback améliorée (questions mock pédagogiques)
+// Fonction de fallback améliorée
 function generateMockQuestions(domain, subject, level, count) {
   const mockQuestions = [];
   
@@ -1030,18 +1072,6 @@ function generateMockQuestions(domain, subject, level, count) {
       options: ['Concept fondamental A', 'Concept secondaire B', 'Aspect périphérique C', 'Détail technique D'], 
       answer: 'Concept fondamental A', 
       explanation: `Le concept fondamental A est au cœur de la discipline ${subject}.` 
-    },
-    { 
-      text: `En quoi ${subject} contribue-t-il au développement des compétences ?`, 
-      options: ['Développement de la pensée critique', 'Mémorisation passive', 'Répétition mécanique', 'Ignorance des concepts'], 
-      answer: 'Développement de la pensée critique', 
-      explanation: `${subject} forme à l'analyse et à la synthèse.` 
-    },
-    { 
-      text: `Quelle méthode privilégie-t-on dans l'étude de ${subject} ?`, 
-      options: ['Approche analytique', 'Mémorisation', 'Copie', 'Hasard'], 
-      answer: 'Approche analytique', 
-      explanation: `L'approche analytique permet une compréhension approfondie de ${subject}.` 
     }
   ];
 
@@ -1057,7 +1087,6 @@ function generateMockQuestions(domain, subject, level, count) {
     });
   }
 
-  // Compléter avec des questions génériques de qualité
   while (mockQuestions.length < count) {
     const idx = mockQuestions.length + 1;
     mockQuestions.push({
