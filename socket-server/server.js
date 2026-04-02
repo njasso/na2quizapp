@@ -37,7 +37,7 @@ if (!MONGODB_URI) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CORS - Configuration complète
+// CORS - Configuration unique et permissive pour Render
 // ═══════════════════════════════════════════════════════════════
 const CORS_ORIGINS = [
   FRONTEND_URL,
@@ -48,6 +48,7 @@ const CORS_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://192.168.0.1:3000',
   'http://192.168.106.51:5000',
+  'https://na2quizapp.onrender.com'
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -56,18 +57,21 @@ const CORS_ORIGINS = [
 const app = express();
 const server = createServer(app);
 
-// CORS
+// ✅ UN SEUL appel app.use(cors())
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (!isProduction) return callback(null, true);
     if (CORS_ORIGINS.includes(origin)) return callback(null, true);
-    console.warn(`[CORS] Origine bloquée: ${origin}`);
-    callback(new Error('CORS non autorisé'));
+    if (origin?.endsWith('.netlify.app')) return callback(null, true);
+    if (origin?.endsWith('.onrender.com')) return callback(null, true);
+    
+    console.warn(`[CORS] Origine non standard mais acceptée: ${origin}`);
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 }));
 
 app.use(express.json({ limit: '50mb' }));
@@ -627,7 +631,6 @@ app.delete('/api/questions/:id', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-
 // ==================== EXAM ROUTES ====================
 app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
@@ -801,7 +804,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       keywords = '' 
     } = req.body;
 
-    // Validation des entrées
     if (!domain || !level || !subject) {
       return res.status(400).json({ 
         success: false, 
@@ -809,7 +811,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       });
     }
 
-    // Construction du prompt pour l'IA
     const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
     
     ${keywords ? `Mots-clés spécifiques: ${keywords}` : ''}
@@ -835,7 +836,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
 
     let generatedQuestions = [];
 
-    // Si clé API DeepSeek configurée
     if (DEEPSEEK_API_KEY) {
       try {
         const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -870,7 +870,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
       }
     }
 
-    // Fallback si IA non disponible ou erreur
     if (generatedQuestions.length === 0) {
       generatedQuestions = generateMockQuestions(domain, subject, level, numQuestions);
     }
@@ -897,7 +896,6 @@ app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_D
   }
 });
 
-// Fonction de fallback (questions mock)
 function generateMockQuestions(domain, subject, level, count) {
   const mockQuestions = [];
   const templates = [
@@ -918,7 +916,6 @@ function generateMockQuestions(domain, subject, level, count) {
     });
   }
 
-  // Compléter avec des questions génériques si nécessaire
   while (mockQuestions.length < count) {
     mockQuestions.push({
       text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`,
@@ -1134,12 +1131,16 @@ const activeDistributedExams = new Map();
 const pendingReconnections = new Map();
 
 const io = new Server(server, {
-  cors: { origin: isProduction ? CORS_ORIGINS : '*', credentials: true },
-  transports: ['polling'],      // ✅ Polling uniquement
+  cors: {
+    origin: true,  // ✅ Accepte toutes les origines
+    credentials: true,
+    methods: ['GET', 'POST']
+  },
+  transports: ['polling'],
   allowEIO3: true,
   pingTimeout: 60000,
   pingInterval: 25000,
-  allowUpgrades: false,         // ✅ Désactiver les upgrades
+  allowUpgrades: false,
   cookie: false
 });
 
@@ -1192,28 +1193,27 @@ io.on('connection', (socket) => {
   });
 
   socket.on('distributeExam', (data) => {
-  if (!data.examId || !data.examOption) {
-    console.error('[Socket] distributeExam: examId ou examOption manquant', data);
-    return;
-  }
-  
-  console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
-  
-  activeDistributedExams.set(data.examId, { 
-    option: data.examOption, 
-    distributedAt: new Date(), 
-    questionCount: data.questionCount || 0 
+    if (!data.examId || !data.examOption) {
+      console.error('[Socket] distributeExam: examId ou examOption manquant', data);
+      return;
+    }
+    
+    console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
+    
+    activeDistributedExams.set(data.examId, { 
+      option: data.examOption, 
+      distributedAt: new Date(), 
+      questionCount: data.questionCount || 0 
+    });
+    
+    io.to('terminals').emit('examDistributed', { 
+      examId: data.examId, 
+      examOption: data.examOption,
+      timestamp: Date.now()
+    });
+    
+    console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
   });
-  
-  // ✅ Envoyer l'examId et l'option séparément (pas besoin d'url)
-  io.to('terminals').emit('examDistributed', { 
-    examId: data.examId, 
-    examOption: data.examOption,
-    timestamp: Date.now()
-  });
-  
-  console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
-});
 
   socket.on('startExam', ({ examId, option }) => {
     const waitingStudents = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting');

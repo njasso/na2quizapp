@@ -11,14 +11,14 @@ const BACKEND_PORT = process.env.REACT_APP_BACKEND_PORT || '5000';
 const PROD_BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const getBackendUrl = () => {
-  // Production: URL personnalisée ou IP:PORT
+  // Production: URL personnalisée
   if (process.env.NODE_ENV === 'production') {
     if (PROD_BACKEND_URL) {
       console.log('[API] 🌐 Production URL configurée:', PROD_BACKEND_URL);
       return PROD_BACKEND_URL;
     }
-    // Fallback pour réseau local en production
-    return `http://${BACKEND_IP}:${BACKEND_PORT}`;
+    // ✅ Fallback correct pour Render
+    return 'https://na2quizapp.onrender.com';
   }
   
   // Développement: localhost par défaut
@@ -26,8 +26,7 @@ const getBackendUrl = () => {
     return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
   }
   
-  // Test / autre
-  return `http://${BACKEND_IP}:${BACKEND_PORT}`;
+  return 'https://na2quizapp.onrender.com';
 };
 
 const API_BASE = getBackendUrl();
