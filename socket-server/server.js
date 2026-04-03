@@ -756,38 +756,81 @@ app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE',
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
+    
+    console.log('[API] Soumission résultats - examId:', examId);
+    console.log('[API] answers reçues:', answers);
+    
     const exam = await Exam.findById(examId);
-    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Examen non trouvé' });
+    }
     
     let score = 0;
     const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
-    const answersMap = new Map(Object.entries(answers));
     
-    exam.questions.forEach(q => {
-      const studentAnswer = answersMap.get(q._id.toString());
-      const isCorrect = studentAnswer != null && Number(studentAnswer) === q.bonOpRep;
-      if (isCorrect) score += (q.points || 1);
+    // ✅ Parcourir les questions de l'examen
+    exam.questions.forEach((q, idx) => {
+      const qId = q._id?.toString() || String(idx);
+      const studentAnswer = answers[qId];
+      
+      // ✅ Vérifier que studentAnswer existe
+      if (studentAnswer !== undefined && studentAnswer !== null) {
+        let isCorrect = false;
+        
+        // Comparaison selon le type de question
+        if (typeof q.bonOpRep === 'number') {
+          // Format avec opRep1..opRep5
+          const selectedIndex = q.options.findIndex(opt => opt === studentAnswer);
+          isCorrect = selectedIndex === q.bonOpRep;
+        } else if (q.correctAnswer) {
+          // Format avec correctAnswer
+          isCorrect = String(studentAnswer).trim() === String(q.correctAnswer).trim();
+        }
+        
+        if (isCorrect) {
+          score += (q.points || 1);
+        }
+      }
     });
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
     const result = new Result({
-      examId, studentInfo: { firstName: studentInfo.firstName, lastName: studentInfo.lastName, matricule: studentInfo.matricule, level: studentInfo.level },
-      answers: answersMap, score, percentage, passed: percentage >= (exam.passingScore || 70), totalQuestions: exam.questions.length,
-      examTitle: exam.title, examLevel: exam.level, domain: exam.domain, subject: exam.subject, category: exam.category,
-      duration: exam.duration, passingScore: exam.passingScore, examOption: exam.examOption, examQuestions: exam.questions
+      examId,
+      studentInfo: {
+        firstName: studentInfo.firstName || '',
+        lastName: studentInfo.lastName || '',
+        matricule: studentInfo.matricule || '',
+        level: studentInfo.level || ''
+      },
+      answers: new Map(Object.entries(answers)),
+      score,
+      percentage,
+      passed: percentage >= (exam.passingScore || 70),
+      totalQuestions: exam.questions.length,
+      examTitle: exam.title,
+      examLevel: exam.level,
+      domain: exam.domain,
+      subject: exam.subject,
+      category: exam.category,
+      duration: exam.duration,
+      passingScore: exam.passingScore,
+      examOption: exam.examOption,
+      examQuestions: exam.questions
     });
+    
     await result.save();
-    res.status(201).json({ success: true, message: 'Résultat soumis avec succès', data: result });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
-  try {
-    const result = await Result.findByIdAndDelete(req.params.id);
-    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'Résultat soumis avec succès', 
+      data: result 
+    });
+    
+  } catch (err) {
+    console.error('[API] Erreur soumission résultats:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ==================== IA ROUTES ====================

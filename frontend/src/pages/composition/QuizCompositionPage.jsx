@@ -337,17 +337,15 @@ const QuizCompositionPage = () => {
       headers: { Authorization: `Bearer ${token}` }
     } : {};
 
-    // ✅ Formater les answers correctement
+    // ✅ Correction: Formater les answers correctement
+    // Ne pas envoyer les objets complets, seulement les indices ou les valeurs
     const formattedAnswers = {};
     Object.entries(answersRef.current).forEach(([questionId, answer]) => {
-      // Trouver la question correspondante
-      const question = examRef.current.questions.find(q => q._id === questionId);
-      if (question) {
-        // Trouver l'index de la réponse sélectionnée
-        const answerIndex = question.options.findIndex(opt => opt === answer);
-        formattedAnswers[questionId] = answerIndex !== -1 ? answerIndex : answer;
+      // Si answer est un objet, extraire la valeur
+      if (typeof answer === 'object' && answer !== null) {
+        formattedAnswers[questionId] = answer.value || answer.option || String(answer);
       } else {
-        formattedAnswers[questionId] = answer;
+        formattedAnswers[questionId] = String(answer);
       }
     });
 
@@ -355,7 +353,8 @@ const QuizCompositionPage = () => {
       examId: examRef.current._id,
       studentInfo: studentInfoRef.current,
       answersCount: Object.keys(formattedAnswers).length,
-      totalQuestions: examRef.current.questions.length
+      totalQuestions: examRef.current.questions.length,
+      answers: formattedAnswers
     });
 
     const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
@@ -366,8 +365,7 @@ const QuizCompositionPage = () => {
         matricule: studentInfoRef.current?.matricule || '',
         level: studentInfoRef.current?.level || ''
       },
-      answers: formattedAnswers,
-      config: configRef.current || {}
+      answers: formattedAnswers
     }, { 
       timeout: 10000,
       ...axiosConfig
