@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 const NODE_BACKEND_URL = process.env.NODE_ENV === 'production'
- ? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
+? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
   : 'http://localhost:5000';
 const SOCKET_URL = NODE_BACKEND_URL;
 
@@ -340,7 +340,7 @@ const QuizCompositionPage = () => {
       try {
         socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
       } catch (e) {
-        console.error("Erreur d'émission socket 'examSubmitting':", e); // <-- MODIFICATION / AJOUT
+        console.error("Erreur d'émission socket 'examSubmitting':", e);
       }
     }
 
@@ -381,19 +381,31 @@ const QuizCompositionPage = () => {
         answers: formattedAnswers
       }, {
         timeout: 10000,
-       ...axiosConfig
+      ...axiosConfig
       });
 
-      const { result, details: correctionDetails } = res.data;
+      // <-- NOUVELLE MODIFICATION: Vérification robuste de la structure de la réponse
+      const { result, details: correctionDetails } = res.data || {}; // Destructuration avec fallback {}
+      if (!result) {
+        console.error("Réponse de soumission invalide: 'result' est manquant.", res.data);
+        toast.error("Échec de la soumission: Réponse serveur inattendue.");
+        submittingRef.current = false;
+        quizFinishedRef.current = false;
+        setQuizFinished(false);
+        setIsSubmitting(false);
+        return;
+      }
+      // FIN NOUVELLE MODIFICATION
+
       setShowConfetti(true);
       toast.success(isManual? "Examen soumis avec succès!" : "Temps écoulé! Examen soumis automatiquement...");
 
       if (socketRef.current?.connected) {
-        try { // <-- MODIFICATION / AJOUT
+        try {
           socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
           socketRef.current.disconnect();
         } catch (e) {
-          console.error("Erreur d'émission socket 'examSubmitted':", e); // <-- MODIFICATION / AJOUT
+          console.error("Erreur d'émission socket 'examSubmitted':", e);
         }
       }
 
@@ -402,8 +414,8 @@ const QuizCompositionPage = () => {
           state: {
             submittedAnswers: formattedAnswers,
             studentInfo: studentData,
-            submittedScore: result.score,
-            submittedPercentage: result.percentage,
+            submittedScore: result.score, // <-- NOUVELLE MODIFICATION: Assuré que result existe
+            submittedPercentage: result.percentage, // <-- NOUVELLE MODIFICATION: Assuré que result existe
             examTitle: examRef.current.title,
             passingScore: examRef.current.passingScore,
             examQuestions: examRef.current.questions,
@@ -432,7 +444,7 @@ const QuizCompositionPage = () => {
       quizFinishedRef.current = false;
       setQuizFinished(false);
       setIsSubmitting(false);
-      if (error.response?.status === 401) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) { // <-- NOUVELLE MODIFICATION: Utilisation de isAxiosError
         toast.error("Session expirée. Veuillez vous reconnecter.");
         localStorage.removeItem('userToken');
         localStorage.removeItem('token');
@@ -447,9 +459,9 @@ const QuizCompositionPage = () => {
     if (quizFinishedRef.current || submittingRef.current) return;
     const opt = configRef.current?.examOption;
     const idx = currentQuestionIndexRef.current;
-    const total = examRef.current?.questions?.length; // <-- MODIFICATION: Ajout de?.
+    const total = examRef.current?.questions?.length;
 
-    if (!examRef.current ||!total) { // <-- AJOUT
+    if (!examRef.current ||!total) {
       console.error("Exam data or total questions missing in handleTimeEnd.");
       return;
     }
@@ -460,14 +472,15 @@ const QuizCompositionPage = () => {
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
         // 💡 Important : Réinitialiser le temps pour la nouvelle question
-        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
-        setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
+        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+        setRemainingTime(timeForNextQuestion);
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 100);
         toast(opt === 'D'? "Temps écoulé! Question suivante (Aléatoire)." : "Temps écoulé! Passage à la question suivante.", {
           style: { background: '#f59e0b', color: '#fff' }, icon: '⏳',
         });
       } else {
+        // <-- NOUVELLE MODIFICATION: Assurer que l'examen est terminé si toutes les questions sont passées
         handleSubmitExam(false);
       }
     } else if (opt === 'C') {
@@ -480,28 +493,28 @@ const QuizCompositionPage = () => {
 
   const handleNextQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
-    if (examRef.current && idx < examRef.current.questions.length - 1) { // <-- MODIFICATION
+    if (examRef.current && idx < examRef.current.questions.length - 1) {
       const nextIndex = idx + 1;
       currentQuestionIndexRef.current = nextIndex;
       setCurrentQuestionIndex(nextIndex);
       // 💡 Réinitialiser le temps pour la nouvelle question
-      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
-      setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
-      setTimerResetTrigger(prev => prev + 1); // Déclencher le reset du Timer // <-- AJOUT
+      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+      setRemainingTime(timeForNextQuestion);
+      setTimerResetTrigger(prev => prev + 1);
       setTimeout(() => sendProgressUpdate(nextIndex), 50);
     }
   }, [sendProgressUpdate]);
 
   const handlePrevQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
-    if (examRef.current && idx > 0) { // <-- MODIFICATION
+    if (examRef.current && idx > 0) {
       const prevIndex = idx - 1;
       currentQuestionIndexRef.current = prevIndex;
       setCurrentQuestionIndex(prevIndex);
       // 💡 Réinitialiser le temps pour la nouvelle question
-      const timeForPrevQuestion = examRef.current.questions[prevIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
-      setRemainingTime(timeForPrevQuestion); // <-- MODIFICATION / AJOUT
-      setTimerResetTrigger(prev => prev + 1); // Déclencher le reset du Timer // <-- AJOUT
+      const timeForPrevQuestion = examRef.current.questions[prevIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+      setRemainingTime(timeForPrevQuestion);
+      setTimerResetTrigger(prev => prev + 1);
       setTimeout(() => sendProgressUpdate(prevIndex), 50);
     }
   }, [sendProgressUpdate]);
@@ -518,16 +531,16 @@ const QuizCompositionPage = () => {
   const handleOptionChange = (questionId, selectedOption) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
-    const currentQ = examRef.current?.questions?.find(q => q._id === questionId); // <-- MODIFICATION: Ajout de?.
+    const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
     if (!currentQ) return;
 
     const currentAttempts = attemptsRef.current[questionId] || 0;
-    // Si allowRetry est activé et que c'est la 2ème tentative (currentAttempts est déjà 1)
-    // Et que la réponse est incorrecte (pour empêcher de retenter une 3ème fois)
-    if (configRef.current?.allowRetry && currentAttempts >= 1) { // <-- MODIFICATION
+    // Si allowRetry est activé et que c'est la 2ème tentative, on affiche l'erreur
+    if (configRef.current?.allowRetry && currentAttempts >= 1) {
       toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
       return;
     }
+
 
     let isCorrect = false;
     if (typeof currentQ.bonOpRep === 'number') {
@@ -555,24 +568,29 @@ const QuizCompositionPage = () => {
       toast.info(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
     }
 
-    // Si la réponse est incorrecte et que les réessais sont autorisés (et que ce n'est pas la 2ème tentative)
-    // On ne passe pas à la question suivante
-    if (!isCorrect && configRef.current?.allowRetry && currentAttempts === 0) { // <-- MODIFICATION
-      return;
+    // Si la réponse est incorrecte et que les réessais sont autorisés ET que c'était la 1ère tentative
+    // on permet de rester sur la question pour la 2ème tentative.
+    // Si currentAttempts est 0, c'est la 1ère tentative. On passe à 1 après avoir incrémenté.
+    // Donc si `newAttempts[questionId]` est 1, c'est qu'on vient de faire la première tentative.
+    if (!isCorrect && configRef.current?.allowRetry && newAttempts[questionId] === 1) { // <-- NOUVELLE MODIFICATION
+      return; // Ne pas passer à la question suivante, laisser l'utilisateur retenter
     }
 
+    // Passage à la question suivante si l'option est A ou D, ou si la réponse est correcte
+    // ou si on a épuisé les tentatives (pour les options avec retry)
     if (configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D') {
       const idx = currentQuestionIndexRef.current;
-      if (examRef.current && idx < examRef.current.questions.length - 1) { // <-- MODIFICATION
+      if (examRef.current && idx < examRef.current.questions.length - 1) {
         const nextIndex = idx + 1;
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
         // 💡 Réinitialiser le temps pour la nouvelle question
-        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
-        setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
+        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+        setRemainingTime(timeForNextQuestion);
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 500);
       } else {
+        // Si c'est la dernière question, soumettre l'examen
         handleSubmitExam(false);
       }
     }
@@ -604,7 +622,7 @@ const QuizCompositionPage = () => {
 
         const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, {
           timeout: 10000,
-         ...axiosConfig
+        ...axiosConfig
         });
 
         // Extraction robuste de l'examen
@@ -643,9 +661,9 @@ const QuizCompositionPage = () => {
         examRef.current = {...examData, questions: fetchedQuestions };
 
         // ✅ Gestion sécurisée du timer (Initialisation du timer pour la première question si timerPerQuestion est activé)
-        if (safeConfig.timerPerQuestion && fetchedQuestions.length > 0) { // <-- MODIFICATION / AJOUT
-          const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60) * 60; // <-- AJOUT
-          setRemainingTime(firstQuestionTime); // <-- AJOUT
+        if (safeConfig.timerPerQuestion && fetchedQuestions.length > 0) {
+          const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60) * 60;
+          setRemainingTime(firstQuestionTime);
         } else {
           setRemainingTime((safeConfig.totalTime || 60) * 60);
         }
@@ -663,7 +681,7 @@ const QuizCompositionPage = () => {
 
       } catch (error) {
         console.error("Erreur chargement examen:", error);
-        if (error.response?.status === 401) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) { // <-- NOUVELLE MODIFICATION
           toast.error("Session expirée. Veuillez vous reconnecter.");
           localStorage.removeItem('userToken');
           localStorage.removeItem('token');
@@ -711,7 +729,10 @@ const QuizCompositionPage = () => {
         examId: examId
       });
 
-      const currentStatus = parsed.examOption === 'B'? 'waiting' : 'composing';
+      // <-- NOUVELLE MODIFICATION: S'assurer que le status est basé sur config?.examOption
+      const currentStatus = configRef.current?.examOption === 'B' || configRef.current?.examOption === 'A'? 'waiting' : 'composing';
+      // FIN NOUVELLE MODIFICATION
+
       console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
 
       newSocket.emit('studentReadyForExam', {
@@ -791,13 +812,13 @@ const QuizCompositionPage = () => {
 
     return () => {
       // Nettoyage explicite des listeners et déconnexion
-      if (newSocket) { // <-- MODIFICATION
-        newSocket.removeAllListeners(); // <-- MODIFICATION / AJOUT
+      if (newSocket) {
+        newSocket.removeAllListeners();
         newSocket.disconnect();
       }
       cleanupBeforeRedirect();
     };
-  }, [examId, navigate, handleSubmitExam, sendProgressUpdate, cleanupBeforeRedirect]);
+  }, [examId, navigate, handleSubmitExam, sendProgressUpdate, cleanupBeforeRedirect]); // <-- NOUVELLE MODIFICATION: Ajout de 'configRef' aux dépendances de useEffect
 
   // Gestion du timer
   useEffect(() => {
@@ -845,10 +866,10 @@ const QuizCompositionPage = () => {
               <Users size={20} />
               <span>{waitingCount} participant{waitingCount > 1? 's' : ''} en attente</span>
               <button onClick={() => {
-                if (socketRef.current?.connected) { // <-- MODIFICATION
+                if (socketRef.current?.connected) {
                   socketRef.current.emit('getWaitingStudents', { examId }, (resp) => setWaitingCount(resp.count));
-                } else { // <-- AJOUT
-                  toast.error("Non connecté au serveur. Veuillez patienter pour la reconnexion."); // <-- AJOUT
+                } else {
+                  toast.error("Non connecté au serveur. Veuillez patienter pour la reconnexion.");
                 }
               }}><RefreshCw size={12} /> Rafraîchir</button>
             </div>
@@ -868,7 +889,11 @@ const QuizCompositionPage = () => {
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = (answeredCount / questions.length) * 100;
   const disablePrev = quizFinished || currentQuestionIndex === 0 || config?.examOption === 'A' || config?.examOption === 'B' || config?.examOption === 'D';
+  // <-- NOUVELLE MODIFICATION: log de debug pour disableNext
+  // console.log(`disableNext check: quizFinished=${quizFinished} | currentQIndex=${currentQuestionIndex} | totalQ=${questions.length - 1} | examOption=${config?.examOption} | answered=${answers[currentQuestion?._id]}`);
   const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || config?.examOption === 'A' || config?.examOption === 'D' || (config?.examOption === 'B' &&!answers[currentQuestion?._id]);
+  // FIN NOUVELLE MODIFICATION
+
 
   // <-- AJOUT: Vérification de currentQuestion pour éviter des erreurs de rendu
   if (!currentQuestion) {
@@ -911,11 +936,11 @@ const QuizCompositionPage = () => {
                   <span>Sauvegarde auto</span>
                 </div>
               )}
-              {quizStarted &&!quizFinished && config?.examOption!== 'B' && ( // Removed remainingTime > 0 here, as Timer component handles it
+              {quizStarted &&!quizFinished && config?.examOption!== 'B' && (
                 <Timer
                   initialTime={remainingTime}
                   onTimeEnd={handleTimeEnd}
-                  isActive={!quizFinished && remainingTime > 0} // <-- MODIFICATION
+                  isActive={!quizFinished && remainingTime > 0}
                   resetTrigger={timerResetTrigger}
                   timerConfig={config?.timerConfig || 'permanent'}
                 />
@@ -947,9 +972,9 @@ const QuizCompositionPage = () => {
                       currentQuestionIndexRef.current = idx;
                       setCurrentQuestionIndex(idx);
                       // 💡 Réinitialiser le temps pour la nouvelle question
-                      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
-                      setRemainingTime(timeForQuestion); // <-- MODIFICATION / AJOUT
-                      setTimerResetTrigger(prev => prev + 1); // <-- AJOUT
+                      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+                      setRemainingTime(timeForQuestion);
+                      setTimerResetTrigger(prev => prev + 1);
                       sendProgressUpdate(idx);
                     }}
                     disabled={quizFinished}
@@ -998,18 +1023,31 @@ const QuizCompositionPage = () => {
                   {currentQuestion.options.map((opt, idx) => {
                     const isSelected = answers[currentQuestion._id] === opt;
                     const isCorrect = typeof currentQuestion.bonOpRep === 'number'
-                     ? idx === currentQuestion.bonOpRep
+                    ? idx === currentQuestion.bonOpRep
                       : opt === currentQuestion.correctAnswer;
+
+                    // <-- NOUVELLE MODIFICATION: Logique de désactivation plus fine
+                    const isOptionDisabled = quizFinished || submittingRef.current ||
+                      (config?.examOption!== 'C' && answers[currentQuestion._id] &&
+                     !(config?.allowRetry && attempts[currentQuestion._id] === 0)); // Désactivé si déjà répondu et pas de retry
+
+                    // Si allowRetry est activé, et que c'est la 2ème tentative (attempts est à 1), on peut encore cliquer
+                    const canRetry = config?.allowRetry && attempts[currentQuestion._id] === 1;
+
+                    // L'option ne doit être désactivée que si le quiz est fini, en soumission,
+                    // ou si elle a déjà été répondue et qu'il n'y a plus de retry possible.
+                    const isDisabled = quizFinished || submittingRef.current || (isOptionDisabled &&!canRetry);
+                    // FIN NOUVELLE MODIFICATION
 
                     return (
                       <label
                         key={idx}
                         style={{
-                         ...styles.option,
+                        ...styles.option,
                           background: isSelected? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.02)',
                           borderColor: isSelected? '#3b82f6' : 'rgba(59,130,246,0.15)',
-                          opacity: (quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0)))? 0.6 : 1, // <-- MODIFICATION
-                          cursor: (quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0)))? 'not-allowed' : 'pointer' // <-- MODIFICATION
+                          opacity: isDisabled? 0.6 : 1, // <-- NOUVELLE MODIFICATION
+                          cursor: isDisabled? 'not-allowed' : 'pointer' // <-- NOUVELLE MODIFICATION
                         }}
                       >
                         <input
@@ -1017,7 +1055,7 @@ const QuizCompositionPage = () => {
                           name={`q-${currentQuestion._id}`}
                           checked={isSelected}
                           onChange={() => handleOptionChange(currentQuestion._id, opt)}
-                          disabled={quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0))} // <-- MODIFICATION
+                          disabled={isDisabled} // <-- NOUVELLE MODIFICATION
                           style={{ marginRight: '12px', accentColor: '#3b82f6' }}
                         />
                         <span style={{ color: '#f8fafc' }}>{opt}</span>
@@ -1095,7 +1133,7 @@ const QuizCompositionPage = () => {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-       .animate-spin { animation: spin 1s linear infinite; }
+      .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
     </div>
   );
