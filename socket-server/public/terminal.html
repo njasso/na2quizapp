@@ -55,7 +55,7 @@
         .c-amber { color: var(--amber); }
         .c-red { color: var(--red); }
         .slbl { font-family: var(--mono); font-size: 0.53rem; font-weight: 700; color: var(--t3); letter-spacing: 0.12em; text-transform: uppercase; padding: 8px 18px 4px; }
-        .dp { margin: 0 14px; border: 1px solid rgba(255,255,255,0.05); border-radius: 9px; overflow: hidden; background: rgba(0,0,0,0.18); }
+        .dp { margin: 0 14px; border: 1px solid rgba(255,255,255,0.05); borderRadius: 9px; overflow: hidden; background: rgba(0,0,0,0.18); }
         .dr { display: flex; align-items: center; padding: 7px 11px; gap: 9px; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .dr:last-child { border-bottom: none; }
         .dk { font-family: var(--mono); font-size: 0.56rem; color: var(--t3); letter-spacing: 0.08em; text-transform: uppercase; width: 68px; flex-shrink: 0; }
@@ -379,7 +379,7 @@
             isRegistered = false;
         });
         
-        // ✅ VERSION CORRIGÉE : Ajout du paramètre option dans l'URL
+        // ✅ VERSION CORRIGÉE : Ajout de l'accusé de réception
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
@@ -393,13 +393,20 @@
                 return;
             }
             
-            // ✅ Récupérer le token JWT du localStorage
-            var token = localStorage.getItem('userToken');
+            // ✅ Envoyer un accusé de réception avec l'option
+            if(socket && socket.connected) {
+                socket.emit('terminalReadyForExam', {
+                    examId: examId,
+                    examOption: option,
+                    terminalId: sessionId
+                });
+                console.log('[Terminal] ✅ Accusé envoyé pour option', option);
+                addFeed('success', 'Accusé envoyé', 'Option ' + option);
+            }
             
-            // ✅ Construire l'URL avec l'option et le token
+            var token = localStorage.getItem('userToken');
             var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
-            // ✅ Ajouter le token en paramètre de requête s'il existe
             if (token) {
                 redirectUrl += '&token=' + encodeURIComponent(token);
                 console.log('[Terminal] ✅ Token ajouté à l\'URL');
