@@ -7,14 +7,14 @@ import { toast, Toaster } from 'react-hot-toast';
 import Confetti from 'react-confetti';
 import { v4 as uuidv4 } from 'uuid';
 import io from 'socket.io-client';
-import { 
+import {
   Clock, CheckCircle, Send, ArrowLeft, ArrowRight,
   AlertTriangle, Loader, Users, RefreshCw, Eye, XCircle,
   Save as SaveIcon, Image as ImageIcon
 } from 'lucide-react';
 
-const NODE_BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
+const NODE_BACKEND_URL = process.env.NODE_ENV === 'production'
+ ? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
   : 'http://localhost:5000';
 const SOCKET_URL = NODE_BACKEND_URL;
 
@@ -61,7 +61,7 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
       fontFamily: "'DM Mono', monospace",
       fontSize: '1.5rem',
       fontWeight: 700,
-      color: timeLeft < 10 ? '#ef4444' : '#f8fafc',
+      color: timeLeft < 10? '#ef4444' : '#f8fafc',
       background: 'rgba(0,0,0,0.3)',
       padding: '4px 12px',
       borderRadius: '8px',
@@ -144,37 +144,37 @@ const QuizCompositionPage = () => {
       options = q.options;
     } else {
       ['opRep1', 'opRep2', 'opRep3', 'opRep4', 'opRep5'].forEach(k => {
-        if (q[k] !== undefined && q[k] !== '') options.push(String(q[k]));
+        if (q[k]!== undefined && q[k]!== '') options.push(String(q[k]));
       });
     }
-    
+
     let correctAnswer = null;
     let bonOpRep = q.bonOpRep;
-    
+
     if (typeof bonOpRep === 'number' && options[bonOpRep]) {
       correctAnswer = options[bonOpRep];
     } else if (q.correctAnswer) {
       correctAnswer = q.correctAnswer;
       bonOpRep = options.findIndex(opt => opt === correctAnswer);
     }
-    
+
     let imageUrl = q.imageQuestion || '';
     if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
       imageUrl = q.imageBase64;
     }
-    
+
     return {
       _id: q._id,
       libQuestion: q.libQuestion || q.question || q.text || '',
       question: q.libQuestion || q.question || q.text || '',
       text: q.libQuestion || q.question || q.text || '',
-      options: options.filter(opt => opt !== ''),
+      options: options.filter(opt => opt!== ''),
       correctAnswer: correctAnswer,
       bonOpRep: bonOpRep,
       points: q.points || 1,
       explanation: q.explanation || '',
       typeQuestion: q.typeQuestion || 1,
-      type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
+      type: q.type || (q.typeQuestion === 2? 'multiple' : 'single'),
       tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
       tempsMin: q.tempsMin || 1,
       domaine: q.domaine || '',
@@ -198,35 +198,35 @@ const QuizCompositionPage = () => {
   // ═══════════════════════════════════════════════════════════════
   // SAUVEGARDE AUTOMATIQUE ET RÉCUPÉRATION
   // ═══════════════════════════════════════════════════════════════
-  
+
   useEffect(() => {
     const savedAnswers = localStorage.getItem(`exam_${examId}_answers`);
     const savedIndex = localStorage.getItem(`exam_${examId}_index`);
     const savedAttempts = localStorage.getItem(`exam_${examId}_attempts`);
     const savedShowResult = localStorage.getItem(`exam_${examId}_showResult`);
-    
-    if (savedAnswers && !quizFinishedRef.current) {
+
+    if (savedAnswers &&!quizFinishedRef.current) {
       try {
         const parsedAnswers = JSON.parse(savedAnswers);
         setAnswers(parsedAnswers);
         answersRef.current = parsedAnswers;
-        
+
         if (savedIndex) {
           const idx = parseInt(savedIndex);
           setCurrentQuestionIndex(idx);
           currentQuestionIndexRef.current = idx;
         }
-        
+
         if (savedAttempts) {
           setAttempts(JSON.parse(savedAttempts));
           attemptsRef.current = JSON.parse(savedAttempts);
         }
-        
+
         if (savedShowResult) {
           setShowResult(JSON.parse(savedShowResult));
           showResultRef.current = JSON.parse(savedShowResult);
         }
-        
+
         toast.success("Progression chargée automatiquement", { duration: 3000 });
       } catch (e) {
         console.error('Erreur chargement sauvegarde:', e);
@@ -236,7 +236,7 @@ const QuizCompositionPage = () => {
 
   useEffect(() => {
     if (quizFinishedRef.current || waitingForStartRef.current) return;
-    
+
     autoSaveIntervalRef.current = setInterval(() => {
       if (Object.keys(answersRef.current).length > 0 || currentQuestionIndexRef.current > 0) {
         localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
@@ -245,7 +245,7 @@ const QuizCompositionPage = () => {
         localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
         localStorage.setItem(`exam_${examId}_lastSave`, Date.now());
         setLastSaveTime(Date.now());
-        
+
         const lastToast = localStorage.getItem(`exam_${examId}_lastToast`);
         if (!lastToast || Date.now() - parseInt(lastToast) > 120000) {
           toast.success("💾 Sauvegarde automatique effectuée", { duration: 2000, icon: '💾' });
@@ -253,7 +253,7 @@ const QuizCompositionPage = () => {
         }
       }
     }, 30000);
-    
+
     return () => {
       if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current);
     };
@@ -261,7 +261,7 @@ const QuizCompositionPage = () => {
 
   useEffect(() => {
     if (quizFinishedRef.current || waitingForStartRef.current) return;
-    
+
     localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
     localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
     localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
@@ -270,14 +270,14 @@ const QuizCompositionPage = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (!quizFinishedRef.current && !submittingRef.current && Object.keys(answersRef.current).length > 0) {
+      if (!quizFinishedRef.current &&!submittingRef.current && Object.keys(answersRef.current).length > 0) {
         localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
         localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
         localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
         localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
       }
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [examId]);
@@ -301,7 +301,7 @@ const QuizCompositionPage = () => {
   }, []);
 
   const sendProgressUpdate = useCallback((index) => {
-    if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
+    if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current ||!socketRef.current?.connected) return;
     const total = examRef.current.questions.length;
     const progress = Math.round(((index + 1) / total) * 100);
     socketRef.current.emit('updateStudentProgress', {
@@ -315,152 +315,163 @@ const QuizCompositionPage = () => {
   }, []);
 
   // Soumission finale
- const handleSubmitExam = useCallback(async (isManual = false) => {
-  if (quizFinishedRef.current || submittingRef.current) return;
+  const handleSubmitExam = useCallback(async (isManual = false) => {
+    if (quizFinishedRef.current || submittingRef.current) return;
 
-  // ✅ Utiliser l'état exam au lieu de examRef
-  const currentExam = exam; // exam est dans le scope
-  const currentStudentInfo = studentInfo;
-  const currentAnswers = answers;
-  const currentConfig = config;
+    // ✅ Vérifier que examRef.current existe
+    if (!examRef.current ||!examRef.current._id) {
+      console.error('[QuizCompositionPage] ❌ examRef.current est undefined ou _id manquant lors de la soumission');
+      toast.error("Erreur: impossible de soumettre l'examen.");
+      submittingRef.current = false;
+      quizFinishedRef.current = false;
+      setQuizFinished(false);
+      setIsSubmitting(false);
+      return;
+    }
 
-  if (!currentExam || !currentExam._id) {
-    console.error('[QuizCompositionPage] ❌ exam est undefined');
-    toast.error("Erreur: impossible de soumettre l'examen");
-    submittingRef.current = false;
-    quizFinishedRef.current = false;
-    setQuizFinished(false);
-    setIsSubmitting(false);
-    return;
-  }
+    submittingRef.current = true;
+    quizFinishedRef.current = true;
+    setQuizFinished(true);
+    setIsSubmitting(true);
 
-  submittingRef.current = true;
-  quizFinishedRef.current = true;
-  setQuizFinished(true);
-  setIsSubmitting(true);
-  
-  clearAutoSave();
-
-  if (socketRef.current?.connected) {
-    try {
-      socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: currentExam._id });
-    } catch (e) {}
-  }
-
-  try {
-    const token = getAuthToken();
-    const axiosConfig = token ? {
-      headers: { Authorization: `Bearer ${token}` }
-    } : {};
-
-    const studentData = {
-      firstName: currentStudentInfo?.firstName || currentStudentInfo?.name?.split(' ')[0] || '',
-      lastName: currentStudentInfo?.lastName || currentStudentInfo?.name?.split(' ')[1] || '',
-      matricule: currentStudentInfo?.matricule || '',
-      level: currentStudentInfo?.level || ''
-    };
-
-    const formattedAnswers = {};
-    Object.entries(currentAnswers || {}).forEach(([questionId, answer]) => {
-      if (typeof answer === 'object' && answer !== null) {
-        formattedAnswers[questionId] = answer.value || answer.option || String(answer);
-      } else if (answer !== undefined && answer !== null) {
-        formattedAnswers[questionId] = String(answer);
-      }
-    });
-
-    console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
-      examId: currentExam._id,
-      studentInfo: studentData,
-      answersCount: Object.keys(formattedAnswers).length,
-      totalQuestions: currentExam.questions?.length || 0
-    });
-
-    const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
-      examId: currentExam._id,
-      studentInfo: studentData,
-      answers: formattedAnswers
-    }, { 
-      timeout: 10000,
-      ...axiosConfig
-    });
-    
-    const { result, details: correctionDetails } = res.data;
-    setShowConfetti(true);
-    toast.success(isManual ? "Examen soumis avec succès !" : "Temps écoulé ! Examen soumis automatiquement...");
+    clearAutoSave();
 
     if (socketRef.current?.connected) {
-      socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
-      socketRef.current.disconnect();
+      try {
+        socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
+      } catch (e) {
+        console.error("Erreur d'émission socket 'examSubmitting':", e); // <-- MODIFICATION / AJOUT
+      }
     }
 
-    setTimeout(() => {
-      navigate(`/results/${currentExam._id}`, {
-        state: {
-          submittedAnswers: formattedAnswers,
-          studentInfo: studentData,
-          submittedScore: result.score,
-          submittedPercentage: result.percentage,
-          examTitle: currentExam.title,
-          passingScore: currentExam.passingScore,
-          examQuestions: currentExam.questions,
-          questionDetails: correctionDetails || null,
-          resultSnapshot: {
-            examTitle: result.examTitle || currentExam.title,
-            examLevel: result.examLevel || currentExam.level,
-            domain: result.domain || currentExam.domain,
-            subject: result.subject || currentExam.subject,
-            category: result.category || currentExam.category,
-            duration: result.duration || currentExam.duration,
-            passingScore: result.passingScore || currentExam.passingScore,
-            examOption: result.examOption || currentConfig?.examOption,
-            examQuestions: result.examQuestions || [],
-          },
-          terminalSessionId: terminalSessionIdRef.current
-        },
-        replace: true
+    try {
+      const token = getAuthToken();
+      const axiosConfig = token? {
+        headers: { Authorization: `Bearer ${token}` }
+      } : {};
+
+      // ✅ Vérifier que studentInfoRef.current existe
+      const studentData = {
+        firstName: studentInfoRef.current?.firstName || studentInfoRef.current?.name?.split(' ')[0] || '',
+        lastName: studentInfoRef.current?.lastName || studentInfoRef.current?.name?.split(' ')[1] || '',
+        matricule: studentInfoRef.current?.matricule || '',
+        level: studentInfoRef.current?.level || ''
+      };
+
+      // ✅ Formater les answers
+      const formattedAnswers = {};
+      Object.entries(answersRef.current || {}).forEach(([questionId, answer]) => {
+        if (typeof answer === 'object' && answer!== null) {
+          formattedAnswers[questionId] = answer.value || answer.option || String(answer);
+        } else if (answer!== undefined && answer!== null) {
+          formattedAnswers[questionId] = String(answer);
+        }
       });
-    }, 1500);
 
-  } catch (error) {
-    console.error("Erreur soumission:", error);
-    console.error("Détails erreur:", error.response?.data);
-    submittingRef.current = false;
-    quizFinishedRef.current = false;
-    setQuizFinished(false);
-    setIsSubmitting(false);
-    if (error.response?.status === 401) {
-      toast.error("Session expirée. Veuillez vous reconnecter.");
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('token');
-      setTimeout(() => navigate('/login'), 2000);
-    } else {
-      toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
+      console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
+        examId: examRef.current._id,
+        studentInfo: studentData,
+        answersCount: Object.keys(formattedAnswers).length,
+        totalQuestions: examRef.current.questions?.length || 0
+      });
+
+      const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
+        examId: examRef.current._id,
+        studentInfo: studentData,
+        answers: formattedAnswers
+      }, {
+        timeout: 10000,
+       ...axiosConfig
+      });
+
+      const { result, details: correctionDetails } = res.data;
+      setShowConfetti(true);
+      toast.success(isManual? "Examen soumis avec succès!" : "Temps écoulé! Examen soumis automatiquement...");
+
+      if (socketRef.current?.connected) {
+        try { // <-- MODIFICATION / AJOUT
+          socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
+          socketRef.current.disconnect();
+        } catch (e) {
+          console.error("Erreur d'émission socket 'examSubmitted':", e); // <-- MODIFICATION / AJOUT
+        }
+      }
+
+      setTimeout(() => {
+        navigate(`/results/${examRef.current._id}`, {
+          state: {
+            submittedAnswers: formattedAnswers,
+            studentInfo: studentData,
+            submittedScore: result.score,
+            submittedPercentage: result.percentage,
+            examTitle: examRef.current.title,
+            passingScore: examRef.current.passingScore,
+            examQuestions: examRef.current.questions,
+            questionDetails: correctionDetails || null,
+            resultSnapshot: {
+              examTitle: result.examTitle || examRef.current.title,
+              examLevel: result.examLevel || examRef.current.level,
+              domain: result.domain || examRef.current.domain,
+              subject: result.subject || examRef.current.subject,
+              category: result.category || examRef.current.category,
+              duration: result.duration || examRef.current.duration,
+              passingScore: result.passingScore || examRef.current.passingScore,
+              examOption: result.examOption || configRef.current?.examOption,
+              examQuestions: result.examQuestions || [],
+            },
+            terminalSessionId: terminalSessionIdRef.current
+          },
+          replace: true
+        });
+      }, 1500);
+
+    } catch (error) {
+      console.error("Erreur soumission:", error);
+      console.error("Détails erreur:", error.response?.data);
+      submittingRef.current = false;
+      quizFinishedRef.current = false;
+      setQuizFinished(false);
+      setIsSubmitting(false);
+      if (error.response?.status === 401) {
+        toast.error("Session expirée. Veuillez vous reconnecter.");
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('token');
+        setTimeout(() => navigate('/login'), 2000);
+      } else {
+        toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
+      }
     }
-  }
-}, [navigate, clearAutoSave, exam, studentInfo, answers, config]);
+  }, [navigate, clearAutoSave]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
     const opt = configRef.current?.examOption;
     const idx = currentQuestionIndexRef.current;
-    const total = examRef.current.questions.length;
+    const total = examRef.current?.questions?.length; // <-- MODIFICATION: Ajout de?.
+
+    if (!examRef.current ||!total) { // <-- AJOUT
+      console.error("Exam data or total questions missing in handleTimeEnd.");
+      return;
+    }
 
     if (opt === 'A' || opt === 'D') {
       if (idx < total - 1) {
         const nextIndex = idx + 1;
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
+        // 💡 Important : Réinitialiser le temps pour la nouvelle question
+        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
+        setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 100);
-        toast(opt === 'D' ? "Temps écoulé ! Question suivante (Aléatoire)." : "Temps écoulé ! Passage à la question suivante.", {
+        toast(opt === 'D'? "Temps écoulé! Question suivante (Aléatoire)." : "Temps écoulé! Passage à la question suivante.", {
           style: { background: '#f59e0b', color: '#fff' }, icon: '⏳',
         });
       } else {
         handleSubmitExam(false);
       }
     } else if (opt === 'C') {
-      toast("Temps global écoulé ! Soumission automatique...", {
+      toast("Temps global écoulé! Soumission automatique...", {
         style: { background: '#ef4444', color: '#fff' }, icon: '⏱️', duration: 3000
       });
       handleSubmitExam(false);
@@ -469,20 +480,28 @@ const QuizCompositionPage = () => {
 
   const handleNextQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
-    if (idx < examRef.current.questions.length - 1) {
+    if (examRef.current && idx < examRef.current.questions.length - 1) { // <-- MODIFICATION
       const nextIndex = idx + 1;
       currentQuestionIndexRef.current = nextIndex;
       setCurrentQuestionIndex(nextIndex);
+      // 💡 Réinitialiser le temps pour la nouvelle question
+      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
+      setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
+      setTimerResetTrigger(prev => prev + 1); // Déclencher le reset du Timer // <-- AJOUT
       setTimeout(() => sendProgressUpdate(nextIndex), 50);
     }
   }, [sendProgressUpdate]);
 
   const handlePrevQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
-    if (idx > 0) {
+    if (examRef.current && idx > 0) { // <-- MODIFICATION
       const prevIndex = idx - 1;
       currentQuestionIndexRef.current = prevIndex;
       setCurrentQuestionIndex(prevIndex);
+      // 💡 Réinitialiser le temps pour la nouvelle question
+      const timeForPrevQuestion = examRef.current.questions[prevIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
+      setRemainingTime(timeForPrevQuestion); // <-- MODIFICATION / AJOUT
+      setTimerResetTrigger(prev => prev + 1); // Déclencher le reset du Timer // <-- AJOUT
       setTimeout(() => sendProgressUpdate(prevIndex), 50);
     }
   }, [sendProgressUpdate]);
@@ -498,12 +517,14 @@ const QuizCompositionPage = () => {
 
   const handleOptionChange = (questionId, selectedOption) => {
     if (quizFinishedRef.current || submittingRef.current) return;
-    
-    const currentQ = examRef.current.questions.find(q => q._id === questionId);
+
+    const currentQ = examRef.current?.questions?.find(q => q._id === questionId); // <-- MODIFICATION: Ajout de?.
     if (!currentQ) return;
 
     const currentAttempts = attemptsRef.current[questionId] || 0;
-    if (configRef.current?.allowRetry && currentAttempts >= 1) {
+    // Si allowRetry est activé et que c'est la 2ème tentative (currentAttempts est déjà 1)
+    // Et que la réponse est incorrecte (pour empêcher de retenter une 3ème fois)
+    if (configRef.current?.allowRetry && currentAttempts >= 1) { // <-- MODIFICATION
       toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
       return;
     }
@@ -516,34 +537,39 @@ const QuizCompositionPage = () => {
       isCorrect = selectedOption === currentQ.correctAnswer;
     }
 
-    const newAnswers = { ...answersRef.current, [questionId]: selectedOption };
+    const newAnswers = {...answersRef.current, [questionId]: selectedOption };
     answersRef.current = newAnswers;
     setAnswers(newAnswers);
 
-    const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
+    const newAttempts = {...attemptsRef.current, [questionId]: (currentAttempts + 1) };
     attemptsRef.current = newAttempts;
     setAttempts(newAttempts);
 
     if (configRef.current?.showBinaryResult) {
-      toast[isCorrect ? 'success' : 'error'](isCorrect ? '✓ Bonne réponse !' : '✗ Mauvaise réponse');
-      setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
+      toast[isCorrect? 'success' : 'error'](isCorrect? '✓ Bonne réponse!' : '✗ Mauvaise réponse');
+      setShowResult(prev => ({...prev, [questionId]: isCorrect }));
     }
-    
-    if (configRef.current?.showCorrectAnswer && !isCorrect) {
+
+    if (configRef.current?.showCorrectAnswer &&!isCorrect) {
       const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
       toast.info(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
     }
 
-    if (!isCorrect && configRef.current?.allowRetry) {
+    // Si la réponse est incorrecte et que les réessais sont autorisés (et que ce n'est pas la 2ème tentative)
+    // On ne passe pas à la question suivante
+    if (!isCorrect && configRef.current?.allowRetry && currentAttempts === 0) { // <-- MODIFICATION
       return;
     }
 
     if (configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D') {
       const idx = currentQuestionIndexRef.current;
-      if (idx < examRef.current.questions.length - 1) {
+      if (examRef.current && idx < examRef.current.questions.length - 1) { // <-- MODIFICATION
         const nextIndex = idx + 1;
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
+        // 💡 Réinitialiser le temps pour la nouvelle question
+        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
+        setRemainingTime(timeForNextQuestion); // <-- MODIFICATION / AJOUT
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 500);
       } else {
@@ -560,7 +586,7 @@ const QuizCompositionPage = () => {
       return;
     }
     const parsed = JSON.parse(storedInfo);
-    if (parsed.examId !== examId) {
+    if (parsed.examId!== examId) {
       navigate(`/exam/profile/${examId}`, { replace: true });
       return;
     }
@@ -570,86 +596,87 @@ const QuizCompositionPage = () => {
     terminalSessionIdRef.current = parsed.terminalSessionId || null;
 
     const fetchExam = async () => {
-  try {
-    const token = getAuthToken();
-    const axiosConfig = token ? {
-      headers: { Authorization: `Bearer ${token}` }
-    } : {};
-    
-    const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
-      timeout: 10000,
-      ...axiosConfig
-    });
-    
-    // Extraction robuste de l'examen
-    let examData = res.data;
-    if (examData?.data?.questions) examData = examData.data;
-    else if (examData?.exam?.questions) examData = examData.exam;
-    else if (examData?.success && examData?.data?.questions) examData = examData.data;
-    
-    if (!examData || !examData.questions || !Array.isArray(examData.questions) || examData.questions.length === 0) {
-      throw new Error("Données d'examen invalides");
-    }
-    
-    console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
-    console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
-    
-    let fetchedQuestions = examData.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
-    
-    // ✅ Gestion sécurisée de config
-    const safeConfig = parsed.config || {};
-    
-    if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
-      const shuffled = shuffleArray([...fetchedQuestions]);
-      fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
-    }
+      try {
+        const token = getAuthToken();
+        const axiosConfig = token? {
+          headers: { Authorization: `Bearer ${token}` }
+        } : {};
 
-    if (safeConfig.sequencing === 'randomPerStudent') {
-      fetchedQuestions = shuffleArray(fetchedQuestions);
-    }
+        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, {
+          timeout: 10000,
+         ...axiosConfig
+        });
 
-    if (parsed.examOption === 'D' && safeConfig.sequencing !== 'randomPerStudent') {
-      fetchedQuestions = shuffleArray(fetchedQuestions);
-    }
+        // Extraction robuste de l'examen
+        let examData = res.data;
+        if (examData?.data?.questions) examData = examData.data;
+        else if (examData?.exam?.questions) examData = examData.exam;
+        else if (examData?.success && examData?.data?.questions) examData = examData.data;
 
-    setQuestions(fetchedQuestions);
-    setExam({ ...examData, questions: fetchedQuestions });
-    examRef.current = { ...examData, questions: fetchedQuestions };
+        if (!examData ||!examData.questions ||!Array.isArray(examData.questions) || examData.questions.length === 0) {
+          throw new Error("Données d'examen invalides");
+        }
 
-    // ✅ Gestion sécurisée du timer
-    if (safeConfig.timerPerQuestion) {
-      setRemainingTime(safeConfig.timePerQuestion || 60);
-    } else {
-      setRemainingTime((safeConfig.totalTime || 60) * 60);
-    }
+        console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
+        console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
 
-    setQuizStarted(true);
+        let fetchedQuestions = examData.questions.map(q => normalizeQuestion({...q, _id: q._id || uuidv4() }));
 
-    const opt = parsed.examOption;
-    if (opt === 'A' || opt === 'B') {
-      setWaitingForStart(true);
-      waitingForStartRef.current = true;
-    } else {
-      setWaitingForStart(false);
-      waitingForStartRef.current = false;
-    }
+        // ✅ Gestion sécurisée de config
+        const safeConfig = parsed.config || {};
 
-  } catch (error) {
-    console.error("Erreur chargement examen:", error);
-    if (error.response?.status === 401) {
-      toast.error("Session expirée. Veuillez vous reconnecter.");
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('token');
-      setTimeout(() => navigate('/login'), 2000);
-    } else {
-      toast.error("Échec du chargement de l'examen.");
-      navigate('/', { replace: true });
-    }
-  } finally {
-    setIsLoading(false);
-  }
-};
-    
+        if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
+          const shuffled = shuffleArray([...fetchedQuestions]);
+          fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
+        }
+
+        if (safeConfig.sequencing === 'randomPerStudent') {
+          fetchedQuestions = shuffleArray(fetchedQuestions);
+        }
+
+        if (parsed.examOption === 'D' && safeConfig.sequencing!== 'randomPerStudent') {
+          fetchedQuestions = shuffleArray(fetchedQuestions);
+        }
+
+        setQuestions(fetchedQuestions);
+        setExam({...examData, questions: fetchedQuestions });
+        examRef.current = {...examData, questions: fetchedQuestions };
+
+        // ✅ Gestion sécurisée du timer (Initialisation du timer pour la première question si timerPerQuestion est activé)
+        if (safeConfig.timerPerQuestion && fetchedQuestions.length > 0) { // <-- MODIFICATION / AJOUT
+          const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60) * 60; // <-- AJOUT
+          setRemainingTime(firstQuestionTime); // <-- AJOUT
+        } else {
+          setRemainingTime((safeConfig.totalTime || 60) * 60);
+        }
+
+        setQuizStarted(true);
+
+        const opt = parsed.examOption;
+        if (opt === 'A' || opt === 'B') {
+          setWaitingForStart(true);
+          waitingForStartRef.current = true;
+        } else {
+          setWaitingForStart(false);
+          waitingForStartRef.current = false;
+        }
+
+      } catch (error) {
+        console.error("Erreur chargement examen:", error);
+        if (error.response?.status === 401) {
+          toast.error("Session expirée. Veuillez vous reconnecter.");
+          localStorage.removeItem('userToken');
+          localStorage.removeItem('token');
+          setTimeout(() => navigate('/login'), 2000);
+        } else {
+          toast.error("Échec du chargement de l'examen.");
+          navigate('/', { replace: true });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     fetchExam();
 
     // Connexion socket - Version finale stable
@@ -677,16 +704,16 @@ const QuizCompositionPage = () => {
 
     newSocket.on('connect', () => {
       console.log('[QuizCompositionPage] ✅ Socket connecté (polling), ID:', newSocket.id);
-      
-      newSocket.emit('registerSession', { 
-        type: 'student', 
+
+      newSocket.emit('registerSession', {
+        type: 'student',
         sessionId: stableSessionIdRef.current,
         examId: examId
       });
-      
-      const currentStatus = parsed.examOption === 'B' ? 'waiting' : 'composing';
+
+      const currentStatus = parsed.examOption === 'B'? 'waiting' : 'composing';
       console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
-      
+
       newSocket.emit('studentReadyForExam', {
         examId,
         studentInfo: parsed.info,
@@ -712,34 +739,34 @@ const QuizCompositionPage = () => {
     });
 
     newSocket.on('examStartedForOptionB', (data) => {
-      if (data.examId !== examId) return;
+      if (data.examId!== examId) return;
       waitingForStartRef.current = false;
       setWaitingForStart(false);
       const qIdx = data.questionIndex || 0;
       currentQuestionIndexRef.current = qIdx;
       setCurrentQuestionIndex(qIdx);
       setTimerResetTrigger(prev => prev + 1);
-      toast.success("L'examen commence maintenant !", { icon: '🚀', duration: 3000 });
+      toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
     newSocket.on('examStarted', (data) => {
-      if (data.examId !== examId) return;
+      if (data.examId!== examId) return;
       waitingForStartRef.current = false;
       setWaitingForStart(false);
       const qIdx = data.questionIndex || 0;
       currentQuestionIndexRef.current = qIdx;
       setCurrentQuestionIndex(qIdx);
       setTimerResetTrigger(prev => prev + 1);
-      toast.success("L'examen commence maintenant !", { icon: '🚀', duration: 3000 });
+      toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
     newSocket.on('displayQuestion', (data) => {
-      if (data.examId !== examId) return;
-      const idx = data.questionIndex ?? data.nextQuestionIndex ?? 0;
+      if (data.examId!== examId) return;
+      const idx = data.questionIndex?? data.nextQuestionIndex?? 0;
       if (examRef.current && idx >= examRef.current.questions.length) {
-        if (!quizFinishedRef.current && !submittingRef.current) handleSubmitExam(false);
+        if (!quizFinishedRef.current &&!submittingRef.current) handleSubmitExam(false);
         return;
       }
       const opt = configRef.current?.examOption;
@@ -753,7 +780,7 @@ const QuizCompositionPage = () => {
     });
 
     newSocket.on('examFinished', (data) => {
-      if (data.examId === examId && !quizFinishedRef.current && !submittingRef.current) {
+      if (data.examId === examId &&!quizFinishedRef.current &&!submittingRef.current) {
         handleSubmitExam(false);
       }
     });
@@ -763,7 +790,11 @@ const QuizCompositionPage = () => {
     });
 
     return () => {
-      if (newSocket) newSocket.disconnect();
+      // Nettoyage explicite des listeners et déconnexion
+      if (newSocket) { // <-- MODIFICATION
+        newSocket.removeAllListeners(); // <-- MODIFICATION / AJOUT
+        newSocket.disconnect();
+      }
       cleanupBeforeRedirect();
     };
   }, [examId, navigate, handleSubmitExam, sendProgressUpdate, cleanupBeforeRedirect]);
@@ -783,14 +814,14 @@ const QuizCompositionPage = () => {
           return prev - 1;
         });
       }, 1000);
-    } else if (remainingTime === 0 && !quizFinished) {
+    } else if (remainingTime === 0 &&!quizFinished) {
       handleTimeEnd();
     }
     return () => clearInterval(interval);
   }, [quizStarted, quizFinished, waitingForStart, remainingTime, handleTimeEnd]);
 
   // Affichage conditionnel
-  if (isLoading || !exam || !studentInfo) {
+  if (isLoading ||!exam ||!studentInfo) {
     return (
       <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
@@ -807,14 +838,18 @@ const QuizCompositionPage = () => {
       <div style={styles.waitingContainer}>
         <div style={styles.waitingCard}>
           <div style={styles.waitingIcon}><Clock size={36} color="#3b82f6" /></div>
-          <h2>{config?.examOption === 'A' ? 'Salle d\'attente' : 'En attente de démarrage'}</h2>
-          <p>{config?.examOption === 'A' ? 'Le superviseur démarrera l\'épreuve pour tous les participants simultanément.' : 'Le superviseur démarrera l\'épreuve pour tous les postes simultanément.'}</p>
+          <h2>{config?.examOption === 'A'? 'Salle d\'attente' : 'En attente de démarrage'}</h2>
+          <p>{config?.examOption === 'A'? 'Le superviseur démarrera l\'épreuve pour tous les participants simultanément.' : 'Le superviseur démarrera l\'épreuve pour tous les postes simultanément.'}</p>
           {config?.examOption === 'B' && (
             <div style={styles.waitingCount}>
               <Users size={20} />
-              <span>{waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente</span>
+              <span>{waitingCount} participant{waitingCount > 1? 's' : ''} en attente</span>
               <button onClick={() => {
-                if (socketRef.current?.connected) socketRef.current.emit('getWaitingStudents', { examId }, (resp) => setWaitingCount(resp.count));
+                if (socketRef.current?.connected) { // <-- MODIFICATION
+                  socketRef.current.emit('getWaitingStudents', { examId }, (resp) => setWaitingCount(resp.count));
+                } else { // <-- AJOUT
+                  toast.error("Non connecté au serveur. Veuillez patienter pour la reconnexion."); // <-- AJOUT
+                }
               }}><RefreshCw size={12} /> Rafraîchir</button>
             </div>
           )}
@@ -822,7 +857,7 @@ const QuizCompositionPage = () => {
             <div style={styles.pulseDot} />
             <span>{studentInfo.firstName} {studentInfo.lastName} · Connecté</span>
           </div>
-          <p style={styles.waitingNote}>Ne quittez pas cette page · Option {config?.examOption} — {config?.examOption === 'A' ? 'Collective Figée' : 'Collective Souple'}</p>
+          <p style={styles.waitingNote}>Ne quittez pas cette page · Option {config?.examOption} — {config?.examOption === 'A'? 'Collective Figée' : 'Collective Souple'}</p>
         </div>
         <Toaster />
       </div>
@@ -833,7 +868,22 @@ const QuizCompositionPage = () => {
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = (answeredCount / questions.length) * 100;
   const disablePrev = quizFinished || currentQuestionIndex === 0 || config?.examOption === 'A' || config?.examOption === 'B' || config?.examOption === 'D';
-  const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || config?.examOption === 'A' || config?.examOption === 'D' || (config?.examOption === 'B' && !answers[currentQuestion?._id]);
+  const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || config?.examOption === 'A' || config?.examOption === 'D' || (config?.examOption === 'B' &&!answers[currentQuestion?._id]);
+
+  // <-- AJOUT: Vérification de currentQuestion pour éviter des erreurs de rendu
+  if (!currentQuestion) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
+        <p style={{ color: '#f8fafc', marginLeft: '16px' }}>Chargement des questions...</p>
+        <Toaster />
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+  // FIN AJOUT
 
   return (
     <div style={styles.container}>
@@ -847,30 +897,30 @@ const QuizCompositionPage = () => {
               <div style={styles.titleRow}>
                 <h1>{exam.title}</h1>
                 <span style={styles.optionBadge(config?.examOption)}>
-                  {config?.examOption === 'A' ? 'COLLECTIVE FIGÉE' :
-                   config?.examOption === 'B' ? 'COLLECTIVE SOUPLE' :
-                   config?.examOption === 'C' ? 'PERSONNALISÉE' : 'ALÉATOIRE'}
+                  {config?.examOption === 'A'? 'COLLECTIVE FIGÉE' :
+                   config?.examOption === 'B'? 'COLLECTIVE SOUPLE' :
+                   config?.examOption === 'C'? 'PERSONNALISÉE' : 'ALÉATOIRE'}
                 </span>
               </div>
               <p style={styles.studentInfo}>{studentInfo.firstName} {studentInfo.lastName} · {studentInfo.matricule}</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              {!quizFinished && !waitingForStart && Object.keys(answers).length > 0 && (
+              {!quizFinished &&!waitingForStart && Object.keys(answers).length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: '#10b981', marginBottom: '4px', justifyContent: 'flex-end' }}>
                   <SaveIcon size={10} />
                   <span>Sauvegarde auto</span>
                 </div>
               )}
-              {quizStarted && !quizFinished && remainingTime > 0 && config?.examOption !== 'B' && (
+              {quizStarted &&!quizFinished && config?.examOption!== 'B' && ( // Removed remainingTime > 0 here, as Timer component handles it
                 <Timer
                   initialTime={remainingTime}
                   onTimeEnd={handleTimeEnd}
-                  isActive={!quizFinished}
+                  isActive={!quizFinished && remainingTime > 0} // <-- MODIFICATION
                   resetTrigger={timerResetTrigger}
                   timerConfig={config?.timerConfig || 'permanent'}
                 />
               )}
-              {config?.examOption === 'C' && quizStarted && !quizFinished && (
+              {config?.examOption === 'C' && quizStarted &&!quizFinished && (
                 <span style={styles.globalTimerHint}>TEMPS GLOBAL ({questions.length} × {config?.timePerQuestion || 60}s)</span>
               )}
             </div>
@@ -882,7 +932,7 @@ const QuizCompositionPage = () => {
               <span>{answeredCount}/{questions.length} questions · {Math.round(progressPercentage)}%</span>
             </div>
             <div style={styles.progressBar}>
-              <div style={{ ...styles.progressFill, width: `${progressPercentage}%` }} />
+              <div style={{...styles.progressFill, width: `${progressPercentage}%` }} />
             </div>
           </div>
 
@@ -896,6 +946,10 @@ const QuizCompositionPage = () => {
                     onClick={() => {
                       currentQuestionIndexRef.current = idx;
                       setCurrentQuestionIndex(idx);
+                      // 💡 Réinitialiser le temps pour la nouvelle question
+                      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60; // <-- MODIFICATION
+                      setRemainingTime(timeForQuestion); // <-- MODIFICATION / AJOUT
+                      setTimerResetTrigger(prev => prev + 1); // <-- AJOUT
                       sendProgressUpdate(idx);
                     }}
                     disabled={quizFinished}
@@ -916,17 +970,17 @@ const QuizCompositionPage = () => {
                   {answers[currentQuestion._id] && (
                     <span style={styles.answeredBadge}>Répondue</span>
                   )}
-                  {showResult[currentQuestion._id] !== undefined && (
-                    <span style={{ ...styles.resultBadge, background: showResult[currentQuestion._id] ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: showResult[currentQuestion._id] ? '#10b981' : '#ef4444' }}>
-                      {showResult[currentQuestion._id] ? '✓ Bonne réponse' : '✗ Mauvaise réponse'}
+                  {showResult[currentQuestion._id]!== undefined && (
+                    <span style={{...styles.resultBadge, background: showResult[currentQuestion._id]? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: showResult[currentQuestion._id]? '#10b981' : '#ef4444' }}>
+                      {showResult[currentQuestion._id]? '✓ Bonne réponse' : '✗ Mauvaise réponse'}
                     </span>
                   )}
                 </div>
-                
+
                 {getImageUrl(currentQuestion) && (
                   <div style={{ marginBottom: 16, textAlign: 'center' }}>
-                    <img 
-                      src={getImageUrl(currentQuestion)} 
+                    <img
+                      src={getImageUrl(currentQuestion)}
                       alt="Illustration de la question"
                       style={{
                         maxWidth: '100%',
@@ -938,24 +992,24 @@ const QuizCompositionPage = () => {
                     />
                   </div>
                 )}
-                
+
                 <p style={styles.questionText}>{currentQuestion.libQuestion || currentQuestion.text}</p>
                 <div style={styles.optionsList}>
                   {currentQuestion.options.map((opt, idx) => {
                     const isSelected = answers[currentQuestion._id] === opt;
-                    const isCorrect = typeof currentQuestion.bonOpRep === 'number' 
-                      ? idx === currentQuestion.bonOpRep 
+                    const isCorrect = typeof currentQuestion.bonOpRep === 'number'
+                     ? idx === currentQuestion.bonOpRep
                       : opt === currentQuestion.correctAnswer;
-                    
+
                     return (
                       <label
                         key={idx}
                         style={{
-                          ...styles.option,
-                          background: isSelected ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.02)',
-                          borderColor: isSelected ? '#3b82f6' : 'rgba(59,130,246,0.15)',
-                          opacity: (quizFinished || submittingRef.current || (config?.examOption !== 'C' && answers[currentQuestion._id])) ? 0.6 : 1,
-                          cursor: (quizFinished || submittingRef.current || (config?.examOption !== 'C' && answers[currentQuestion._id])) ? 'not-allowed' : 'pointer'
+                         ...styles.option,
+                          background: isSelected? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.02)',
+                          borderColor: isSelected? '#3b82f6' : 'rgba(59,130,246,0.15)',
+                          opacity: (quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0)))? 0.6 : 1, // <-- MODIFICATION
+                          cursor: (quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0)))? 'not-allowed' : 'pointer' // <-- MODIFICATION
                         }}
                       >
                         <input
@@ -963,11 +1017,11 @@ const QuizCompositionPage = () => {
                           name={`q-${currentQuestion._id}`}
                           checked={isSelected}
                           onChange={() => handleOptionChange(currentQuestion._id, opt)}
-                          disabled={quizFinished || submittingRef.current || (config?.examOption !== 'C' && answers[currentQuestion._id])}
+                          disabled={quizFinished || submittingRef.current || (config?.examOption!== 'C' && answers[currentQuestion._id] &&!(config?.allowRetry && attempts[currentQuestion._id] === 0))} // <-- MODIFICATION
                           style={{ marginRight: '12px', accentColor: '#3b82f6' }}
                         />
                         <span style={{ color: '#f8fafc' }}>{opt}</span>
-                        {config?.showCorrectAnswer && isCorrect && !isSelected && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
+                        {config?.showCorrectAnswer && isCorrect &&!isSelected && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
                       </label>
                     );
                   })}
@@ -978,7 +1032,7 @@ const QuizCompositionPage = () => {
 
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
-              {config?.examOption === 'B' ? (
+              {config?.examOption === 'B'? (
                 <div style={styles.waitingIndicator}>
                   <div style={styles.pulseDotSmall} />
                   En attente du superviseur…
@@ -995,12 +1049,12 @@ const QuizCompositionPage = () => {
               )}
             </div>
 
-            {!quizFinished && config?.examOption !== 'A' && config?.examOption !== 'B' && (
+            {!quizFinished && config?.examOption!== 'A' && config?.examOption!== 'B' && (
               <button onClick={handleManualSubmit} disabled={isSubmitting || submittingRef.current} style={styles.submitButton(isSubmitting)}>
-                {isSubmitting ? (
+                {isSubmitting? (
                   <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Soumission...</>
                 ) : (
-                  <><Send size={16} /> {config?.examOption === 'C' ? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
+                  <><Send size={16} /> {config?.examOption === 'C'? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
                 )}
               </button>
             )}
@@ -1015,7 +1069,7 @@ const QuizCompositionPage = () => {
           {quizFinished && (
             <div style={styles.finishedBox}>
               <CheckCircle size={48} color="#10b981" />
-              <p>Examen terminé !</p>
+              <p>Examen terminé!</p>
               <p style={{ color: '#94a3b8' }}>Redirection vers les résultats...</p>
             </div>
           )}
@@ -1026,7 +1080,7 @@ const QuizCompositionPage = () => {
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
             <AlertTriangle size={48} color="#f59e0b" />
-            <h3>Confirmer la soumission ?</h3>
+            <h3>Confirmer la soumission?</h3>
             <p>Vous avez répondu à <strong>{Object.keys(answers).length}/{questions.length}</strong> questions.</p>
             <p>Cette action est irréversible.</p>
             <div style={styles.modalButtons}>
@@ -1041,7 +1095,7 @@ const QuizCompositionPage = () => {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        .animate-spin { animation: spin 1s linear infinite; }
+       .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
     </div>
   );
@@ -1058,9 +1112,9 @@ const styles = {
   titleRow: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   optionBadge: (opt) => ({
     padding: '3px 10px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em',
-    background: opt === 'A' ? 'rgba(239,68,68,0.15)' : opt === 'B' ? 'rgba(59,130,246,0.15)' : opt === 'C' ? 'rgba(139,92,246,0.15)' : 'rgba(245,158,11,0.15)',
-    border: `1px solid ${opt === 'A' ? '#ef4444' : opt === 'B' ? '#3b82f6' : opt === 'C' ? '#8b5cf6' : '#f59e0b'}44`,
-    color: opt === 'A' ? '#ef4444' : opt === 'B' ? '#3b82f6' : opt === 'C' ? '#8b5cf6' : '#f59e0b',
+    background: opt === 'A'? 'rgba(239,68,68,0.15)' : opt === 'B'? 'rgba(59,130,246,0.15)' : opt === 'C'? 'rgba(139,92,246,0.15)' : 'rgba(245,158,11,0.15)',
+    border: `1px solid ${opt === 'A'? '#ef4444' : opt === 'B'? '#3b82f6' : opt === 'C'? '#8b5cf6' : '#f59e0b'}44`,
+    color: opt === 'A'? '#ef4444' : opt === 'B'? '#3b82f6' : opt === 'C'? '#8b5cf6' : '#f59e0b',
   }),
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
   timerArea: { textAlign: 'right' },
@@ -1073,9 +1127,9 @@ const styles = {
   questionButtons: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: '8px', marginTop: 8 },
   questionButton: (isCurrent, hasAnswer) => ({
     width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: isCurrent ? '#3b82f6' : hasAnswer ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)',
-    border: isCurrent ? 'none' : hasAnswer ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', color: isCurrent ? '#fff' : hasAnswer ? '#10b981' : '#94a3b8',
+    background: isCurrent? '#3b82f6' : hasAnswer? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)',
+    border: isCurrent? 'none' : hasAnswer? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px', color: isCurrent? '#fff' : hasAnswer? '#10b981' : '#94a3b8',
     fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer'
   }),
   questionCard: { padding: '24px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', marginBottom: '20px' },
@@ -1087,9 +1141,9 @@ const styles = {
   optionsList: { display: 'flex', flexDirection: 'column', gap: '12px' },
   option: { display: 'flex', alignItems: 'center', padding: '14px 16px', border: '2px solid', borderRadius: '12px', transition: 'all 0.2s' },
   actions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap', gap: 12 },
-  prevButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: disabled ? '#4b5563' : '#f8fafc', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
-  nextButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: disabled ? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
-  submitButton: (submitting) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: submitting ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }),
+  prevButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: disabled? '#4b5563' : '#f8fafc', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled? 'not-allowed' : 'pointer', opacity: disabled? 0.5 : 1 }),
+  nextButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: disabled? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled? 'not-allowed' : 'pointer', opacity: disabled? 0.5 : 1 }),
+  submitButton: (submitting) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: submitting? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: submitting? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }),
   autoSubmitHint: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600 },
   supervisorHint: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600 },
   waitingIndicator: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#94a3b8', fontSize: '0.875rem' },
