@@ -1344,39 +1344,29 @@ io.on('connection', (socket) => {
 
   // ✅ Student ready for exam
   socket.on('studentReadyForExam', ({ examId, studentInfo, status, examOption }) => {
-    const session = activeSessions.get(socket.id);
-    if (session) {
-      // Pour les options A, C, D, le statut doit être 'composing' directement
-      const effectiveStatus = (examOption === 'A' || examOption === 'C' || examOption === 'D') 
-        ? 'composing' 
-        : (status || 'waiting');
-      
-      session.status = effectiveStatus;
-      session.currentExamId = examId;
-      session.studentInfo = studentInfo;
-      session.examOption = examOption;
-      session.progress = 0;
-      session.score = 0;
-      session.percentage = 0;
-      session.currentQuestion = 0;
-      
-      console.log(`[Socket] 📋 Student ready: ${studentInfo?.firstName} ${studentInfo?.lastName} (${examOption}) → status: ${effectiveStatus}`);
-      
-      if (effectiveStatus === 'waiting') {
-        const waitingCount = Array.from(activeSessions.values()).filter(s => 
-          s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-        ).length;
-        io.emit('waitingCountUpdate', { examId, count: waitingCount });
-      }
-      
-      // ✅ Pour les options A, C, D, démarrer immédiatement
-      if (effectiveStatus === 'composing' && (examOption === 'A' || examOption === 'C' || examOption === 'D')) {
-        socket.emit('examStarted', { examId, questionIndex: 0 });
-      }
-      
-      emitSessionUpdate();
-    }
-  });
+  const session = activeSessions.get(socket.id);
+  if (session) {
+    // ✅ TOUS les étudiants commencent en 'waiting' - la page d'attente est universelle
+    session.status = 'waiting';  // ← TOUJOURS waiting
+    session.currentExamId = examId;
+    session.studentInfo = studentInfo;
+    session.examOption = examOption;
+    session.progress = 0;
+    session.score = 0;
+    session.percentage = 0;
+    session.currentQuestion = 0;
+    
+    console.log(`[Socket] 📋 Student ready: ${studentInfo?.firstName} ${studentInfo?.lastName} (${examOption}) → status: waiting`);
+    
+    // Compter les étudiants en attente pour cette épreuve
+    const waitingCount = Array.from(activeSessions.values()).filter(s => 
+      s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
+    ).length;
+    io.emit('waitingCountUpdate', { examId, count: waitingCount });
+    
+    emitSessionUpdate();
+  }
+});
 
   // ✅ Mise à jour de la progression
   socket.on('updateStudentProgress', (data) => {

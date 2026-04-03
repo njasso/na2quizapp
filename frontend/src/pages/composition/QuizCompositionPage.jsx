@@ -771,17 +771,25 @@ const QuizCompositionPage = () => {
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
-    newSocket.on('examStarted', (data) => {
-      if (data.examId !== examId) return;
-      waitingForStartRef.current = false;
-      setWaitingForStart(false);
-      const qIdx = data.questionIndex || 0;
-      currentQuestionIndexRef.current = qIdx;
-      setCurrentQuestionIndex(qIdx);
-      setTimerResetTrigger(prev => prev + 1);
-      toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
-      setTimeout(() => sendProgressUpdate(qIdx), 500);
-    });
+   newSocket.on('examStarted', (data) => {
+  if (data.examId !== examId) return;
+  waitingForStartRef.current = false;
+  setWaitingForStart(false);
+  
+  // Stocker l'option reçue du serveur
+  if (data.examOption) {
+    const updatedConfig = { ...configRef.current, examOption: data.examOption };
+    setConfig(updatedConfig);
+    configRef.current = updatedConfig;
+  }
+  
+  const qIdx = data.questionIndex || 0;
+  currentQuestionIndexRef.current = qIdx;
+  setCurrentQuestionIndex(qIdx);
+  setTimerResetTrigger(prev => prev + 1);
+  toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
+  setTimeout(() => sendProgressUpdate(qIdx), 500);
+});
 
     newSocket.on('displayQuestion', (data) => {
       if (data.examId !== examId) return;
