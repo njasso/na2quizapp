@@ -454,7 +454,6 @@ const SurveillancePage = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
-  const [waitingCounts, setWaitingCounts] = useState({}); // ✅ FIX BUG 6 : compteur par épreuve
   const [isStartingExam, setIsStartingExam] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [sessionHistory, setSessionHistory] = useState([]);
@@ -465,6 +464,7 @@ const SurveillancePage = () => {
   const [rankingsData, setRankingsData] = useState([]);
   const [isLoadingRankings, setIsLoadingRankings] = useState(false);
   const [resultsData, setResultsData] = useState([]);
+  const [waitingCounts, setWaitingCounts] = useState({});
 
   // Refs
   const socketRef = useRef(null);
@@ -634,7 +634,27 @@ const SurveillancePage = () => {
 
     socket.on('realtimeExamStats', (stats) => {
       if (!isMounted.current) return;
+      console.log('[Surveillance] 📈 Stats reçues:', stats);
       setRealtimeStats(stats);
+    });
+
+    socket.on('studentProgressUpdate', (data) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] 📊 Progression reçue:', data);
+      
+      setActiveSessions(prev => prev.map(session => {
+        if (session.socketId === data.studentId) {
+          return {
+            ...session,
+            progress: data.progress,
+            currentQuestion: data.currentQuestion,
+            score: data.score,
+            percentage: data.percentage,
+            lastUpdate: Date.now()
+          };
+        }
+        return session;
+      }));
     });
 
     socket.on('currentQuestionIndexForOptionA', (data) => {
@@ -645,7 +665,6 @@ const SurveillancePage = () => {
     socket.on('waitingCountUpdate', (data) => {
       if (!isMounted.current) return;
       console.log(`[Waiting] Exam ${data.examId}: ${data.count} en attente`);
-      // ✅ FIX BUG 6 : mettre à jour le compteur dans le state
       setWaitingCounts(prev => ({ ...prev, [data.examId]: data.count }));
     });
 
@@ -659,12 +678,6 @@ const SurveillancePage = () => {
         toast('⚠️ Aucun étudiant n\'a pu démarrer l\'épreuve.', { icon: '⚠️' });
         addAlert({ type: 'start_failed', message: 'Aucun étudiant n\'a démarré l\'épreuve', severity: 'medium' });
       }
-    });
-
-    // ✅ FIX BUG 1 : confirmer la distribution avec le nombre de terminaux
-    socket.on('examDistributedConfirm', (data) => {
-      if (!isMounted.current) return;
-      toast.success(`📡 Épreuve envoyée à ${data.terminalCount} terminal(aux) — Option ${data.examOption}`);
     });
 
     socket.on('startExamError', (data) => {
@@ -684,6 +697,12 @@ const SurveillancePage = () => {
     socket.on('studentDisconnected', (data) => {
       if (!isMounted.current) return;
       addAlert({ type: 'student_disconnect', message: `Étudiant ${data.studentName} s'est déconnecté`, severity: 'low' });
+    });
+
+    socket.on('terminalReady', (data) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] 🖥️ Terminal prêt:', data);
+      addAlert({ type: 'terminal_ready', message: `Terminal ${data.terminalId} prêt pour l'épreuve`, severity: 'low' });
     });
 
     return () => {
@@ -891,7 +910,6 @@ const SurveillancePage = () => {
     ]).then(([examsRes, resultsRes]) => {
       if (!isMounted.current) return;
       
-      // Extraction des examens
       let examsData = [];
       if (Array.isArray(examsRes)) {
         examsData = examsRes;
@@ -901,7 +919,6 @@ const SurveillancePage = () => {
         examsData = examsRes.data.data;
       }
       
-      // Normalisation des examens avec images
       const normalizedExams = examsData.map(exam => ({
         ...exam,
         domain: exam.domain || exam.metadata?.domain || '',
@@ -910,7 +927,6 @@ const SurveillancePage = () => {
         coverImage: getImageUrl(exam),
       }));
       
-      // Extraction des résultats
       let results = [];
       if (Array.isArray(resultsRes)) {
         results = resultsRes;
@@ -951,29 +967,12 @@ const SurveillancePage = () => {
     if (!selectedExamOption) return toast.error('Choisissez une option.');
     if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
 
-    const exam = exams.find(e => e._id === selectedExamId);
-    // ✅ FIX BUG 1 : inclure config dans la distribution
-    const configToSend = exam?.config || {
-      examOption: selectedExamOption,
-      openRange: false,
-      sequencing: 'identical',
-      allowRetry: false,
-      showBinaryResult: false,
-      showCorrectAnswer: false,
-      timerPerQuestion: true,
-      timePerQuestion: 60,
-      totalTime: 60,
-    };
-    configToSend.examOption = selectedExamOption;
-
     socketRef.current.emit('distributeExam', {
       examId: selectedExamId,
       examOption: selectedExamOption,
-      config: configToSend,
-      questionCount: exam?.questions?.length || 0,
     });
-    toast.success(`Épreuve distribuée — Option ${selectedExamOption} (${exam?.questions?.length || '?'} questions)`);
-  }, [selectedExamId, selectedExamOption, exams]);
+    toast.success(`Épreuve distribuée — Option ${selectedExamOption}`);
+  }, [selectedExamId, selectedExamOption]);
 
   const handleStartExam = useCallback(() => {
     if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
@@ -982,37 +981,21 @@ const SurveillancePage = () => {
 
     const uniqueSessionsLocal = getUniqueSessions(activeSessions);
     
-    let targetStudents = [];
-    
-    if (selectedExamOption === 'B') {
-      targetStudents = uniqueSessionsLocal.filter(
-        s => s.type === 'student' && 
-             s.currentExamId === selectedExamId && 
-             s.status === 'waiting'
-      );
-    } else {
-      targetStudents = uniqueSessionsLocal.filter(
-        s => s.type === 'student' && 
-             s.currentExamId === selectedExamId && 
-             (s.status === 'composing' || s.status === 'waiting')
-      );
-    }
+    const targetStudents = uniqueSessionsLocal.filter(
+      s => s.type === 'student' && 
+           s.currentExamId === selectedExamId && 
+           s.status === 'waiting'
+    );
 
     if (targetStudents.length === 0) {
       const exam = exams.find(e => e._id === selectedExamId);
-      if (selectedExamOption === 'B') {
-        return toast.error(`⚠️ Aucun étudiant en attente pour "${exam?.title || 'cette épreuve'}"`);
-      } else {
-        return toast(`⚠️ Aucun étudiant prêt pour "${exam?.title || 'cette épreuve'}"`, { icon: '⚠️' });
-      }
+      return toast.error(`⚠️ Aucun étudiant en attente pour "${exam?.title || 'cette épreuve'}"`);
     }
 
     toast((t) => (
       <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', color: '#fff', maxWidth: '400px' }}>
         <p style={{ marginBottom: '12px', fontWeight: 600 }}>
-          {selectedExamOption === 'B' 
-            ? `🚀 Démarrer l'épreuve pour ${targetStudents.length} étudiant(s) en attente ?` 
-            : `🚀 Démarrer l'épreuve pour ${targetStudents.length} étudiant(s) ?`}
+          🚀 Démarrer l'épreuve pour {targetStudents.length} étudiant(s) en attente ?
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
           <button
@@ -1173,7 +1156,6 @@ const SurveillancePage = () => {
       background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
       position: 'relative', overflow: 'hidden', padding: '0 0 40px',
     }}>
-      {/* Backgrounds */}
       <div style={{
         position: 'fixed', inset: 0,
         backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)',
@@ -1186,7 +1168,6 @@ const SurveillancePage = () => {
         pointerEvents: 'none', zIndex: 0,
       }} />
 
-      {/* TOPBAR */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 50,
         background: 'rgba(5,7,26,0.92)', backdropFilter: 'blur(20px)',
@@ -1339,7 +1320,7 @@ const SurveillancePage = () => {
         {/* LIGNE 1 : Contrôle + Terminaux + Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '20px' }}>
 
-          {/* Panneau gestion épreuves avec affichage domaine/niveau/matière ET IMAGE */}
+          {/* Panneau gestion épreuves */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}
@@ -1392,7 +1373,6 @@ const SurveillancePage = () => {
                       )}
                     </div>
                     
-                    {/* ✅ AFFICHAGE DE L'IMAGE DE L'ÉPREUVE */}
                     {imageUrl && (
                       <div style={{ marginTop: '12px' }}>
                         <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1516,9 +1496,7 @@ const SurveillancePage = () => {
                       <Play size={15} />
                       COMMENCER L'ÉPREUVE
                       <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem' }}>
-                        {selectedExamOption === 'B' 
-                          ? `${studentsWaitingForStart.length} en attente`
-                          : `${studentsReady.length} prêts`}
+                        {waitingCounts[selectedExamId] || 0} en attente
                       </span>
                     </>
                   )}
@@ -1595,7 +1573,7 @@ const SurveillancePage = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '7px' }}>
                     <Clock size={16} color="#8b5cf6" />
-                    En attente de démarrage (Option B)
+                    En attente de démarrage
                     <span style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', fontSize: '0.72rem', fontWeight: 700, padding: '2px 9px', borderRadius: '999px' }}>
                       {studentsWaitingForStart.length}
                     </span>
@@ -1665,6 +1643,21 @@ const SurveillancePage = () => {
                     ))}
                   </AnimatePresence>
                 </div>
+              </div>
+            )}
+
+            {/* Affichage du compteur d'attente pour l'épreuve sélectionnée */}
+            {selectedExamId && waitingCounts[selectedExamId] !== undefined && (
+              <div style={{
+                marginTop: '8px',
+                padding: '8px',
+                background: 'rgba(59,130,246,0.15)',
+                borderRadius: '8px',
+                textAlign: 'center'
+              }}>
+                <span style={{ color: '#3b82f6', fontWeight: 700 }}>
+                  {waitingCounts[selectedExamId]} étudiant(s) en salle d'attente
+                </span>
               </div>
             )}
 
@@ -1880,7 +1873,7 @@ const SurveillancePage = () => {
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>%</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Domaine</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Niveau</th>
-                   </tr>
+                  </tr>
                 </thead>
                 <tbody>
                   {rankingsData.slice(0, 10).map((entry, index) => {
