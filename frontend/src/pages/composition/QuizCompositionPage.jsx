@@ -385,16 +385,18 @@ const QuizCompositionPage = () => {
       });
 
       // <-- NOUVELLE MODIFICATION: Vérification robuste de la structure de la réponse
-      const { result, details: correctionDetails } = res.data || {}; // Destructuration avec fallback {}
-      if (!result) {
-        console.error("Réponse de soumission invalide: 'result' est manquant.", res.data);
-        toast.error("Échec de la soumission: Réponse serveur inattendue.");
-        submittingRef.current = false;
-        quizFinishedRef.current = false;
-        setQuizFinished(false);
-        setIsSubmitting(false);
-        return;
-      }
+      const result = res.data?.data || res.data?.result;
+const correctionDetails = res.data?.details || null;
+
+if (!result) {
+  console.error("Réponse de soumission invalide: 'result' est manquant.", res.data);
+  toast.error("Échec de la soumission: Réponse serveur inattendue.");
+  submittingRef.current = false;
+  quizFinishedRef.current = false;
+  setQuizFinished(false);
+  setIsSubmitting(false);
+  return;
+}
       // FIN NOUVELLE MODIFICATION
 
       setShowConfetti(true);
