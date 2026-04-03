@@ -1144,6 +1144,52 @@ const io = new Server(server, {
   cookie: false
 });
 
+// ✅ FONCTION POUR ÉMETTRE LES STATISTIQUES EN TEMPS RÉEL
+const emitRealtimeStats = (examId) => {
+  if (!examId) return;
+  
+  const students = Array.from(activeSessions.values()).filter(s => 
+    s.type === 'student' && s.currentExamId === examId
+  );
+  
+  if (students.length === 0) {
+    // Envoyer des stats vides pour réinitialiser l'affichage
+    io.to('surveillance').emit('realtimeExamStats', {
+      examId,
+      activeStudentsCount: 0,
+      waitingStudentsCount: 0,
+      finishedStudentsCount: 0,
+      totalStudents: 0,
+      averageScore: 0,
+      averageProgress: 0,
+      lastUpdate: new Date()
+    });
+    return;
+  }
+  
+  const scores = students.map(s => s.score || 0);
+  const progresses = students.map(s => s.progress || 0);
+  const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+  const avgProgress = progresses.length > 0 ? progresses.reduce((a, b) => a + b, 0) / progresses.length : 0;
+  const composingCount = students.filter(s => s.status === 'composing').length;
+  const waitingCount = students.filter(s => s.status === 'waiting').length;
+  const finishedCount = students.filter(s => s.status === 'finished').length;
+  
+  const stats = {
+    examId,
+    activeStudentsCount: composingCount,
+    waitingStudentsCount: waitingCount,
+    finishedStudentsCount: finishedCount,
+    totalStudents: students.length,
+    averageScore: parseFloat(avgScore.toFixed(1)),
+    averageProgress: parseFloat(avgProgress.toFixed(1)),
+    lastUpdate: new Date()
+  };
+  
+  console.log(`[Stats] Exam ${examId}: ${composingCount} en cours, ${waitingCount} attente, ${finishedCount} terminés`);
+  io.to('surveillance').emit('realtimeExamStats', stats);
+};
+
 const emitSessionUpdate = () => {
   const sessionsToSend = Array.from(activeSessions.values()).filter(s => s.type !== 'surveillance');
   io.emit('sessionUpdate', { activeSessions: sessionsToSend });
@@ -1163,6 +1209,7 @@ io.on('connection', (socket) => {
       activeSessions.set(socket.id, existing);
       if (existing.type === 'student' && existing.currentExamId) socket.join(`exam:${existing.currentExamId}`);
       emitSessionUpdate();
+      if (existing.currentExamId) emitRealtimeStats(existing.currentExamId);
       return;
     }
 
@@ -1170,15 +1217,14 @@ io.on('connection', (socket) => {
       socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id,
       status: data.status || 'idle', currentExamId: data.examId || null,
       studentInfo: data.studentInfo || null, examOption: data.examOption || null,
-      progress: 0, score: 0, lastUpdate: Date.now(), isOnline: true,
+      progress: 0, score: 0, currentQuestion: 0, lastUpdate: Date.now(), isOnline: true,
     };
     activeSessions.set(socket.id, session);
     if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
     if (data.type === 'terminal') socket.join('terminals');
     if (data.type === 'surveillance') socket.join('surveillance');
     emitSessionUpdate();
-    // Émettre les stats en temps réel après chaque enregistrement
-    emitRealtimeStats(data.examId);
+    if (data.examId) emitRealtimeStats(data.examId);
   });
 
   // ── studentReadyForExam ────────────────────────────────────────
@@ -1203,7 +1249,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── distributeExam — FIX BUG 1: envoyer config aux terminaux ──
+  // ── distributeExam — envoyer config aux terminaux ──────────────
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) {
       console.error('[Socket] distributeExam: examId ou examOption manquant', data);
@@ -1216,14 +1262,12 @@ io.on('connection', (socket) => {
       distributedAt: new Date(),
       questionCount: data.questionCount || 0
     });
-    // ✅ FIX: inclure config dans l'événement envoyé aux terminaux
     io.to('terminals').emit('examDistributed', {
       examId: data.examId,
       examOption: data.examOption,
       config: data.config || null,
       timestamp: Date.now()
     });
-    // Notifier la surveillance
     io.to('surveillance').emit('examDistributedConfirm', {
       examId: data.examId,
       examOption: data.examOption,
@@ -1232,14 +1276,13 @@ io.on('connection', (socket) => {
     console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
   });
 
-  // ── startExam — FIX BUG 2: gérer Options A, B, C, D ──────────
+  // ── startExam — gérer Options A, B, C, D ──────────────────────
   socket.on('startExam', ({ examId, option }) => {
     console.log(`[Socket] 🚀 startExam examId=${examId} option=${option}`);
     const allStudents = Array.from(activeSessions.values())
       .filter(s => s.type === 'student' && s.currentExamId === examId);
 
     if (option === 'B') {
-      // Option B : libérer uniquement les étudiants en salle d'attente
       const waitingStudents = allStudents.filter(s => s.status === 'waiting');
       if (waitingStudents.length === 0) {
         socket.emit('noWaitingStudents', { examId, message: 'Aucun étudiant en attente' });
@@ -1257,23 +1300,19 @@ io.on('connection', (socket) => {
       socket.emit('examStartedConfirm', { examId, option, startedCount: waitingStudents.length });
 
     } else if (option === 'A') {
-      // Option A : démarrer pour tous (en attente ou déjà en composition)
-      const targetStudents = allStudents.filter(s => s.status === 'waiting' || s.status === 'composing');
-      targetStudents.forEach(s => {
-        const studentSocket = io.sockets.sockets.get(s.socketId);
-        if (studentSocket) {
-          s.status = 'composing';
-          s.lastUpdate = Date.now();
-          // Envoyer examStarted générique + examStartedForOptionB pour compatibilité
-          studentSocket.emit('examStarted', { examId, questionIndex: 0, option: 'A' });
-          studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
-        }
-      });
-      io.emit('waitingCountUpdate', { examId, count: 0 });
-      socket.emit('examStartedConfirm', { examId, option, startedCount: targetStudents.length });
-
-    } else {
-      // Options C/D : les étudiants démarrent directement — confirmer simplement
+  const targetStudents = allStudents.filter(s => s.status === 'waiting' || s.status === 'composing');
+  targetStudents.forEach(s => {
+    const studentSocket = io.sockets.sockets.get(s.socketId);
+    if (studentSocket) {
+      s.status = 'composing';
+      s.lastUpdate = Date.now();
+      // ✅ SEULEMENT l'événement pour Option A
+      studentSocket.emit('examStarted', { examId, questionIndex: 0, option: 'A' });
+    }
+  });
+  io.emit('waitingCountUpdate', { examId, count: 0 });
+  socket.emit('examStartedConfirm', { examId, option, startedCount: targetStudents.length });
+} else {
       socket.emit('examStartedConfirm', { examId, option, startedCount: allStudents.length });
     }
 
@@ -1281,17 +1320,16 @@ io.on('connection', (socket) => {
     emitRealtimeStats(examId);
   });
 
-  // ── FIX BUG 4 : displayQuestion — relayer aux étudiants ───────
+  // ── displayQuestion — relayer aux étudiants ───────────────────
   socket.on('displayQuestion', ({ examId, questionIndex }) => {
     console.log(`[Socket] ❓ displayQuestion examId=${examId} idx=${questionIndex}`);
     io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex });
-    // Mettre à jour index courant
     const exam = activeDistributedExams.get(examId);
     if (exam) exam.currentQuestionIndex = questionIndex;
     io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex });
   });
 
-  // ── FIX BUG 4 : advanceQuestionForOptionA — relayer ──────────
+  // ── advanceQuestionForOptionA — relayer ───────────────────────
   socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
     console.log(`[Socket] ⏩ advanceQuestion examId=${examId} next=${nextQuestionIndex}`);
     io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex });
@@ -1300,14 +1338,11 @@ io.on('connection', (socket) => {
     io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
   });
 
-  // ── FIX BUG 3 : finishExam — forcer la fin ───────────────────
+  // ── finishExam — forcer la fin ────────────────────────────────
   socket.on('finishExam', ({ examId }) => {
     console.log(`[Socket] 🏁 finishExam examId=${examId}`);
-    // Envoyer à tous les étudiants de l'épreuve
     io.to(`exam:${examId}`).emit('examFinished', { examId });
-    // Envoyer à tous les terminaux pour reset
     io.to('terminals').emit('examFinished', { examId });
-    // Mettre à jour les sessions
     Array.from(activeSessions.values())
       .filter(s => s.type === 'student' && s.currentExamId === examId)
       .forEach(s => { s.status = 'finished'; s.lastUpdate = Date.now(); });
@@ -1316,15 +1351,47 @@ io.on('connection', (socket) => {
   });
 
   // ── updateStudentProgress ─────────────────────────────────────
-  socket.on('updateStudentProgress', ({ examId, progress, score, currentQuestion }) => {
+  socket.on('updateStudentProgress', ({ examId, progress, score, currentQuestion, percentage }) => {
     const session = activeSessions.get(socket.id);
     if (session) {
       session.progress = progress || 0;
       session.score = score || 0;
+      session.percentage = percentage || 0;
       session.currentQuestion = currentQuestion || 0;
       session.lastUpdate = Date.now();
+      
+      // Diffuser la progression à la surveillance
+      io.to('surveillance').emit('studentProgressUpdate', {
+        studentId: socket.id,
+        studentInfo: session.studentInfo,
+        examId: session.currentExamId,
+        progress: session.progress,
+        currentQuestion: session.currentQuestion,
+        score: session.score,
+        percentage: session.percentage
+      });
     }
     emitRealtimeStats(examId);
+  });
+
+  // ── terminalReadyForExam ──────────────────────────────────────
+  socket.on('terminalReadyForExam', (data) => {
+    console.log(`[Socket] 🖥️ Terminal prêt pour épreuve: ${data.examId} (Option ${data.examOption})`);
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.status = 'exam_distributed';
+      session.currentExamId = data.examId;
+      session.examOption = data.examOption;
+      session.lastUpdate = Date.now();
+      activeSessions.set(socket.id, session);
+      io.to('surveillance').emit('terminalReady', {
+        terminalId: session.sessionId,
+        examId: data.examId,
+        examOption: data.examOption,
+        status: 'exam_distributed'
+      });
+      emitSessionUpdate();
+    }
   });
 
   // ── ping ──────────────────────────────────────────────────────
@@ -1347,6 +1414,7 @@ io.on('connection', (socket) => {
           examId: session.currentExamId,
           socketId: socket.id
         });
+        if (session.currentExamId) emitRealtimeStats(session.currentExamId);
       }
       const timeout = setTimeout(() => {
         const current = activeSessions.get(socket.id);
@@ -1361,6 +1429,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// Routes API pour les sessions actives
 app.get('/api/active-sessions', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   res.json({ success: true, count: sessions.length, sessions });
@@ -1370,7 +1439,6 @@ app.get('/api/surveillance-data', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   const students = sessions.filter(s => s.type === 'student');
   const waitingStudents = students.filter(s => s.status === 'waiting');
-  // Grouper les stats par épreuve
   const examStats = {};
   students.forEach(s => {
     if (!s.currentExamId) return;
