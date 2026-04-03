@@ -721,7 +721,6 @@ app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
     console.log('[API] Recherche résultats pour matricule:', req.user.matricule);
     console.log('[API] Utilisateur:', req.user.email, req.user.role);
     
-    // ✅ Fallback si pas de matricule
     let results = [];
     if (req.user.matricule) {
       results = await Result.find({ 'studentInfo.matricule': req.user.matricule })
@@ -729,7 +728,6 @@ app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
         .sort({ createdAt: -1 });
     } else {
       console.warn('[API] Utilisateur sans matricule, recherche par email?');
-      // Alternative: chercher par nom/email
       results = await Result.find({ 
         'studentInfo.email': req.user.email 
       }).sort({ createdAt: -1 });
@@ -778,6 +776,7 @@ app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE',
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ✅ ROUTE POST CORRIGÉE
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
@@ -790,35 +789,67 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     }
     
+    // ✅ Fonction pour extraire les options d'une question (opRep1..opRep5)
+    const getQuestionOptions = (q) => {
+      // Si déjà un tableau options
+      if (q.options && Array.isArray(q.options) && q.options.length > 0) {
+        return q.options;
+      }
+      // Sinon, construire depuis opRep1..opRep5
+      const options = [];
+      for (let i = 1; i <= 5; i++) {
+        const optKey = `opRep${i}`;
+        if (q[optKey] && q[optKey] !== '') {
+          options.push(String(q[optKey]));
+        }
+      }
+      return options;
+    };
+    
     let score = 0;
     const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
     
     // ✅ Parcourir les questions de l'examen
     exam.questions.forEach((q, idx) => {
-      const qId = q._id?.toString() || String(idx);
-      const studentAnswer = answers[qId];
+      // Utiliser l'index comme clé (car le frontend envoie avec des index)
+      const studentAnswer = answers[idx] || answers[String(idx)];
       
-      // ✅ Vérifier que studentAnswer existe
       if (studentAnswer !== undefined && studentAnswer !== null) {
         let isCorrect = false;
         
+        // Récupérer les options de la question
+        const options = getQuestionOptions(q);
+        
         // Comparaison selon le type de question
-        if (typeof q.bonOpRep === 'number') {
-          // Format avec opRep1..opRep5
-          const selectedIndex = q.options.findIndex(opt => opt === studentAnswer);
+        if (typeof q.bonOpRep === 'number' && options.length > 0) {
+          // Trouver l'index de la réponse de l'étudiant dans les options
+          const selectedIndex = options.findIndex(opt => opt === studentAnswer);
           isCorrect = selectedIndex === q.bonOpRep;
+          console.log(`[Q${idx}] Réponse: "${studentAnswer}", Index trouvé: ${selectedIndex}, Bon index: ${q.bonOpRep}, Correcte: ${isCorrect}`);
         } else if (q.correctAnswer) {
           // Format avec correctAnswer
           isCorrect = String(studentAnswer).trim() === String(q.correctAnswer).trim();
+          console.log(`[Q${idx}] Réponse: "${studentAnswer}", Correcte attendue: "${q.correctAnswer}", Correcte: ${isCorrect}`);
         }
         
         if (isCorrect) {
           score += (q.points || 1);
         }
+      } else {
+        console.log(`[Q${idx}] Aucune réponse fournie`);
       }
     });
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
+    
+    console.log('[API] Calcul du score:', { score, totalPoints, percentage });
+    
+    // ✅ Construire les questions avec options pour le snapshot
+    const examQuestionsWithOptions = exam.questions.map(q => {
+      const normalizedQ = q.toObject ? q.toObject() : { ...q };
+      normalizedQ.options = getQuestionOptions(q);
+      return normalizedQ;
+    });
     
     const result = new Result({
       examId,
@@ -826,7 +857,8 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         firstName: studentInfo.firstName || '',
         lastName: studentInfo.lastName || '',
         matricule: studentInfo.matricule || '',
-        level: studentInfo.level || ''
+        level: studentInfo.level || '',
+        email: studentInfo.email || req.user.email
       },
       answers: new Map(Object.entries(answers)),
       score,
@@ -841,10 +873,12 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       duration: exam.duration,
       passingScore: exam.passingScore,
       examOption: exam.examOption,
-      examQuestions: exam.questions
+      examQuestions: examQuestionsWithOptions
     });
     
     await result.save();
+    
+    console.log('[API] ✅ Résultat sauvegardé - ID:', result._id, 'Score:', score, 'Percentage:', percentage);
     
     res.status(201).json({ 
       success: true, 
@@ -858,12 +892,10 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
   }
 });
 
-
 app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Vérifier que l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ 
         success: false, 
@@ -871,7 +903,6 @@ app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGU
       });
     }
     
-    // Rechercher et supprimer le résultat
     const result = await Result.findByIdAndDelete(id);
     
     if (!result) {
