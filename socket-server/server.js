@@ -718,9 +718,34 @@ app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'
 // ==================== RESULT ROUTES ====================
 app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    const results = await Result.find({ 'studentInfo.matricule': req.user.matricule }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
-    res.json({ success: true, data: results });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+    console.log('[API] Recherche résultats pour matricule:', req.user.matricule);
+    console.log('[API] Utilisateur:', req.user.email, req.user.role);
+    
+    // ✅ Fallback si pas de matricule
+    let results = [];
+    if (req.user.matricule) {
+      results = await Result.find({ 'studentInfo.matricule': req.user.matricule })
+        .populate('examId', 'title domain subject level')
+        .sort({ createdAt: -1 });
+    } else {
+      console.warn('[API] Utilisateur sans matricule, recherche par email?');
+      // Alternative: chercher par nom/email
+      results = await Result.find({ 
+        'studentInfo.email': req.user.email 
+      }).sort({ createdAt: -1 });
+    }
+    
+    console.log('[API] Résultats trouvés:', results.length);
+    
+    res.json({ 
+      success: true, 
+      data: results,
+      count: results.length 
+    });
+  } catch (err) { 
+    console.error('[API] Erreur:', err);
+    res.status(500).json({ success: false, message: err.message }); 
+  }
 });
 
 app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
@@ -830,6 +855,46 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
   } catch (err) {
     console.error('[API] Erreur soumission résultats:', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Vérifier que l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'ID de résultat invalide' 
+      });
+    }
+    
+    // Rechercher et supprimer le résultat
+    const result = await Result.findByIdAndDelete(id);
+    
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Résultat non trouvé' 
+      });
+    }
+    
+    console.log(`[API] ✅ Résultat supprimé: ${id} par ${req.user.email}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Résultat supprimé avec succès',
+      data: result 
+    });
+    
+  } catch (err) {
+    console.error('[API] Erreur suppression résultat:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: err.message 
+    });
   }
 });
 

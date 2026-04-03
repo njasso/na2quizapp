@@ -1,4 +1,4 @@
-// src/pages/student/MyResultsPage.jsx - Version optimisée
+// src/pages/student/MyResultsPage.jsx - Version complète corrigée
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -89,39 +89,108 @@ const MyResultsPage = () => {
       try {
         const token = localStorage.getItem('userToken');
         console.log('🔍 Token présent:', !!token);
-        console.log('🔍 Utilisateur:', user);
+        console.log('👤 Utilisateur:', user);
+        console.log('📌 Matricule étudiant:', user?.matricule);
         
         if (!token) {
           throw new Error('Token non trouvé');
         }
         
-        const response = await api.get('/api/results/student');
-        
-        console.log('📦 Réponse brute:', response);
-        
-        let data = [];
-        if (Array.isArray(response)) {
-          data = response;
-        } else if (response?.data && Array.isArray(response.data)) {
-          data = response.data;
-        } else if (response?.data?.data && Array.isArray(response.data.data)) {
-          data = response.data.data;
-        } else if (response?.success && Array.isArray(response.data)) {
-          data = response.data;
+        // ✅ Récupération des résultats
+        let response;
+        try {
+          response = await api.get('/api/results/student');
+          console.log('📦 Réponse /api/results/student:', response);
+        } catch (err) {
+          console.warn('Route /student échouée, tentative route générale');
+          response = await api.get('/api/results');
+          console.log('📦 Réponse /api/results:', response);
         }
         
-        // Normaliser les résultats
-        const normalizedResults = data.map(r => ({
-          ...r,
-          note20: ((r.percentage / 100) * 20).toFixed(2),
-          dateFormatted: new Date(r.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+        // ✅ Extraction robuste des données
+        let data = [];
+        
+        // Format 1: { success: true, data: [...] }
+        if (response?.data && Array.isArray(response.data)) {
+          data = response.data;
+        }
+        // Format 2: { success: true, data: { data: [...] } }
+        else if (response?.data?.data && Array.isArray(response.data.data)) {
+          data = response.data.data;
+        }
+        // Format 3: direct array
+        else if (Array.isArray(response)) {
+          data = response;
+        }
+        // Format 4: { results: [...] }
+        else if (response?.results && Array.isArray(response.results)) {
+          data = response.results;
+        }
+        // Format 5: chercher n'importe quel tableau
+        else if (response && typeof response === 'object') {
+          for (const key of ['data', 'results', 'items', 'studentResults', 'docs']) {
+            if (response[key] && Array.isArray(response[key])) {
+              data = response[key];
+              break;
+            }
+          }
+        }
+        
+        console.log('📊 Données brutes extraites:', data.length);
+        
+        // ✅ Filtrer par matricule si nécessaire (fallback)
+        let filteredData = data;
+        if (user?.matricule && data.length > 0) {
+          const beforeFilter = filteredData.length;
+          filteredData = data.filter(r => 
+            r.studentInfo?.matricule === user.matricule ||
+            r.studentInfo?.matricule?.toUpperCase() === user.matricule?.toUpperCase()
+          );
+          console.log(`📊 Filtrage par matricule: ${beforeFilter} → ${filteredData.length}`);
+        }
+        
+        // ✅ Normaliser les résultats
+        const normalizedResults = filteredData.map(r => ({
+          _id: r._id,
+          examId: r.examId,
+          examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
+          studentInfo: r.studentInfo || {
+            firstName: user?.name?.split(' ')[1] || '',
+            lastName: user?.name?.split(' ')[0] || '',
+            matricule: user?.matricule || ''
+          },
+          score: r.score || 0,
+          percentage: r.percentage || 0,
+          passed: r.passed || false,
+          totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
+          createdAt: r.createdAt,
+          domain: r.domain || r.examId?.domain || '',
+          subject: r.matiere || r.subject || r.examId?.subject || '',
+          level: r.level || r.examId?.level || '',
+          examOption: r.examOption || '',
+          examQuestions: r.examQuestions || [],
+          answers: r.answers || {},
+          note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
+          dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
+            day: '2-digit', 
+            month: 'long', 
+            year: 'numeric' 
+          }) : 'Date inconnue'
         }));
+        
+        console.log('✅ Résultats normalisés:', normalizedResults.length);
+        if (normalizedResults.length > 0) {
+          console.log('📝 Premier résultat:', normalizedResults[0]);
+        }
         
         setResults(normalizedResults);
         
+        // ✅ Calculer les statistiques
         const passed = normalizedResults.filter(r => r.passed).length;
         const scores = normalizedResults.map(r => r.percentage || 0);
-        const avgScore = normalizedResults.length > 0 ? scores.reduce((a, b) => a + b, 0) / normalizedResults.length : 0;
+        const avgScore = normalizedResults.length > 0 
+          ? scores.reduce((a, b) => a + b, 0) / normalizedResults.length 
+          : 0;
         const bestScore = normalizedResults.length > 0 ? Math.max(...scores) : 0;
         const worstScore = normalizedResults.length > 0 ? Math.min(...scores) : 0;
         
@@ -134,10 +203,11 @@ const MyResultsPage = () => {
         });
         
         if (normalizedResults.length === 0) {
-          toast('Aucun résultat enregistré pour le moment', { icon: 'ℹ️' });
+          toast('Aucun résultat trouvé pour votre compte', { icon: 'ℹ️' });
         } else {
           toast.success(`${normalizedResults.length} résultat(s) trouvé(s)`);
         }
+        
       } catch (error) {
         console.error('❌ Erreur chargement résultats:', error);
         
@@ -188,8 +258,6 @@ const MyResultsPage = () => {
 
   const hasActiveFilters = searchTerm || filterExam || filterStatus || filterSubject || filterDomain || sortBy !== 'date';
 
-  const note20 = (percentage) => ((percentage / 100) * 20).toFixed(2);
-
   if (authLoading) {
     return (
       <div style={{
@@ -207,6 +275,7 @@ const MyResultsPage = () => {
           borderRadius: '50%',
           animation: 'spin 1s linear infinite'
         }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -247,6 +316,23 @@ const MyResultsPage = () => {
               {user?.name || 'Étudiant'} · {filteredResults.length} résultat{filteredResults.length !== 1 ? 's' : ''} trouvé{filteredResults.length !== 1 ? 's' : ''}
             </p>
           </div>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              marginLeft: 'auto',
+              padding: '10px 16px',
+              background: 'rgba(59,130,246,0.1)',
+              border: '1px solid rgba(59,130,246,0.2)',
+              borderRadius: 10,
+              color: '#60a5fa',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            <RefreshCw size={16} /> Actualiser
+          </button>
         </div>
 
         {/* Message d'erreur */}
@@ -279,7 +365,7 @@ const MyResultsPage = () => {
           </div>
         )}
 
-        {/* KPIs */}
+        {/* KPIs - seulement si des résultats existent */}
         {results.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
             <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 16, padding: 16 }}>
@@ -305,7 +391,7 @@ const MyResultsPage = () => {
           </div>
         )}
 
-        {/* Barre de recherche et filtres */}
+        {/* Barre de recherche et filtres - seulement si des résultats existent */}
         {results.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
@@ -324,19 +410,21 @@ const MyResultsPage = () => {
                 />
               </div>
               
-              <select
-                value={filterExam}
-                onChange={(e) => setFilterExam(e.target.value)}
-                style={{
-                  padding: '10px 12px', background: '#0f172a',
-                  border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
-                  color: filterExam ? '#f8fafc' : '#94a3b8', outline: 'none',
-                  maxWidth: 200
-                }}
-              >
-                <option value="">Toutes les épreuves</option>
-                {examTitles.map(e => <option key={e} value={e}>{e}</option>)}
-              </select>
+              {examTitles.length > 0 && (
+                <select
+                  value={filterExam}
+                  onChange={(e) => setFilterExam(e.target.value)}
+                  style={{
+                    padding: '10px 12px', background: '#0f172a',
+                    border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
+                    color: filterExam ? '#f8fafc' : '#94a3b8', outline: 'none',
+                    maxWidth: 200
+                  }}
+                >
+                  <option value="">Toutes les épreuves</option>
+                  {examTitles.map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+              )}
               
               <select
                 value={filterStatus}
@@ -352,31 +440,35 @@ const MyResultsPage = () => {
                 <option value="failed">✗ Échoués</option>
               </select>
               
-              <select
-                value={filterSubject}
-                onChange={(e) => setFilterSubject(e.target.value)}
-                style={{
-                  padding: '10px 12px', background: '#0f172a',
-                  border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
-                  color: filterSubject ? '#f8fafc' : '#94a3b8', outline: 'none'
-                }}
-              >
-                <option value="">Toutes les matières</option>
-                {subjects.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {subjects.length > 0 && (
+                <select
+                  value={filterSubject}
+                  onChange={(e) => setFilterSubject(e.target.value)}
+                  style={{
+                    padding: '10px 12px', background: '#0f172a',
+                    border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
+                    color: filterSubject ? '#f8fafc' : '#94a3b8', outline: 'none'
+                  }}
+                >
+                  <option value="">Toutes les matières</option>
+                  {subjects.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
               
-              <select
-                value={filterDomain}
-                onChange={(e) => setFilterDomain(e.target.value)}
-                style={{
-                  padding: '10px 12px', background: '#0f172a',
-                  border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
-                  color: filterDomain ? '#f8fafc' : '#94a3b8', outline: 'none'
-                }}
-              >
-                <option value="">Tous les domaines</option>
-                {domains.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              {domains.length > 0 && (
+                <select
+                  value={filterDomain}
+                  onChange={(e) => setFilterDomain(e.target.value)}
+                  style={{
+                    padding: '10px 12px', background: '#0f172a',
+                    border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
+                    color: filterDomain ? '#f8fafc' : '#94a3b8', outline: 'none'
+                  }}
+                >
+                  <option value="">Tous les domaines</option>
+                  {domains.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
               
               <select
                 value={sortBy}
@@ -426,30 +518,51 @@ const MyResultsPage = () => {
           </div>
         ) : filteredResults.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#64748b', background: 'rgba(15,23,42,0.5)', borderRadius: 24 }}>
-            <Award size={64} color="#1e293b" style={{ marginBottom: 16 }} />
-            <p style={{ fontSize: '1.1rem', marginBottom: 8 }}>
-              {results.length === 0 ? 'Aucun résultat enregistré' : 'Aucun résultat ne correspond aux filtres'}
-            </p>
-            <p style={{ fontSize: '0.85rem' }}>
-              {results.length === 0 
-                ? 'Commencez une épreuve pour voir vos résultats ici.'
-                : 'Modifiez vos critères de recherche pour voir plus de résultats.'}
-            </p>
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                style={{
-                  marginTop: 20,
-                  padding: '8px 20px',
-                  background: 'rgba(59,130,246,0.2)',
-                  border: '1px solid rgba(59,130,246,0.3)',
-                  borderRadius: 8,
-                  color: '#60a5fa',
-                  cursor: 'pointer'
-                }}
-              >
-                Effacer les filtres
-              </button>
+            {results.length === 0 ? (
+              <>
+                <Award size={64} color="#1e293b" style={{ marginBottom: 16 }} />
+                <p style={{ fontSize: '1.1rem', marginBottom: 8 }}>Aucun résultat enregistré</p>
+                <p style={{ fontSize: '0.85rem' }}>
+                  Vous n'avez pas encore participé à une épreuve.
+                </p>
+                <button
+                  onClick={() => navigate('/evaluate')}
+                  style={{
+                    marginTop: 20,
+                    padding: '10px 24px',
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    border: 'none',
+                    borderRadius: 10,
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Commencer une épreuve
+                </button>
+              </>
+            ) : (
+              <>
+                <Filter size={48} color="#1e293b" style={{ marginBottom: 16 }} />
+                <p style={{ fontSize: '1.1rem', marginBottom: 8 }}>Aucun résultat ne correspond aux filtres</p>
+                <p style={{ fontSize: '0.85rem' }}>Modifiez vos critères de recherche pour voir plus de résultats.</p>
+                {hasActiveFilters && (
+                  <button
+                    onClick={resetFilters}
+                    style={{
+                      marginTop: 20,
+                      padding: '8px 20px',
+                      background: 'rgba(59,130,246,0.2)',
+                      border: '1px solid rgba(59,130,246,0.3)',
+                      borderRadius: 8,
+                      color: '#60a5fa',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Effacer les filtres
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -457,7 +570,7 @@ const MyResultsPage = () => {
             <AnimatePresence>
               {filteredResults.map((result, index) => {
                 const mention = getMention(result.percentage);
-                const note20Value = note20(result.percentage);
+                const note20Value = result.note20 || ((result.percentage / 100) * 20).toFixed(2);
                 const isExpanded = expandedResult === result._id;
                 
                 return (
@@ -476,12 +589,13 @@ const MyResultsPage = () => {
                     }}
                   >
                     {/* En-tête avec mention et score */}
-                    <div style={{ 
-                      padding: 24, 
-                      cursor: 'pointer',
-                      transition: 'background 0.2s'
-                    }}
-                    onClick={() => setExpandedResult(isExpanded ? null : result._id)}
+                    <div 
+                      style={{ 
+                        padding: 24, 
+                        cursor: 'pointer',
+                        transition: 'background 0.2s'
+                      }}
+                      onClick={() => setExpandedResult(isExpanded ? null : result._id)}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                         <div style={{ flex: 1 }}>
@@ -495,9 +609,9 @@ const MyResultsPage = () => {
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.75rem' }}>
                                   <Calendar size={12} /> {result.dateFormatted}
                                 </span>
-                                {result.matiere && (
+                                {result.subject && (
                                   <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.75rem' }}>
-                                    <FileText size={12} /> {result.matiere}
+                                    <FileText size={12} /> {result.subject}
                                   </span>
                                 )}
                                 {result.examOption && (
@@ -595,7 +709,18 @@ const MyResultsPage = () => {
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
                                   {result.examQuestions.slice(0, 5).map((q, idx) => {
-                                    const isCorrect = q.isCorrect;
+                                    // Vérifier si la réponse est correcte
+                                    const qId = q._id?.toString();
+                                    const studentAnswer = qId && result.answers ? result.answers[qId] : null;
+                                    let isCorrect = false;
+                                    
+                                    if (studentAnswer && q.bonOpRep !== undefined) {
+                                      const selectedIndex = q.options?.findIndex(opt => opt === studentAnswer);
+                                      isCorrect = selectedIndex === q.bonOpRep;
+                                    } else if (studentAnswer && q.correctAnswer) {
+                                      isCorrect = studentAnswer === q.correctAnswer;
+                                    }
+                                    
                                     return (
                                       <div key={idx} style={{
                                         padding: '8px 12px',
@@ -609,14 +734,17 @@ const MyResultsPage = () => {
                                             <XCircle size={12} color="#ef4444" />
                                           }
                                           <span style={{ color: '#e2e8f0', fontSize: '0.8rem' }}>
-                                            Q{idx + 1}. {q.questionText?.length > 80 ? q.questionText.substring(0, 80) + '...' : q.questionText}
+                                            Q{idx + 1}. {q.libQuestion || q.questionText || 'Question sans texte'}
                                           </span>
                                         </div>
                                         <div style={{ marginLeft: 20, marginTop: 4, fontSize: '0.7rem' }}>
                                           <span style={{ color: '#64748b' }}>Votre réponse: </span>
-                                          <span style={{ color: isCorrect ? '#10b981' : '#ef4444', fontWeight: 600 }}>{q.studentAnswer || 'Non répondu'}</span>
+                                          <span style={{ color: isCorrect ? '#10b981' : '#ef4444', fontWeight: 600 }}>{studentAnswer || 'Non répondu'}</span>
                                           {!isCorrect && (
-                                            <><span style={{ color: '#64748b' }}> | Bonne réponse: </span><span style={{ color: '#10b981', fontWeight: 600 }}>{q.correctAnswer}</span></>
+                                            <><span style={{ color: '#64748b' }}> | Bonne réponse: </span>
+                                            <span style={{ color: '#10b981', fontWeight: 600 }}>
+                                              {q.options?.[q.bonOpRep] || q.correctAnswer || '—'}
+                                            </span></>
                                           )}
                                         </div>
                                       </div>
