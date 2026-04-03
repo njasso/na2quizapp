@@ -531,91 +531,85 @@ const QuizCompositionPage = () => {
     terminalSessionIdRef.current = parsed.terminalSessionId || null;
 
     const fetchExam = async () => {
-      try {
-        const token = getAuthToken();
-        const axiosConfig = token ? {
-          headers: { Authorization: `Bearer ${token}` }
-        } : {};
-        
-        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
-          timeout: 10000,
-          ...axiosConfig
-        });
-        
-        // Extraction robuste de l'examen
-        let examData = res.data;
-        if (examData?.data?.questions) examData = examData.data;
-        else if (examData?.exam?.questions) examData = examData.exam;
-        else if (examData?.success && examData?.data?.questions) examData = examData.data;
-        
-        if (!examData || !examData.questions || !Array.isArray(examData.questions) || examData.questions.length === 0) {
-          throw new Error("Données d'examen invalides");
-        }
-        
-        console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
-        console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
-        
-        let fetchedQuestions = examData.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
-        
-        console.log('[QuizCompositionPage] 📝 Questions normalisées:', fetchedQuestions.length);
-        
-        if (fetchedQuestions.length > 0) {
-          console.log('[QuizCompositionPage] Exemple question:', {
-            libQuestion: fetchedQuestions[0].libQuestion?.substring(0, 50),
-            options: fetchedQuestions[0].options,
-            correctAnswer: fetchedQuestions[0].correctAnswer
-          });
-        }
+  try {
+    const token = getAuthToken();
+    const axiosConfig = token ? {
+      headers: { Authorization: `Bearer ${token}` }
+    } : {};
+    
+    const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+      timeout: 10000,
+      ...axiosConfig
+    });
+    
+    // Extraction robuste de l'examen
+    let examData = res.data;
+    if (examData?.data?.questions) examData = examData.data;
+    else if (examData?.exam?.questions) examData = examData.exam;
+    else if (examData?.success && examData?.data?.questions) examData = examData.data;
+    
+    if (!examData || !examData.questions || !Array.isArray(examData.questions) || examData.questions.length === 0) {
+      throw new Error("Données d'examen invalides");
+    }
+    
+    console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
+    console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
+    
+    let fetchedQuestions = examData.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
+    
+    // ✅ Gestion sécurisée de config
+    const safeConfig = parsed.config || {};
+    
+    if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
+      const shuffled = shuffleArray([...fetchedQuestions]);
+      fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
+    }
 
-        if (parsed.config?.openRange && parsed.config.requiredQuestions > 0 && parsed.config.requiredQuestions < fetchedQuestions.length) {
-          const shuffled = shuffleArray([...fetchedQuestions]);
-          fetchedQuestions = shuffled.slice(0, parsed.config.requiredQuestions);
-        }
+    if (safeConfig.sequencing === 'randomPerStudent') {
+      fetchedQuestions = shuffleArray(fetchedQuestions);
+    }
 
-        if (parsed.config?.sequencing === 'randomPerStudent') {
-          fetchedQuestions = shuffleArray(fetchedQuestions);
-        }
+    if (parsed.examOption === 'D' && safeConfig.sequencing !== 'randomPerStudent') {
+      fetchedQuestions = shuffleArray(fetchedQuestions);
+    }
 
-        if (parsed.examOption === 'D' && parsed.config?.sequencing !== 'randomPerStudent') {
-          fetchedQuestions = shuffleArray(fetchedQuestions);
-        }
+    setQuestions(fetchedQuestions);
+    setExam({ ...examData, questions: fetchedQuestions });
+    examRef.current = { ...examData, questions: fetchedQuestions };
 
-        setQuestions(fetchedQuestions);
-        setExam({ ...examData, questions: fetchedQuestions });
-        examRef.current = { ...examData, questions: fetchedQuestions };
+    // ✅ Gestion sécurisée du timer
+    if (safeConfig.timerPerQuestion) {
+      setRemainingTime(safeConfig.timePerQuestion || 60);
+    } else {
+      setRemainingTime((safeConfig.totalTime || 60) * 60);
+    }
 
-        if (parsed.config?.timerPerQuestion) {
-          setRemainingTime(parsed.config.timePerQuestion);
-        } else {
-          setRemainingTime(parsed.config.totalTime * 60);
-        }
+    setQuizStarted(true);
 
-        setQuizStarted(true);
+    const opt = parsed.examOption;
+    if (opt === 'A' || opt === 'B') {
+      setWaitingForStart(true);
+      waitingForStartRef.current = true;
+    } else {
+      setWaitingForStart(false);
+      waitingForStartRef.current = false;
+    }
 
-        const opt = parsed.examOption;
-        if (opt === 'A' || opt === 'B') {
-          setWaitingForStart(true);
-          waitingForStartRef.current = true;
-        } else {
-          setWaitingForStart(false);
-          waitingForStartRef.current = false;
-        }
-
-      } catch (error) {
-        console.error("Erreur chargement examen:", error);
-        if (error.response?.status === 401) {
-          toast.error("Session expirée. Veuillez vous reconnecter.");
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('token');
-          setTimeout(() => navigate('/login'), 2000);
-        } else {
-          toast.error("Échec du chargement de l'examen.");
-          navigate('/', { replace: true });
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  } catch (error) {
+    console.error("Erreur chargement examen:", error);
+    if (error.response?.status === 401) {
+      toast.error("Session expirée. Veuillez vous reconnecter.");
+      localStorage.removeItem('userToken');
+      localStorage.removeItem('token');
+      setTimeout(() => navigate('/login'), 2000);
+    } else {
+      toast.error("Échec du chargement de l'examen.");
+      navigate('/', { replace: true });
+    }
+  } finally {
+    setIsLoading(false);
+  }
+};
     
     fetchExam();
 
