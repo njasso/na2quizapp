@@ -315,8 +315,19 @@ const QuizCompositionPage = () => {
   }, []);
 
   // Soumission finale
-  const handleSubmitExam = useCallback(async (isManual = false) => {
+ const handleSubmitExam = useCallback(async (isManual = false) => {
   if (quizFinishedRef.current || submittingRef.current) return;
+
+  // ✅ Vérifier que examRef.current existe
+  if (!examRef.current || !examRef.current._id) {
+    console.error('[QuizCompositionPage] ❌ examRef.current est undefined');
+    toast.error("Erreur: impossible de soumettre l'examen");
+    submittingRef.current = false;
+    quizFinishedRef.current = false;
+    setQuizFinished(false);
+    setIsSubmitting(false);
+    return;
+  }
 
   submittingRef.current = true;
   quizFinishedRef.current = true;
@@ -337,34 +348,34 @@ const QuizCompositionPage = () => {
       headers: { Authorization: `Bearer ${token}` }
     } : {};
 
-    // ✅ Correction: Formater les answers correctement
-    // Ne pas envoyer les objets complets, seulement les indices ou les valeurs
+    // ✅ Vérifier que studentInfoRef.current existe
+    const studentData = {
+      firstName: studentInfoRef.current?.firstName || studentInfoRef.current?.name?.split(' ')[0] || '',
+      lastName: studentInfoRef.current?.lastName || studentInfoRef.current?.name?.split(' ')[1] || '',
+      matricule: studentInfoRef.current?.matricule || '',
+      level: studentInfoRef.current?.level || ''
+    };
+
+    // ✅ Formater les answers
     const formattedAnswers = {};
-    Object.entries(answersRef.current).forEach(([questionId, answer]) => {
-      // Si answer est un objet, extraire la valeur
+    Object.entries(answersRef.current || {}).forEach(([questionId, answer]) => {
       if (typeof answer === 'object' && answer !== null) {
         formattedAnswers[questionId] = answer.value || answer.option || String(answer);
-      } else {
+      } else if (answer !== undefined && answer !== null) {
         formattedAnswers[questionId] = String(answer);
       }
     });
 
     console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
       examId: examRef.current._id,
-      studentInfo: studentInfoRef.current,
+      studentInfo: studentData,
       answersCount: Object.keys(formattedAnswers).length,
-      totalQuestions: examRef.current.questions.length,
-      answers: formattedAnswers
+      totalQuestions: examRef.current.questions?.length || 0
     });
 
     const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       examId: examRef.current._id,
-      studentInfo: {
-        firstName: studentInfoRef.current?.firstName || '',
-        lastName: studentInfoRef.current?.lastName || '',
-        matricule: studentInfoRef.current?.matricule || '',
-        level: studentInfoRef.current?.level || ''
-      },
+      studentInfo: studentData,
       answers: formattedAnswers
     }, { 
       timeout: 10000,
@@ -384,7 +395,7 @@ const QuizCompositionPage = () => {
       navigate(`/results/${examRef.current._id}`, {
         state: {
           submittedAnswers: formattedAnswers,
-          studentInfo: studentInfoRef.current,
+          studentInfo: studentData,
           submittedScore: result.score,
           submittedPercentage: result.percentage,
           examTitle: examRef.current.title,
