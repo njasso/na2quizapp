@@ -718,32 +718,9 @@ app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'
 // ==================== RESULT ROUTES ====================
 app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    console.log('[API] Recherche résultats pour matricule:', req.user.matricule);
-    console.log('[API] Utilisateur:', req.user.email, req.user.role);
-    
-    let results = [];
-    if (req.user.matricule) {
-      results = await Result.find({ 'studentInfo.matricule': req.user.matricule })
-        .populate('examId', 'title domain subject level')
-        .sort({ createdAt: -1 });
-    } else {
-      console.warn('[API] Utilisateur sans matricule, recherche par email?');
-      results = await Result.find({ 
-        'studentInfo.email': req.user.email 
-      }).sort({ createdAt: -1 });
-    }
-    
-    console.log('[API] Résultats trouvés:', results.length);
-    
-    res.json({ 
-      success: true, 
-      data: results,
-      count: results.length 
-    });
-  } catch (err) { 
-    console.error('[API] Erreur:', err);
-    res.status(500).json({ success: false, message: err.message }); 
-  }
+    const results = await Result.find({ 'studentInfo.matricule': req.user.matricule }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
 app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
@@ -776,118 +753,41 @@ app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE',
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-// ==================== RESULT ROUTES ====================
-// ✅ ROUTE POST CORRIGÉE - Version finale parfaite
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
-    
-    console.log('[API] Soumission résultats - examId:', examId);
-    console.log('[API] answers reçues:', answers);
-    
     const exam = await Exam.findById(examId);
-    if (!exam) {
-      return res.status(404).json({ success: false, message: 'Examen non trouvé' });
-    }
-    
-    // ✅ Fonction pour extraire les options
-    const getQuestionOptions = (q) => {
-      if (q.options && Array.isArray(q.options) && q.options.length > 0) {
-        return q.options;
-      }
-      const options = [];
-      for (let i = 1; i <= 5; i++) {
-        const optKey = `opRep${i}`;
-        if (q[optKey] && q[optKey] !== '') {
-          options.push(String(q[optKey]));
-        }
-      }
-      return options;
-    };
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     
     let score = 0;
-    const totalQuestions = exam.questions.length;
-    let totalPoints = 0;
+    const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
+    const answersMap = new Map(Object.entries(answers));
     
     exam.questions.forEach(q => {
-      totalPoints += (q.points || 1);
-    });
-    
-    console.log('[API] Total questions:', totalQuestions);
-    console.log('[API] Total points:', totalPoints);
-    
-    // ✅ Calcul du score
-    exam.questions.forEach((q, idx) => {
-      const studentAnswer = answers[idx] || answers[String(idx)];
-      const options = getQuestionOptions(q);
-      const correctAnswerIndex = q.bonOpRep;
-      const correctAnswerText = options[correctAnswerIndex] || q.correctAnswer;
-      
-      let isCorrect = false;
-      if (studentAnswer) {
-        const selectedIndex = options.findIndex(opt => opt === studentAnswer);
-        isCorrect = selectedIndex === correctAnswerIndex;
-      }
-      
-      if (isCorrect) {
-        score += (q.points || 1);
-      }
-      
-      console.log(`[Q${idx}] Réponse: "${studentAnswer || 'NON'}", Correcte: ${isCorrect ? '✓' : '✗'}`);
+      const studentAnswer = answersMap.get(q._id.toString());
+      const isCorrect = studentAnswer != null && Number(studentAnswer) === q.bonOpRep;
+      if (isCorrect) score += (q.points || 1);
     });
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
-    console.log('[API] Score final:', score, '/', totalPoints, '=', percentage, '%');
-    
-    // ✅ Construction du snapshot
-    const examQuestionsWithOptions = exam.questions.map(q => ({
-      _id: q._id,
-      libQuestion: q.libQuestion || q.question || q.text,
-      options: getQuestionOptions(q),
-      bonOpRep: q.bonOpRep,
-      correctAnswer: q.correctAnswer || getQuestionOptions(q)[q.bonOpRep],
-      points: q.points || 1,
-      explanation: q.explanation || ''
-    }));
-    
     const result = new Result({
-      examId,
-      studentInfo: {
-        firstName: studentInfo.firstName || '',
-        lastName: studentInfo.lastName || '',
-        matricule: studentInfo.matricule || '',
-        level: studentInfo.level || ''
-      },
-      answers: new Map(Object.entries(answers)),
-      score,
-      percentage,
-      passed: percentage >= (exam.passingScore || 70),
-      totalQuestions: totalQuestions,
-      examTitle: exam.title,
-      examLevel: exam.level,
-      domain: exam.domain,
-      subject: exam.subject,
-      duration: exam.duration,
-      passingScore: exam.passingScore,
-      examOption: exam.examOption,
-      examQuestions: examQuestionsWithOptions
+      examId, studentInfo: { firstName: studentInfo.firstName, lastName: studentInfo.lastName, matricule: studentInfo.matricule, level: studentInfo.level },
+      answers: answersMap, score, percentage, passed: percentage >= (exam.passingScore || 70), totalQuestions: exam.questions.length,
+      examTitle: exam.title, examLevel: exam.level, domain: exam.domain, subject: exam.subject, category: exam.category,
+      duration: exam.duration, passingScore: exam.passingScore, examOption: exam.examOption, examQuestions: exam.questions
     });
-    
     await result.save();
-    
-    console.log('[API] ✅ Résultat sauvegardé - ID:', result._id);
-    
-    res.status(201).json({ 
-      success: true, 
-      message: 'Résultat soumis avec succès', 
-      data: result 
-    });
-    
-  } catch (err) {
-    console.error('[API] Erreur soumission résultats:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+    res.status(201).json({ success: true, message: 'Résultat soumis avec succès', data: result });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const result = await Result.findByIdAndDelete(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
 // ==================== IA ROUTES ====================
@@ -1232,7 +1132,7 @@ const pendingReconnections = new Map();
 
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: true,  // ✅ Accepte toutes les origines
     credentials: true,
     methods: ['GET', 'POST']
   },
@@ -1244,41 +1144,6 @@ const io = new Server(server, {
   cookie: false
 });
 
-// ✅ Fonction pour calculer la médiane
-function calculateMedian(numbers) {
-  if (numbers.length === 0) return 0;
-  const sorted = [...numbers].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-// ✅ Fonction pour mettre à jour les statistiques globales
-function updateGlobalStats(examId) {
-  const students = Array.from(activeSessions.values()).filter(s =>
-    s.type === 'student' && s.currentExamId === examId && s.status === 'composing'
-  );
-
-  if (students.length === 0) return;
-
-  const scores = students.map(s => s.percentage || 0).filter(s => s > 0);
-  const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-  const passCount = students.filter(s => (s.percentage || 0) >= 70).length;
-  const passRate = students.length > 0 ? (passCount / students.length) * 100 : 0;
-
-  const stats = {
-    examId,
-    activeStudentsCount: students.length,
-    averageScore: avgScore,
-    passRate: passRate,
-    medianScore: calculateMedian(scores),
-    highestScore: Math.max(...scores, 0),
-    lowestScore: Math.min(...scores, 100),
-    lastUpdate: new Date()
-  };
-
-  io.to('surveillance').emit('realtimeExamStats', stats);
-}
-
 const emitSessionUpdate = () => {
   const sessionsToSend = Array.from(activeSessions.values()).filter(s => s.type !== 'surveillance');
   io.emit('sessionUpdate', { activeSessions: sessionsToSend });
@@ -1287,6 +1152,7 @@ const emitSessionUpdate = () => {
 io.on('connection', (socket) => {
   console.log(`[Socket] 🔌 Connexion: ${socket.id}`);
 
+  // ── registerSession ────────────────────────────────────────────
   socket.on('registerSession', (data) => {
     const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
     if (existing) {
@@ -1301,169 +1167,187 @@ io.on('connection', (socket) => {
     }
 
     const session = {
-      socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id, status: data.status || 'idle',
-      currentExamId: data.examId || null, studentInfo: data.studentInfo || null, examOption: data.examOption || null,
-      progress: 0, score: 0, percentage: 0, currentQuestion: 0,
-      lastUpdate: Date.now(), isOnline: true,
+      socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id,
+      status: data.status || 'idle', currentExamId: data.examId || null,
+      studentInfo: data.studentInfo || null, examOption: data.examOption || null,
+      progress: 0, score: 0, lastUpdate: Date.now(), isOnline: true,
     };
     activeSessions.set(socket.id, session);
     if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
     if (data.type === 'terminal') socket.join('terminals');
     if (data.type === 'surveillance') socket.join('surveillance');
-    
-    // ✅ Notifier la surveillance qu'un terminal est prêt
-    if (data.type === 'terminal') {
-      io.to('surveillance').emit('terminalReady', { terminalId: data.sessionId, status: 'connected' });
-    }
-    
     emitSessionUpdate();
+    // Émettre les stats en temps réel après chaque enregistrement
+    emitRealtimeStats(data.examId);
   });
 
-  // ✅ Accusé de réception du terminal
-  socket.on('terminalReadyForExam', (data) => {
-    console.log(`[Socket] 🖥️ Terminal prêt pour épreuve: ${data.examId} (Option ${data.examOption})`);
-    
+  // ── studentReadyForExam ────────────────────────────────────────
+  socket.on('studentReadyForExam', ({ examId, studentInfo, status, examOption, config }) => {
     const session = activeSessions.get(socket.id);
     if (session) {
-      session.status = 'exam_distributed';
-      session.currentExamId = data.examId;
-      session.examOption = data.examOption;
+      session.status = status || 'waiting';
+      session.currentExamId = examId;
+      session.studentInfo = studentInfo;
+      session.examOption = examOption;
+      session.config = config || null;
       session.lastUpdate = Date.now();
-      activeSessions.set(socket.id, session);
-      
-      io.to('surveillance').emit('terminalReady', { 
-        terminalId: session.sessionId, 
-        examId: data.examId, 
-        examOption: data.examOption,
-        status: 'exam_distributed'
-      });
-      
+      if (!session.joinedExam) {
+        socket.join(`exam:${examId}`);
+        session.joinedExam = true;
+      }
+      const waitingCount = Array.from(activeSessions.values())
+        .filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting').length;
+      io.emit('waitingCountUpdate', { examId, count: waitingCount });
       emitSessionUpdate();
+      emitRealtimeStats(examId);
     }
   });
 
-  // ✅ Student ready for exam
-  socket.on('studentReadyForExam', ({ examId, studentInfo, status, examOption }) => {
-  const session = activeSessions.get(socket.id);
-  if (session) {
-    // ✅ TOUS les étudiants commencent en 'waiting' - la page d'attente est universelle
-    session.status = 'waiting';  // ← TOUJOURS waiting
-    session.currentExamId = examId;
-    session.studentInfo = studentInfo;
-    session.examOption = examOption;
-    session.progress = 0;
-    session.score = 0;
-    session.percentage = 0;
-    session.currentQuestion = 0;
-    
-    console.log(`[Socket] 📋 Student ready: ${studentInfo?.firstName} ${studentInfo?.lastName} (${examOption}) → status: waiting`);
-    
-    // Compter les étudiants en attente pour cette épreuve
-    const waitingCount = Array.from(activeSessions.values()).filter(s => 
-      s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-    ).length;
-    io.emit('waitingCountUpdate', { examId, count: waitingCount });
-    
-    emitSessionUpdate();
-  }
-});
-
-  // ✅ Mise à jour de la progression
-  socket.on('updateStudentProgress', (data) => {
-    const session = activeSessions.get(socket.id);
-    if (session && session.type === 'student') {
-      session.progress = data.progress;
-      session.currentQuestion = data.currentQuestion;
-      session.score = data.score;
-      session.percentage = data.percentage;
-      session.lastUpdate = Date.now();
-      activeSessions.set(socket.id, session);
-      
-      // ✅ Diffuser les stats à tous les surveillants
-      io.to('surveillance').emit('studentProgressUpdate', {
-        studentId: socket.id,
-        studentInfo: session.studentInfo,
-        examId: session.currentExamId,
-        progress: data.progress,
-        currentQuestion: data.currentQuestion,
-        score: data.score,
-        percentage: data.percentage
-      });
-      
-      // ✅ Mettre à jour les statistiques globales
-      updateGlobalStats(session.currentExamId);
-      emitSessionUpdate();
-    }
-  });
-
-  // ✅ Distribution de l'épreuve
+  // ── distributeExam — FIX BUG 1: envoyer config aux terminaux ──
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) {
       console.error('[Socket] distributeExam: examId ou examOption manquant', data);
       return;
     }
-    
     console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
-    
-    activeDistributedExams.set(data.examId, { 
-      option: data.examOption, 
-      distributedAt: new Date(), 
-      questionCount: data.questionCount || 0 
+    activeDistributedExams.set(data.examId, {
+      option: data.examOption,
+      config: data.config || null,
+      distributedAt: new Date(),
+      questionCount: data.questionCount || 0
     });
-    
-    io.to('terminals').emit('examDistributed', { 
-      examId: data.examId, 
+    // ✅ FIX: inclure config dans l'événement envoyé aux terminaux
+    io.to('terminals').emit('examDistributed', {
+      examId: data.examId,
       examOption: data.examOption,
+      config: data.config || null,
       timestamp: Date.now()
     });
-    
+    // Notifier la surveillance
+    io.to('surveillance').emit('examDistributedConfirm', {
+      examId: data.examId,
+      examOption: data.examOption,
+      terminalCount: io.sockets.adapter.rooms.get('terminals')?.size || 0
+    });
     console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
   });
 
-  // ✅ Démarrage de l'épreuve (Option B)
+  // ── startExam — FIX BUG 2: gérer Options A, B, C, D ──────────
   socket.on('startExam', ({ examId, option }) => {
-    const waitingStudents = Array.from(activeSessions.values()).filter(s => 
-      s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-    );
-    
-    console.log(`[Socket] 🚀 Démarrage épreuve ${examId} pour ${waitingStudents.length} étudiants`);
-    
-    waitingStudents.forEach(s => {
-      const studentSocket = io.sockets.sockets.get(s.socketId);
-      if (studentSocket) {
-        s.status = 'composing';
-        studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
+    console.log(`[Socket] 🚀 startExam examId=${examId} option=${option}`);
+    const allStudents = Array.from(activeSessions.values())
+      .filter(s => s.type === 'student' && s.currentExamId === examId);
+
+    if (option === 'B') {
+      // Option B : libérer uniquement les étudiants en salle d'attente
+      const waitingStudents = allStudents.filter(s => s.status === 'waiting');
+      if (waitingStudents.length === 0) {
+        socket.emit('noWaitingStudents', { examId, message: 'Aucun étudiant en attente' });
+        return;
       }
-    });
-    
-    io.emit('waitingCountUpdate', { examId, count: 0 });
+      waitingStudents.forEach(s => {
+        const studentSocket = io.sockets.sockets.get(s.socketId);
+        if (studentSocket) {
+          s.status = 'composing';
+          s.lastUpdate = Date.now();
+          studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
+        }
+      });
+      io.emit('waitingCountUpdate', { examId, count: 0 });
+      socket.emit('examStartedConfirm', { examId, option, startedCount: waitingStudents.length });
+
+    } else if (option === 'A') {
+      // Option A : démarrer pour tous (en attente ou déjà en composition)
+      const targetStudents = allStudents.filter(s => s.status === 'waiting' || s.status === 'composing');
+      targetStudents.forEach(s => {
+        const studentSocket = io.sockets.sockets.get(s.socketId);
+        if (studentSocket) {
+          s.status = 'composing';
+          s.lastUpdate = Date.now();
+          // Envoyer examStarted générique + examStartedForOptionB pour compatibilité
+          studentSocket.emit('examStarted', { examId, questionIndex: 0, option: 'A' });
+          studentSocket.emit('examStartedForOptionB', { examId, questionIndex: 0 });
+        }
+      });
+      io.emit('waitingCountUpdate', { examId, count: 0 });
+      socket.emit('examStartedConfirm', { examId, option, startedCount: targetStudents.length });
+
+    } else {
+      // Options C/D : les étudiants démarrent directement — confirmer simplement
+      socket.emit('examStartedConfirm', { examId, option, startedCount: allStudents.length });
+    }
+
     emitSessionUpdate();
-    
-    // ✅ Confirmation du démarrage
-    socket.emit('examStartedConfirm', { examId, startedCount: waitingStudents.length });
+    emitRealtimeStats(examId);
   });
 
-  // ✅ Fin forcée de l'épreuve
+  // ── FIX BUG 4 : displayQuestion — relayer aux étudiants ───────
+  socket.on('displayQuestion', ({ examId, questionIndex }) => {
+    console.log(`[Socket] ❓ displayQuestion examId=${examId} idx=${questionIndex}`);
+    io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex });
+    // Mettre à jour index courant
+    const exam = activeDistributedExams.get(examId);
+    if (exam) exam.currentQuestionIndex = questionIndex;
+    io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex });
+  });
+
+  // ── FIX BUG 4 : advanceQuestionForOptionA — relayer ──────────
+  socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
+    console.log(`[Socket] ⏩ advanceQuestion examId=${examId} next=${nextQuestionIndex}`);
+    io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex });
+    const exam = activeDistributedExams.get(examId);
+    if (exam) exam.currentQuestionIndex = nextQuestionIndex;
+    io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
+  });
+
+  // ── FIX BUG 3 : finishExam — forcer la fin ───────────────────
   socket.on('finishExam', ({ examId }) => {
-    const examStudents = Array.from(activeSessions.values()).filter(s => 
-      s.type === 'student' && s.currentExamId === examId && s.status === 'composing'
-    );
-    
-    examStudents.forEach(s => {
-      const studentSocket = io.sockets.sockets.get(s.socketId);
-      if (studentSocket) {
-        s.status = 'finished';
-        studentSocket.emit('examFinished', { examId });
-      }
-    });
-    
+    console.log(`[Socket] 🏁 finishExam examId=${examId}`);
+    // Envoyer à tous les étudiants de l'épreuve
+    io.to(`exam:${examId}`).emit('examFinished', { examId });
+    // Envoyer à tous les terminaux pour reset
+    io.to('terminals').emit('examFinished', { examId });
+    // Mettre à jour les sessions
+    Array.from(activeSessions.values())
+      .filter(s => s.type === 'student' && s.currentExamId === examId)
+      .forEach(s => { s.status = 'finished'; s.lastUpdate = Date.now(); });
     emitSessionUpdate();
+    emitRealtimeStats(examId);
   });
 
+  // ── updateStudentProgress ─────────────────────────────────────
+  socket.on('updateStudentProgress', ({ examId, progress, score, currentQuestion }) => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.progress = progress || 0;
+      session.score = score || 0;
+      session.currentQuestion = currentQuestion || 0;
+      session.lastUpdate = Date.now();
+    }
+    emitRealtimeStats(examId);
+  });
+
+  // ── ping ──────────────────────────────────────────────────────
+  socket.on('ping', () => {
+    const session = activeSessions.get(socket.id);
+    if (session) { session.lastUpdate = Date.now(); session.isOnline = true; }
+    socket.emit('pong');
+  });
+
+  // ── disconnect ────────────────────────────────────────────────
   socket.on('disconnect', () => {
     const session = activeSessions.get(socket.id);
     if (session) {
       session.isOnline = false;
+      if (session.type === 'student') {
+        io.to('surveillance').emit('studentDisconnected', {
+          studentName: session.studentInfo
+            ? `${session.studentInfo.firstName} ${session.studentInfo.lastName}`
+            : 'Inconnu',
+          examId: session.currentExamId,
+          socketId: socket.id
+        });
+      }
       const timeout = setTimeout(() => {
         const current = activeSessions.get(socket.id);
         if (current && !current.isOnline) {
@@ -1477,7 +1361,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Routes API pour les sessions actives
 app.get('/api/active-sessions', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   res.json({ success: true, count: sessions.length, sessions });
@@ -1485,14 +1368,19 @@ app.get('/api/active-sessions', (req, res) => {
 
 app.get('/api/surveillance-data', (req, res) => {
   const sessions = Array.from(activeSessions.values());
-  const waitingStudents = sessions.filter(s => s.type === 'student' && s.status === 'waiting');
-  const realtimeStats = {
-    activeStudentsCount: sessions.filter(s => s.type === 'student' && s.status === 'composing').length,
-    averageScore: 0,
-    passRate: 0,
-    lastUpdate: new Date()
-  };
-  res.json({ success: true, activeSessions: sessions, waitingStudents, realtimeStats });
+  const students = sessions.filter(s => s.type === 'student');
+  const waitingStudents = students.filter(s => s.status === 'waiting');
+  // Grouper les stats par épreuve
+  const examStats = {};
+  students.forEach(s => {
+    if (!s.currentExamId) return;
+    if (!examStats[s.currentExamId]) {
+      examStats[s.currentExamId] = { total: 0, waiting: 0, composing: 0, finished: 0, avgProgress: 0 };
+    }
+    examStats[s.currentExamId].total++;
+    examStats[s.currentExamId][s.status] = (examStats[s.currentExamId][s.status] || 0) + 1;
+  });
+  res.json({ success: true, activeSessions: sessions, waitingStudents, realtimeStats: examStats });
 });
 
 // ==================== 404 ====================

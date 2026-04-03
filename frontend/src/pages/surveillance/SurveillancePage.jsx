@@ -454,6 +454,7 @@ const SurveillancePage = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [waitingCounts, setWaitingCounts] = useState({}); // ✅ FIX BUG 6 : compteur par épreuve
   const [isStartingExam, setIsStartingExam] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [sessionHistory, setSessionHistory] = useState([]);
@@ -555,165 +556,145 @@ const SurveillancePage = () => {
   const totalStudents = studentsWaitingForStart.length + studentsReady.length + studentsActive.length;
 
   // ══════════════════════════════════════════════════════════════
-//  CONNEXION SOCKET.IO
-// ══════════════════════════════════════════════════════════════
+  //  CONNEXION SOCKET.IO
+  // ══════════════════════════════════════════════════════════════
 
-useEffect(() => {
-  if (socketInitialized.current) {
-    console.log('[Surveillance] Socket déjà initialisé, skip');
-    return;
-  }
-
-  socketInitialized.current = true;
-  console.log('[Surveillance] Initialisation Socket.IO');
-
-  const socket = io(SOCKET_URL, {
-    transports: ['polling', 'websocket'],
-    path: '/socket.io',
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    timeout: 20000,
-    forceNew: true,
-    autoConnect: true,
-  });
-
-  socketRef.current = socket;
-
-  socket.on('connect', () => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] Socket connecté');
-    setIsConnected(true);
-    setSocketError(null);
-    setReconnectAttempt(0);
-    toast.success('Connecté au serveur de surveillance.');
-    socket.emit('registerSession', { type: 'surveillance' });
-  });
-
-  socket.on('disconnect', (reason) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] Déconnecté:', reason);
-    setIsConnected(false);
-    if (reason !== 'io client disconnect') {
-      addAlert({ type: 'disconnect', message: 'Déconnexion du serveur', severity: 'high' });
+  useEffect(() => {
+    if (socketInitialized.current) {
+      console.log('[Surveillance] Socket déjà initialisé, skip');
+      return;
     }
-  });
 
-  socket.on('connect_error', (err) => {
-    if (!isMounted.current) return;
-    console.error('[Surveillance] Erreur connexion:', err.message);
-    setIsConnected(false);
-    setSocketError(err.message);
-    addAlert({ type: 'connection_error', message: `Erreur: ${err.message}`, severity: 'medium' });
-  });
+    socketInitialized.current = true;
+    console.log('[Surveillance] Initialisation Socket.IO');
 
-  socket.on('reconnect_attempt', (attempt) => {
-    if (!isMounted.current) return;
-    setReconnectAttempt(attempt);
-  });
-
-  socket.on('reconnect', () => {
-    if (!isMounted.current) return;
-    toast.success('Reconnecté au serveur.');
-    addAlert({ type: 'reconnect', message: 'Reconnexion réussie', severity: 'info' });
-  });
-
-  socket.on('sessionUpdate', (data) => {
-    if (!isMounted.current) return;
-    const sessions = data.activeSessions || [];
-    const enrichedSessions = sessions.map(s => {
-      if (s.type === 'student' && s.currentExamId) {
-        return { ...s, examInfo: getExamInfo(s.currentExamId) };
-      }
-      return s;
+    const socket = io(SOCKET_URL, {
+      transports: ['polling', 'websocket'],
+      path: '/socket.io',
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      forceNew: true,
+      autoConnect: true,
     });
-    setActiveSessions(enrichedSessions);
-  });
 
-  socket.on('realtimeExamStats', (stats) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] 📈 Stats reçues:', stats);
-    setRealtimeStats(stats);
-  });
+    socketRef.current = socket;
 
-  // ✅ NOUVEAU: Écouter les mises à jour de progression individuelles
-  socket.on('studentProgressUpdate', (data) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] 📊 Progression reçue:', data);
-    
-    setActiveSessions(prev => prev.map(session => {
-      if (session.socketId === data.studentId) {
-        return {
-          ...session,
-          progress: data.progress,
-          currentQuestion: data.currentQuestion,
-          score: data.score,
-          percentage: data.percentage,
-          lastUpdate: Date.now()
-        };
+    socket.on('connect', () => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] Socket connecté');
+      setIsConnected(true);
+      setSocketError(null);
+      setReconnectAttempt(0);
+      toast.success('Connecté au serveur de surveillance.');
+      socket.emit('registerSession', { type: 'surveillance' });
+    });
+
+    socket.on('disconnect', (reason) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] Déconnecté:', reason);
+      setIsConnected(false);
+      if (reason !== 'io client disconnect') {
+        addAlert({ type: 'disconnect', message: 'Déconnexion du serveur', severity: 'high' });
       }
-      return session;
-    }));
-  });
+    });
 
-  socket.on('currentQuestionIndexForOptionA', (data) => {
-    if (!isMounted.current || !data.examId) return;
-    setCurrentQIdx(prev => ({ ...prev, [data.examId]: data.questionIndex }));
-  });
+    socket.on('connect_error', (err) => {
+      if (!isMounted.current) return;
+      console.error('[Surveillance] Erreur connexion:', err.message);
+      setIsConnected(false);
+      setSocketError(err.message);
+      addAlert({ type: 'connection_error', message: `Erreur: ${err.message}`, severity: 'medium' });
+    });
 
-  socket.on('waitingCountUpdate', (data) => {
-    if (!isMounted.current) return;
-    console.log(`[Waiting] Exam ${data.examId}: ${data.count} en attente`);
-  });
+    socket.on('reconnect_attempt', (attempt) => {
+      if (!isMounted.current) return;
+      setReconnectAttempt(attempt);
+    });
 
-  socket.on('examStartedConfirm', (data) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] ✅ Confirmation démarrage:', data);
-    setIsStartingExam(false);
-    if (data.startedCount > 0) {
-      toast.success(`✅ ${data.startedCount} étudiant(s) ont commencé l'épreuve !`);
-    } else {
-      toast('⚠️ Aucun étudiant n\'a pu démarrer l\'épreuve.', { icon: '⚠️' });
-      addAlert({ type: 'start_failed', message: 'Aucun étudiant n\'a démarré l\'épreuve', severity: 'medium' });
-    }
-  });
+    socket.on('reconnect', () => {
+      if (!isMounted.current) return;
+      toast.success('Reconnecté au serveur.');
+      addAlert({ type: 'reconnect', message: 'Reconnexion réussie', severity: 'info' });
+    });
 
-  socket.on('startExamError', (data) => {
-    if (!isMounted.current) return;
-    console.error('[Surveillance] ❌ Erreur démarrage:', data);
-    setIsStartingExam(false);
-    addAlert({ type: 'start_error', message: `Erreur: ${data.error}`, severity: 'high' });
-  });
+    socket.on('sessionUpdate', (data) => {
+      if (!isMounted.current) return;
+      const sessions = data.activeSessions || [];
+      const enrichedSessions = sessions.map(s => {
+        if (s.type === 'student' && s.currentExamId) {
+          return { ...s, examInfo: getExamInfo(s.currentExamId) };
+        }
+        return s;
+      });
+      setActiveSessions(enrichedSessions);
+    });
 
-  socket.on('noWaitingStudents', (data) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] ⚠️ Aucun étudiant en attente:', data);
-    setIsStartingExam(false);
-    addAlert({ type: 'no_students', message: 'Aucun étudiant en attente pour cette épreuve', severity: 'medium' });
-  });
+    socket.on('realtimeExamStats', (stats) => {
+      if (!isMounted.current) return;
+      setRealtimeStats(stats);
+    });
 
-  socket.on('studentDisconnected', (data) => {
-    if (!isMounted.current) return;
-    addAlert({ type: 'student_disconnect', message: `Étudiant ${data.studentName} s'est déconnecté`, severity: 'low' });
-  });
+    socket.on('currentQuestionIndexForOptionA', (data) => {
+      if (!isMounted.current || !data.examId) return;
+      setCurrentQIdx(prev => ({ ...prev, [data.examId]: data.questionIndex }));
+    });
 
-  // ✅ NOUVEAU: Écouter les terminaux prêts
-  socket.on('terminalReady', (data) => {
-    if (!isMounted.current) return;
-    console.log('[Surveillance] 🖥️ Terminal prêt:', data);
-    addAlert({ type: 'terminal_ready', message: `Terminal ${data.terminalId} prêt pour l'épreuve`, severity: 'low' });
-  });
+    socket.on('waitingCountUpdate', (data) => {
+      if (!isMounted.current) return;
+      console.log(`[Waiting] Exam ${data.examId}: ${data.count} en attente`);
+      // ✅ FIX BUG 6 : mettre à jour le compteur dans le state
+      setWaitingCounts(prev => ({ ...prev, [data.examId]: data.count }));
+    });
 
-  return () => {
-    console.log('[Surveillance] Nettoyage socket');
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-    socketInitialized.current = false;
-  };
-}, [addAlert, getExamInfo]);
+    socket.on('examStartedConfirm', (data) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] ✅ Confirmation démarrage:', data);
+      setIsStartingExam(false);
+      if (data.startedCount > 0) {
+        toast.success(`✅ ${data.startedCount} étudiant(s) ont commencé l'épreuve !`);
+      } else {
+        toast('⚠️ Aucun étudiant n\'a pu démarrer l\'épreuve.', { icon: '⚠️' });
+        addAlert({ type: 'start_failed', message: 'Aucun étudiant n\'a démarré l\'épreuve', severity: 'medium' });
+      }
+    });
+
+    // ✅ FIX BUG 1 : confirmer la distribution avec le nombre de terminaux
+    socket.on('examDistributedConfirm', (data) => {
+      if (!isMounted.current) return;
+      toast.success(`📡 Épreuve envoyée à ${data.terminalCount} terminal(aux) — Option ${data.examOption}`);
+    });
+
+    socket.on('startExamError', (data) => {
+      if (!isMounted.current) return;
+      console.error('[Surveillance] ❌ Erreur démarrage:', data);
+      setIsStartingExam(false);
+      addAlert({ type: 'start_error', message: `Erreur: ${data.error}`, severity: 'high' });
+    });
+
+    socket.on('noWaitingStudents', (data) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] ⚠️ Aucun étudiant en attente:', data);
+      setIsStartingExam(false);
+      addAlert({ type: 'no_students', message: 'Aucun étudiant en attente pour cette épreuve', severity: 'medium' });
+    });
+
+    socket.on('studentDisconnected', (data) => {
+      if (!isMounted.current) return;
+      addAlert({ type: 'student_disconnect', message: `Étudiant ${data.studentName} s'est déconnecté`, severity: 'low' });
+    });
+
+    return () => {
+      console.log('[Surveillance] Nettoyage socket');
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      socketInitialized.current = false;
+    };
+  }, [addAlert, getExamInfo]);
 
   // ══════════════════════════════════════════════════════════════
   //  POLLING
@@ -970,12 +951,29 @@ useEffect(() => {
     if (!selectedExamOption) return toast.error('Choisissez une option.');
     if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
 
+    const exam = exams.find(e => e._id === selectedExamId);
+    // ✅ FIX BUG 1 : inclure config dans la distribution
+    const configToSend = exam?.config || {
+      examOption: selectedExamOption,
+      openRange: false,
+      sequencing: 'identical',
+      allowRetry: false,
+      showBinaryResult: false,
+      showCorrectAnswer: false,
+      timerPerQuestion: true,
+      timePerQuestion: 60,
+      totalTime: 60,
+    };
+    configToSend.examOption = selectedExamOption;
+
     socketRef.current.emit('distributeExam', {
       examId: selectedExamId,
       examOption: selectedExamOption,
+      config: configToSend,
+      questionCount: exam?.questions?.length || 0,
     });
-    toast.success(`Épreuve distribuée — Option ${selectedExamOption}`);
-  }, [selectedExamId, selectedExamOption]);
+    toast.success(`Épreuve distribuée — Option ${selectedExamOption} (${exam?.questions?.length || '?'} questions)`);
+  }, [selectedExamId, selectedExamOption, exams]);
 
   const handleStartExam = useCallback(() => {
     if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
