@@ -1,5 +1,5 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec lien terminal fonctionnel pour APPRENANT
+// Version avec lien terminal dynamique (local/production)
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,6 +12,7 @@ import {
   FileQuestion, GraduationCap, Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import ENV_CONFIG from '../../config/env';
 
 // ========== PALETTE SOMBRE TAMISÉE ==========
 const COLORS = {
@@ -35,6 +36,11 @@ const COLORS = {
   bgGradientMid: '#0a0f2e',
   bgGradientEnd: '#05071a'
 };
+
+// ========== DÉTECTION DE L'ENVIRONNEMENT ==========
+const TERMINAL_URL = ENV_CONFIG.TERMINAL_URL;
+
+console.log('[EvaluationSummative] Terminal URL:', TERMINAL_URL);
 
 // ========== MODULES AVEC RÔLES CORRIGÉS ==========
 const ALL_MODULES = [
@@ -61,7 +67,8 @@ const ALL_MODULES = [
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
     tag: 'Banque',
-    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    // ✅ RETIRÉ OPERATEUR_EVALUATION
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
     id: 'ai',
@@ -85,6 +92,7 @@ const ALL_MODULES = [
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Épreuves',
+    // ✅ GARDÉ OPERATEUR_EVALUATION
     roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -97,6 +105,7 @@ const ALL_MODULES = [
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
     tag: 'Live',
+    // ✅ GARDÉ OPERATEUR_EVALUATION
     roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -211,7 +220,7 @@ const ALL_MODULES = [
   },
   {
     id: 'terminal',
-    path: 'https://na2quizapp.onrender.com/terminal.html',
+    path: TERMINAL_URL,  // ✅ URL dynamique selon environnement
     icon: Terminal,
     title: 'Terminal d\'examen',
     subtitle: 'Poste candidat',
@@ -312,7 +321,7 @@ const EvaluationSummative = () => {
 
   const handleModuleClick = (mod) => {
     if (mod.external) {
-      // Ouvre le terminal dans un nouvel onglet
+      // Ouvre le terminal dans un nouvel onglet (URL déjà dynamique)
       window.open(mod.path, '_blank', 'noopener,noreferrer');
     } else {
       navigate(mod.path);

@@ -1271,8 +1271,15 @@ const emitSessionUpdate = () => {
 io.on('connection', (socket) => {
   console.log(`[Socket] 🔌 Connexion: ${socket.id}`);
 
+  // ✅ NOUVEAU: Enregistrement automatique comme terminal par défaut
+  // Pour s'assurer que tout socket non enregistré puisse recevoir les distributions
+  socket.join('terminals');
+  console.log(`[Socket] ✅ Socket ${socket.id} automatiquement ajouté à la room 'terminals'`);
+
   // ── registerSession ────────────────────────────────────────────
   socket.on('registerSession', (data) => {
+    console.log(`[Socket] registerSession reçu: type=${data.type}, sessionId=${data.sessionId}, socketId=${socket.id}`);
+    
     const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
     if (existing) {
       const pending = pendingReconnections.get(data.sessionId);
@@ -1280,7 +1287,20 @@ io.on('connection', (socket) => {
       activeSessions.delete(existing.socketId);
       Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
       activeSessions.set(socket.id, existing);
-      if (existing.type === 'student' && existing.currentExamId) socket.join(`exam:${existing.currentExamId}`);
+      
+      // ✅ S'assurer que le socket est dans la bonne room
+      if (existing.type === 'terminal') {
+        socket.join('terminals');
+        console.log(`[Socket] Terminal ${socket.id} a rejoint la room 'terminals' (reconnexion)`);
+      }
+      if (existing.type === 'student' && existing.currentExamId) {
+        socket.join(`exam:${existing.currentExamId}`);
+        console.log(`[Socket] Student ${socket.id} a rejoint exam:${existing.currentExamId}`);
+      }
+      if (existing.type === 'surveillance') {
+        socket.join('surveillance');
+      }
+      
       emitSessionUpdate();
       if (existing.currentExamId) emitRealtimeStats(existing.currentExamId);
       return;
@@ -1293,18 +1313,31 @@ io.on('connection', (socket) => {
       progress: 0, score: 0, currentQuestion: 0, lastUpdate: Date.now(), isOnline: true,
     };
     activeSessions.set(socket.id, session);
-    if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
-    if (data.type === 'terminal') socket.join('terminals');
-    if (data.type === 'surveillance') socket.join('surveillance');
+    
+    // ✅ Rejoindre les rooms appropriées
+    if (data.type === 'student' && data.examId) {
+      socket.join(`exam:${data.examId}`);
+      console.log(`[Socket] Student ${socket.id} a rejoint exam:${data.examId}`);
+    }
+    if (data.type === 'terminal') {
+      socket.join('terminals');
+      console.log(`[Socket] Terminal ${socket.id} a rejoint la room 'terminals'`);
+    }
+    if (data.type === 'surveillance') {
+      socket.join('surveillance');
+      console.log(`[Socket] Surveillance ${socket.id} a rejoint la room 'surveillance'`);
+    }
+    
     emitSessionUpdate();
     if (data.examId) emitRealtimeStats(data.examId);
   });
 
-  // ── studentReadyForExam — TOUS les étudiants en waiting ─────────
+  // ── studentReadyForExam ────────────────────────────────────────
   socket.on('studentReadyForExam', ({ examId, studentInfo, examOption, config }) => {
+    console.log(`[Socket] studentReadyForExam: examId=${examId}, option=${examOption}, socketId=${socket.id}`);
+    
     const session = activeSessions.get(socket.id);
     if (session) {
-      // ✅ TOUJOURS 'waiting' - page d'attente universelle
       session.status = 'waiting';
       session.currentExamId = examId;
       session.studentInfo = studentInfo;
@@ -1314,22 +1347,41 @@ io.on('connection', (socket) => {
       if (!session.joinedExam) {
         socket.join(`exam:${examId}`);
         session.joinedExam = true;
+        console.log(`[Socket] Student ${socket.id} a rejoint exam:${examId}`);
       }
       
       const waitingCount = Array.from(activeSessions.values())
         .filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting').length;
+      console.log(`[Socket] Compteur attente pour ${examId}: ${waitingCount}`);
       io.emit('waitingCountUpdate', { examId, count: waitingCount });
       emitSessionUpdate();
+    } else {
+      console.warn(`[Socket] studentReadyForExam: session non trouvée pour socket ${socket.id}`);
     }
   });
 
-  // ── distributeExam — envoyer config aux terminaux ──────────────
+  // ── distributeExam — avec logs améliorés ────────────────────────
   socket.on('distributeExam', (data) => {
     if (!data.examId || !data.examOption) {
       console.error('[Socket] distributeExam: examId ou examOption manquant', data);
       return;
     }
+    
+    // ✅ Vérifier la room 'terminals'
+    const terminalsRoom = io.sockets.adapter.rooms.get('terminals');
+    const terminalsCount = terminalsRoom?.size || 0;
+    const allSocketsCount = io.sockets.sockets.size;
+    
     console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
+    console.log(`[Socket] 📊 Statut: Room 'terminals' = ${terminalsCount} sockets, Total sockets = ${allSocketsCount}`);
+    
+    // ✅ Lister les terminaux actifs
+    const terminalSessions = Array.from(activeSessions.values())
+      .filter(s => s.type === 'terminal' && s.isOnline !== false);
+    console.log(`[Socket] 📊 Terminaux actifs dans activeSessions: ${terminalSessions.length}`);
+    terminalSessions.forEach(s => {
+      console.log(`[Socket]   - Terminal: socketId=${s.socketId}, sessionId=${s.sessionId}, status=${s.status}`);
+    });
     
     activeDistributedExams.set(data.examId, {
       option: data.examOption,
@@ -1338,6 +1390,7 @@ io.on('connection', (socket) => {
       questionCount: data.questionCount || 0
     });
     
+    // ✅ Envoyer à la room 'terminals'
     io.to('terminals').emit('examDistributed', {
       examId: data.examId,
       examOption: data.examOption,
@@ -1345,41 +1398,57 @@ io.on('connection', (socket) => {
       timestamp: Date.now()
     });
     
+    // ✅ Envoi individuel de secours à tous les sockets terminaux
+    terminalSessions.forEach(session => {
+      const targetSocket = io.sockets.sockets.get(session.socketId);
+      if (targetSocket && targetSocket.connected) {
+        targetSocket.emit('examDistributed', {
+          examId: data.examId,
+          examOption: data.examOption,
+          config: data.config || null,
+          timestamp: Date.now()
+        });
+        console.log(`[Socket] ✅ Envoi direct à ${session.socketId}`);
+      }
+    });
+    
     io.to('surveillance').emit('examDistributedConfirm', {
       examId: data.examId,
       examOption: data.examOption,
-      terminalCount: io.sockets.adapter.rooms.get('terminals')?.size || 0
+      terminalCount: terminalsCount
     });
-    console.log(`[Socket] ✅ Épreuve distribuée à ${io.sockets.adapter.rooms.get('terminals')?.size || 0} terminaux`);
+    console.log(`[Socket] ✅ Épreuve distribuée à ${terminalsCount} terminaux (room) + ${terminalSessions.length} directs`);
   });
 
-  // ── startExam — Démarrage SYNCHRONISÉ pour TOUS ────────────────
+  // ── startExam ──────────────────────────────────────────────────
   socket.on('startExam', ({ examId, option }) => {
     console.log(`[Socket] 🚀 startExam examId=${examId} option=${option}`);
     
-    // ✅ Récupérer TOUS les étudiants en attente
     const waitingStudents = Array.from(activeSessions.values()).filter(s => 
       s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
     );
+    
+    console.log(`[Socket] Étudiants en attente pour ${examId}: ${waitingStudents.length}`);
     
     if (waitingStudents.length === 0) {
       socket.emit('noWaitingStudents', { examId, message: 'Aucun étudiant en attente' });
       return;
     }
     
-    // ✅ Envoyer à chaque étudiant son événement de démarrage
     waitingStudents.forEach(s => {
       const studentSocket = io.sockets.sockets.get(s.socketId);
-      if (studentSocket) {
+      if (studentSocket && studentSocket.connected) {
         s.status = 'composing';
         s.lastUpdate = Date.now();
         
-        // ✅ Envoyer l'option pour que QuizCompositionPage sache comment se comporter
         studentSocket.emit('examStarted', { 
           examId, 
           questionIndex: 0, 
           examOption: s.examOption 
         });
+        console.log(`[Socket] ✅ examStarted envoyé à ${s.socketId}`);
+      } else {
+        console.warn(`[Socket] ❌ Socket étudiant non trouvé ou déconnecté: ${s.socketId}`);
       }
     });
     
@@ -1389,21 +1458,21 @@ io.on('connection', (socket) => {
     emitRealtimeStats(examId);
   });
 
-  // ── displayQuestion — Pour Option A (superviseur avance) ────────
+  // ── displayQuestion ────────────────────────────────────────────
   socket.on('displayQuestion', ({ examId, questionIndex }) => {
     console.log(`[Socket] ❓ displayQuestion examId=${examId} idx=${questionIndex}`);
     io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex });
     io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex });
   });
 
-  // ── advanceQuestionForOptionA — Avancement automatique (60s) ────
+  // ── advanceQuestionForOptionA ──────────────────────────────────
   socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
     console.log(`[Socket] ⏩ advanceQuestion examId=${examId} next=${nextQuestionIndex}`);
     io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex });
     io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
   });
 
-  // ── finishExam — Forcer la fin de l'épreuve ────────────────────
+  // ── finishExam ─────────────────────────────────────────────────
   socket.on('finishExam', ({ examId }) => {
     console.log(`[Socket] 🏁 finishExam examId=${examId}`);
     io.to(`exam:${examId}`).emit('examFinished', { examId });
@@ -1417,7 +1486,7 @@ io.on('connection', (socket) => {
     emitRealtimeStats(examId);
   });
 
-  // ── updateStudentProgress ─────────────────────────────────────
+  // ── updateStudentProgress ──────────────────────────────────────
   socket.on('updateStudentProgress', ({ examId, progress, score, currentQuestion, percentage }) => {
     const session = activeSessions.get(socket.id);
     if (session) {
@@ -1440,7 +1509,7 @@ io.on('connection', (socket) => {
     emitRealtimeStats(examId);
   });
 
-  // ── terminalReadyForExam ──────────────────────────────────────
+  // ── terminalReadyForExam ───────────────────────────────────────
   socket.on('terminalReadyForExam', (data) => {
     console.log(`[Socket] 🖥️ Terminal prêt pour épreuve: ${data.examId} (Option ${data.examOption})`);
     const session = activeSessions.get(socket.id);
@@ -1457,18 +1526,21 @@ io.on('connection', (socket) => {
         status: 'exam_distributed'
       });
       emitSessionUpdate();
+    } else {
+      console.warn(`[Socket] terminalReadyForExam: session non trouvée pour socket ${socket.id}`);
     }
   });
 
-  // ── ping ──────────────────────────────────────────────────────
+  // ── ping ───────────────────────────────────────────────────────
   socket.on('ping', () => {
     const session = activeSessions.get(socket.id);
     if (session) { session.lastUpdate = Date.now(); session.isOnline = true; }
     socket.emit('pong');
   });
 
-  // ── disconnect ────────────────────────────────────────────────
+  // ── disconnect ─────────────────────────────────────────────────
   socket.on('disconnect', () => {
+    console.log(`[Socket] 👋 Déconnexion: ${socket.id}`);
     const session = activeSessions.get(socket.id);
     if (session) {
       session.isOnline = false;
@@ -1487,6 +1559,7 @@ io.on('connection', (socket) => {
         if (current && !current.isOnline) {
           activeSessions.delete(socket.id);
           emitSessionUpdate();
+          console.log(`[Socket] 🗑️ Session expirée supprimée: ${socket.id}`);
         }
         pendingReconnections.delete(session.sessionId);
       }, 45000);

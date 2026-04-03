@@ -8,8 +8,12 @@ import { toast, Toaster } from 'react-hot-toast';
 import QRCode from 'qrcode';
 import logo from '../logo.png';
 import { Download, CheckCircle, XCircle, Award, User, Calendar, FileText, Printer, Settings } from 'lucide-react';
+import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://na2quizapp.onrender.com' : 'http://localhost:5000');
+const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+console.log('[ResultsPage] Backend URL:', NODE_BACKEND_URL);
+console.log('[ResultsPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
 // ✅ Fonction pour récupérer le token JWT
 const getAuthToken = () => {
@@ -75,7 +79,7 @@ const ResultsPage = () => {
             localStorage.removeItem(`exam_${examId}_attempts`);
             localStorage.removeItem(`exam_${examId}_showResult`);
         }
-        const redirectUrl = `https://na2quizapp.onrender.com/terminal.html${terminalSessionId ? `?sessionId=${terminalSessionId}` : ''}`;
+        const redirectUrl = `${ENV_CONFIG.TERMINAL_URL}${terminalSessionId ? `?sessionId=${terminalSessionId}` : ''}`;
         window.location.replace(redirectUrl);
     }, [terminalSessionId, cleanupBeforeRedirect, examId]);
 
@@ -96,13 +100,12 @@ const ResultsPage = () => {
         setTimeout(() => {
             setRedirectTimerActive(true);
             setCountdown(120);
-            toast.info("Retour automatique au terminal dans 2 minutes", { duration: 3000 });
+            toast.success("Retour automatique au terminal dans 2 minutes", { duration: 3000 });
         }, 300000);
     }, []);
 
     // ✅ Fonction pour normaliser les questions - Version corrigée
     const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
-        // Déterminer l'index de la bonne réponse
         let correctAnswerIndex = -1;
         let correctAnswerText = '';
         
@@ -114,12 +117,10 @@ const ResultsPage = () => {
             correctAnswerIndex = q.options?.findIndex(opt => opt === q.correctAnswer) || -1;
         }
         
-        // ✅ Récupérer la réponse de l'étudiant
         let finalStudentAnswer = 'Non répondu';
         if (studentAnswer && studentAnswer !== 'Non répondu' && studentAnswer !== undefined) {
             finalStudentAnswer = studentAnswer;
         } else if (submittedAnswers) {
-            // Essayer différentes clés pour trouver la réponse
             const qId = q._id?.toString();
             finalStudentAnswer = submittedAnswers[qId] 
                 || submittedAnswers[q._id] 
@@ -129,7 +130,6 @@ const ResultsPage = () => {
                 || 'Non répondu';
         }
         
-        // Déterminer si la réponse est correcte
         let isCorrect = false;
         if (finalStudentAnswer !== 'Non répondu') {
             if (typeof q.bonOpRep === 'number') {
@@ -158,6 +158,15 @@ const ResultsPage = () => {
         };
     };
 
+    // ✅ CORRECTION: Fonction pour obtenir le nombre total de questions
+    const getTotalQuestionsCount = useCallback(() => {
+        if (exam?.questions?.length > 0) return exam.questions.length;
+        if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
+        if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
+        if (questionDetailsRef.current.length > 0) return questionDetailsRef.current.length;
+        return 0;
+    }, [exam, passedResultSnapshot, passedExamQuestions]);
+
     useEffect(() => {
         if (!examId || !submittedAnswers || !studentInfo || submittedScore === undefined || submittedPercentage === undefined) {
             console.error('Données manquantes:', { examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage });
@@ -173,32 +182,58 @@ const ResultsPage = () => {
                     headers: { Authorization: `Bearer ${token}` }
                 } : {};
 
-                // ✅ Utiliser le snapshot s'il existe
+                // ✅ PRIORITÉ ABSOLUE au snapshot
                 if (passedResultSnapshot?.examQuestions?.length > 0) {
                     console.log('Utilisation du snapshot avec', passedResultSnapshot.examQuestions.length, 'questions');
                     questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
                         return normalizeQuestionForDisplay(q, null, idx);
                     });
+                    
+                    // ✅ CRÉER L'OBJET EXAM COMPLET À PARTIR DU SNAPSHOT
+                    setExam({
+                        _id: examId,
+                        title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
+                        questions: passedResultSnapshot.examQuestions || [],
+                        passingScore: passedResultSnapshot.passingScore || passedPassingScore || 70,
+                        domain: passedResultSnapshot.domain || 'N/A',
+                        subject: passedResultSnapshot.subject || 'N/A',
+                        level: passedResultSnapshot.examLevel || studentInfo?.level || 'N/A',
+                        duration: passedResultSnapshot.duration || 60,
+                        totalPoints: passedResultSnapshot.examQuestions?.reduce((sum, q) => sum + (q.points || 1), 0) || 20
+                    });
+                    setConfig(passedResultSnapshot.config || null);
+                    setIsLoading(false);
+                    
+                    // ✅ Afficher le toast de résultat
+                    const actualPassingScore = passedResultSnapshot.passingScore || passedPassingScore || 70;
+                    const passStatusText = submittedPercentage >= actualPassingScore ? 'Réussi' : 'Échoué';
+                    toast[passStatusText === 'Réussi' ? 'success' : 'error'](
+                        `${passStatusText === 'Réussi' ? 'Félicitations' : 'Dommage'} ! Vous avez ${submittedPercentage.toFixed(2)}%` +
+                        (actualPassingScore ? ` (seuil: ${actualPassingScore}%)` : '')
+                    );
+                    return;
                 }
 
+                // ✅ Fallback: appel API
                 const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
                     timeout: 10000,
                     ...axiosConfig 
                 });
                 
                 const examData = response.data;
-                setExam(examData);
+                const questionsArray = examData.questions || [];
+                
+                setExam({
+                    ...examData,
+                    questions: questionsArray
+                });
                 setConfig(examData.config || null);
 
-                // ✅ Si pas de snapshot, construire depuis les questions de l'examen
-                if (!passedResultSnapshot?.examQuestions?.length) {
-                    console.log('Construction des questions depuis l\'examen');
-                    questionDetailsRef.current = examData.questions.map((q, idx) => {
-                        return normalizeQuestionForDisplay(q, null, idx);
-                    });
-                }
+                questionDetailsRef.current = questionsArray.map((q, idx) => {
+                    return normalizeQuestionForDisplay(q, null, idx);
+                });
 
-                const actualPassingScore = examData.passingScore || passedPassingScore;
+                const actualPassingScore = examData.passingScore || passedPassingScore || 70;
                 const passStatusText = submittedPercentage >= actualPassingScore ? 'Réussi' : 'Échoué';
                 toast[passStatusText === 'Réussi' ? 'success' : 'error'](
                     `${passStatusText === 'Réussi' ? 'Félicitations' : 'Dommage'} ! Vous avez ${submittedPercentage.toFixed(2)}%` +
@@ -215,21 +250,22 @@ const ResultsPage = () => {
                     return;
                 }
                 
-                // Fallback: utiliser les données passées dans state
+                // ✅ Fallback final: utiliser les données passées dans state
                 if (passedExamQuestions?.length > 0) {
                     console.log('Fallback vers passedExamQuestions');
                     questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
                         return normalizeQuestionForDisplay(q, null, idx);
                     });
                     setExam({
+                        _id: examId,
                         title: passedExamTitle || 'Titre inconnu',
                         questions: passedExamQuestions,
-                        passingScore: passedPassingScore,
+                        passingScore: passedPassingScore || 70,
                         domain: passedResultSnapshot?.domain || 'N/A',
                         subject: passedResultSnapshot?.subject || 'N/A',
-                        category: passedResultSnapshot?.category || 'N/A',
                         level: passedResultSnapshot?.examLevel || studentInfo?.level || 'N/A',
                         duration: passedResultSnapshot?.duration || 60,
+                        totalPoints: passedExamQuestions.reduce((sum, q) => sum + (q.points || 1), 0) || 20
                     });
                     setConfig(passedResultSnapshot?.config || null);
                 } else {
@@ -246,14 +282,15 @@ const ResultsPage = () => {
         return () => cleanupBeforeRedirect();
     }, [examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage, passedPassingScore, passedExamTitle, passedExamQuestions, passedQuestionDetails, passedResultSnapshot, navigate, cleanupBeforeRedirect]);
 
+    // ✅ CORRECTION: getNote avec fallbacks
     const getNote = useCallback(() => {
-        if (!exam) return null;
-        const bareme = exam.totalPoints || 20;
-        const total = exam.questions?.length || 0;
-        if (!total) return null;
+        if (!exam && !passedResultSnapshot) return null;
+        const bareme = exam?.totalPoints || passedResultSnapshot?.totalPoints || 20;
+        const total = getTotalQuestionsCount();
+        if (total === 0) return null;
         const rawNote = (submittedScore / total) * bareme;
         return { note: parseFloat(rawNote.toFixed(2)), bareme };
-    }, [exam, submittedScore]);
+    }, [exam, passedResultSnapshot, submittedScore, getTotalQuestionsCount]);
 
     const getOptionLabel = (opt) => {
         const labels = {
@@ -268,8 +305,9 @@ const ResultsPage = () => {
     const printBulletin = useCallback(() => {
         const noteInfo = getNote();
         const noteStr = noteInfo ? `${noteInfo.note} / ${noteInfo.bareme}` : 'N/A';
-        const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore) ? 'RÉUSSI' : 'ÉCHOUÉ';
+        const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'RÉUSSI' : 'ÉCHOUÉ';
         const passColor = passStatus === 'RÉUSSI' ? '#10b981' : '#ef4444';
+        const totalQ = getTotalQuestionsCount();
 
         const configHtml = config ? `
             <div style="margin: 16px 0; padding: 12px; background: #f1f5f9; border-radius: 12px; border: 1px solid #8b5cf6;">
@@ -309,7 +347,7 @@ const ResultsPage = () => {
 
         const win = window.open('', '_blank');
         win.document.write(`<!DOCTYPE html><html><head>
-            <title>Corrigé — ${studentInfo?.lastName} ${studentInfo?.firstName}</title>
+            <title>Corrigé — ${studentInfo?.lastName || ''} ${studentInfo?.firstName || ''}</title>
             <style>
                 body { font-family: 'DM Sans', Arial, sans-serif; margin: 0; padding: 20px; color: #1e293b; }
                 @media print { @page { size: A4; margin: 15mm; } }
@@ -337,7 +375,7 @@ const ResultsPage = () => {
             <div class="note-box">
                 <div class="note-label">NOTE OBTENUE</div>
                 <div class="note-val">${noteStr}</div>
-                <div class="note-label">${submittedScore} bonne(s) réponse(s) sur ${exam?.questions?.length || 0} · ${submittedPercentage.toFixed(2)}%</div>
+                <div class="note-label">${submittedScore} bonne(s) réponse(s) sur ${totalQ} · ${submittedPercentage.toFixed(2)}%</div>
             </div>
             <div class="info-grid">
                 <div class="info-box">
@@ -361,10 +399,10 @@ const ResultsPage = () => {
             <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 800); }</script>
         </body></html>`);
         win.document.close();
-    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config]);
+    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount]);
 
     const exportToPDF = useCallback(async () => {
-        if (!exam || !studentInfo || questionDetailsRef.current.length === 0) {
+        if ((!exam && !passedResultSnapshot) || !studentInfo || questionDetailsRef.current.length === 0) {
             toast.error("Données incomplètes pour l'export PDF.");
             return;
         }
@@ -374,6 +412,7 @@ const ResultsPage = () => {
         const margin = 20;
         const lineHeight = 7;
         const maxWidth = doc.internal.pageSize.width - 2 * margin;
+        const totalQ = getTotalQuestionsCount();
 
         try {
             doc.addImage(logo, 'PNG', 10, 10, 20, 20);
@@ -405,12 +444,12 @@ const ResultsPage = () => {
         yPos += 10;
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
-        doc.text(`Titre de l'épreuve: ${exam.title || passedExamTitle || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Domaine: ${exam.domain || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Catégorie: ${exam.category || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Matière: ${exam.subject || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Niveau: ${exam.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Durée: ${exam.duration || 'N/A'} minutes`, margin, yPos); yPos += 10;
+        doc.text(`Titre de l'épreuve: ${exam?.title || passedExamTitle || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Domaine: ${exam?.domain || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Catégorie: ${exam?.category || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Matière: ${exam?.subject || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Niveau: ${exam?.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Durée: ${exam?.duration || 'N/A'} minutes`, margin, yPos); yPos += 10;
 
         doc.setFontSize(14);
         doc.setTextColor(59, 130, 246);
@@ -418,9 +457,9 @@ const ResultsPage = () => {
         yPos += 10;
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
-        doc.text(`Score Obtenu: ${submittedScore} / ${exam.questions?.length || 0}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Score Obtenu: ${submittedScore} / ${totalQ}`, margin, yPos); yPos += lineHeight;
         doc.text(`Pourcentage: ${submittedPercentage.toFixed(2)}%`, margin, yPos); yPos += lineHeight;
-        doc.text(`Seuil de Réussite: ${exam.passingScore || passedPassingScore || 'N/A'}%`, margin, yPos); yPos += lineHeight;
+        doc.text(`Seuil de Réussite: ${exam?.passingScore || passedPassingScore || 'N/A'}%`, margin, yPos); yPos += lineHeight;
         
         const noteInfo = getNote();
         if (noteInfo) {
@@ -431,9 +470,9 @@ const ResultsPage = () => {
             doc.setFontSize(12);
         } else { yPos += lineHeight; }
         
-        const passStatusColor = submittedPercentage >= (exam.passingScore || passedPassingScore) ? '#22C55E' : '#EF4444';
+        const passStatusColor = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#22C55E' : '#EF4444';
         doc.setTextColor(passStatusColor);
-        doc.text(`Statut: ${submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 10;
+        doc.text(`Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 10;
         doc.setTextColor(0, 0, 0);
 
         if (config) {
@@ -503,7 +542,7 @@ const ResultsPage = () => {
 
         doc.save(`bulletin_resultats_${studentInfo?.lastName || 'Anonyme'}_${studentInfo?.firstName || 'Anonyme'}.pdf`);
         toast.success("Le bulletin de résultats a été exporté en PDF !");
-    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config]);
+    }, [exam, passedResultSnapshot, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount]);
 
     if (isLoading) {
         return (
@@ -521,7 +560,7 @@ const ResultsPage = () => {
         );
     }
 
-    if (!exam || !studentInfo || submittedAnswers === undefined || submittedPercentage === undefined) {
+    if ((!exam && !passedResultSnapshot) || !studentInfo || submittedAnswers === undefined || submittedPercentage === undefined) {
         return (
             <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', fontFamily: "'DM Sans', sans-serif" }}>
                 Impossible de charger l'épreuve ou ses résultats.
@@ -529,10 +568,8 @@ const ResultsPage = () => {
         );
     }
 
-    const totalQuestions = exam.questions?.length || 0;
-    const currentPassStatus = submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'Réussi' : 'Échoué';
-
-    // ✅ Ajout d'un bloc de débogage visuel temporaire
+    const actualTotalQuestions = getTotalQuestionsCount();
+    const currentPassStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué';
     const showDebugInfo = process.env.NODE_ENV === 'development';
 
     return (
@@ -563,7 +600,6 @@ const ResultsPage = () => {
                     </motion.div>
                 )}
 
-                {/* ✅ Bloc de débogage temporaire */}
                 {showDebugInfo && submittedAnswers && (
                     <div style={{ marginBottom: '20px', padding: '10px', background: '#1e293b', borderRadius: '8px', fontSize: '0.7rem' }}>
                         <h4 style={{ color: '#f8fafc', marginBottom: '5px' }}>Débogage - Réponses reçues :</h4>
@@ -602,16 +638,16 @@ const ResultsPage = () => {
                         </motion.div>
 
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}
-                            style={{ background: submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '16px', padding: '20px' }}>
+                            style={{ background: submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '16px', padding: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                                <Award size={20} color={submittedPercentage >= (exam.passingScore || passedPassingScore) ? '#10b981' : '#ef4444'} />
+                                <Award size={20} color={submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#10b981' : '#ef4444'} />
                                 <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#f8fafc' }}>Performance</h2>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Titre:</span> {exam.title || passedExamTitle || 'N/A'}</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Score:</span> {submittedScore} / {totalQuestions}</p>
+                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Titre:</span> {exam?.title || passedExamTitle || 'N/A'}</p>
+                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Score:</span> {submittedScore} / {actualTotalQuestions}</p>
                                 <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Pourcentage:</span>{' '}
-                                    <span style={{ color: submittedPercentage >= (exam.passingScore || passedPassingScore) ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                                    <span style={{ color: submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#10b981' : '#ef4444', fontWeight: 600 }}>
                                         {submittedPercentage.toFixed(2)}%
                                     </span>
                                 </p>

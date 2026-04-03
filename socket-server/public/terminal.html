@@ -184,7 +184,18 @@
     }
     
     var SERVER_URL = window.location.origin;
-    var FRONTEND_URL = 'https://na2quizapp.netlify.app';
+    
+    // ✅ Détection automatique de l'environnement
+    var FRONTEND_URL = (function() {
+        var hostname = window.location.hostname;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return 'http://localhost:3000';
+        }
+        if (hostname === '192.168.0.1' || hostname === '192.168.106.51') {
+            return 'http://' + hostname + ':3000';
+        }
+        return 'https://na2quizapp.netlify.app';
+    })();
     
     console.log('[Terminal] Serveur:', SERVER_URL);
     console.log('[Terminal] Frontend:', FRONTEND_URL);
@@ -379,7 +390,7 @@
             isRegistered = false;
         });
         
-        // ✅ VERSION CORRIGÉE : Ajout de l'accusé de réception
+        // ✅ VERSION CORRIGÉE DE examDistributed
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
@@ -393,7 +404,7 @@
                 return;
             }
             
-            // ✅ Envoyer un accusé de réception avec l'option
+            // ✅ Envoyer l'accusé de réception
             if(socket && socket.connected) {
                 socket.emit('terminalReadyForExam', {
                     examId: examId,
@@ -404,6 +415,7 @@
                 addFeed('success', 'Accusé envoyé', 'Option ' + option);
             }
             
+            // ✅ Récupérer le token JWT
             var token = localStorage.getItem('userToken');
             var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
@@ -436,7 +448,7 @@
             }, 1000);
             
             redirTimeout = setTimeout(function(){
-                console.log('[Terminal] Redirection vers:', redirectUrl);
+                console.log('[Terminal] Redirection finale vers:', redirectUrl);
                 window.location.href = redirectUrl;
             }, 2000);
         });

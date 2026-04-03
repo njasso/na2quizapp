@@ -1,12 +1,17 @@
+// src/pages/composition/WaitingPage.jsx
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
 import io from 'socket.io-client';
 import { Clock, Users, Home, RefreshCw, Wifi, WifiOff, Loader } from 'lucide-react';
+import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
+const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
+const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+console.log('[WaitingPage] Socket URL:', SOCKET_URL);
+console.log('[WaitingPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
 const WaitingPage = () => {
   const { examId } = useParams();

@@ -16,8 +16,12 @@ import {
   AlertCircle,
   Clock
 } from 'lucide-react';
+import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+console.log('[ProfileExamPage] Backend URL:', NODE_BACKEND_URL);
+console.log('[ProfileExamPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -68,10 +72,7 @@ const ProfileExamPage = () => {
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
         console.log('[ProfileExamPage] 📌 Option depuis URL:', urlOption);
         
-        // ✅ Récupérer le token
         const token = getAuthToken();
-        
-        // ✅ Configuration des headers avec le token
         const config = token ? {
           headers: { Authorization: `Bearer ${token}` }
         } : {};
@@ -133,7 +134,6 @@ const ProfileExamPage = () => {
 
         // ✅ GESTION DE L'OPTION : L'URL prime sur l'option stockée
         if (urlOption && ['A', 'B', 'C', 'D'].includes(urlOption)) {
-          // Option définie par le superviseur via la distribution
           setSelectedExamOption(urlOption);
           setIsOptionLocked(true);
           toast(`Option ${urlOption} définie par le superviseur.`, { 
@@ -146,7 +146,6 @@ const ProfileExamPage = () => {
             }
           });
         } else if (normalizedExam.examOption) {
-          // Fallback : option stockée dans l'épreuve
           setSelectedExamOption(normalizedExam.examOption);
           setIsOptionLocked(true);
           toast(`Cette épreuve est pré-configurée en Option ${normalizedExam.examOption}.`, { 
@@ -159,7 +158,6 @@ const ProfileExamPage = () => {
             }
           });
         } else {
-          // Option par défaut
           setSelectedExamOption('A');
           setIsOptionLocked(false);
         }
@@ -198,11 +196,11 @@ const ProfileExamPage = () => {
     
     socketRef.current = io(NODE_BACKEND_URL, { 
       path: '/socket.io',
-      transports: ['polling'],  // ✅ Polling uniquement
+      transports: ['polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      upgrade: false  // ✅ Désactiver WebSocket
+      upgrade: false
     });
 
     socketRef.current.on('connect', () => {
@@ -236,7 +234,6 @@ const ProfileExamPage = () => {
     toast.loading("Traitement...", { id: 'submit-profile' });
 
     try {
-      // Calcul robuste de la durée
       let examDuration = exam?.duration;
       if (!examDuration || examDuration <= 0) {
         if (exam?.questions?.length > 0) {
@@ -263,14 +260,16 @@ const ProfileExamPage = () => {
         examDuration: examDuration,
         examOption: selectedExamOption,
         examTitle: exam.title,
-        terminalSessionId: null
+        terminalSessionId: null,
+        config: exam?.config || null
       }));
 
       if (socketRef.current?.connected) {
+        // ✅ Options A et B → salle d'attente, Options C et D → composition directe
         let status = 'composing';
-if (selectedExamOption === 'A' || selectedExamOption === 'B') {
-  status = 'waiting';  // ✅ Options A et B → salle d'attente
-}
+        if (selectedExamOption === 'A' || selectedExamOption === 'B') {
+          status = 'waiting';
+        }
         
         socketRef.current.emit('studentReadyForExam', {
           examId: examId,
@@ -741,7 +740,7 @@ if (selectedExamOption === 'A' || selectedExamOption === 'B') {
               </>
             ) : (
               <>
-                {selectedExamOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'examen'}
+                {selectedExamOption === 'A' || selectedExamOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'examen'}
                 <ArrowRight size={18} />
               </>
             )}

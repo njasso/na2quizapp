@@ -1,4 +1,4 @@
-// src/pages/composition/QuizCompositionPage.jsx - Version COMPLÈTE (non réduite)
+// src/pages/composition/QuizCompositionPage.jsx - VERSION CORRIGÉE FINALE
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,11 +12,13 @@ import {
   AlertTriangle, Loader, Users, RefreshCw, Eye, XCircle,
   Save as SaveIcon, Image as ImageIcon
 } from 'lucide-react';
+import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = process.env.NODE_ENV === 'production'
-  ? (process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com')
-  : 'http://localhost:5000';
-const SOCKET_URL = NODE_BACKEND_URL;
+const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
+
+console.log('[QuizCompositionPage] Backend URL:', NODE_BACKEND_URL);
+console.log('[QuizCompositionPage] Socket URL:', SOCKET_URL);
 
 // Timer component
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick }) => {
@@ -137,7 +139,7 @@ const QuizCompositionPage = () => {
     return array;
   };
 
-  // ✅ Normaliser une question du format MongoDB (opRep1..opRep5)
+  // ✅ Normaliser une question
   const normalizeQuestion = (q) => {
     let options = [];
     if (q.options && q.options.length > 0) {
@@ -164,13 +166,13 @@ const QuizCompositionPage = () => {
     }
 
     return {
-      _id: q._id,
+      _id: q._id || uuidv4(),
       libQuestion: q.libQuestion || q.question || q.text || '',
       question: q.libQuestion || q.question || q.text || '',
       text: q.libQuestion || q.question || q.text || '',
       options: options.filter(opt => opt !== ''),
       correctAnswer: correctAnswer,
-      bonOpRep: bonOpRep,
+      bonOpRep: bonOpRep >= 0 ? bonOpRep : 0,
       points: q.points || 1,
       explanation: q.explanation || '',
       typeQuestion: q.typeQuestion || 1,
@@ -188,7 +190,7 @@ const QuizCompositionPage = () => {
     };
   };
 
-  // Obtenir l'URL de l'image pour l'affichage
+  // Obtenir l'URL de l'image
   const getImageUrl = (question) => {
     if (question.imageQuestion) return question.imageQuestion;
     if (question.imageBase64 && question.imageBase64.startsWith('data:')) return question.imageBase64;
@@ -196,7 +198,7 @@ const QuizCompositionPage = () => {
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // SAUVEGARDE AUTOMATIQUE ET RÉCUPÉRATION
+  // SAUVEGARDE AUTOMATIQUE
   // ═══════════════════════════════════════════════════════════════
 
   useEffect(() => {
@@ -245,12 +247,6 @@ const QuizCompositionPage = () => {
         localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
         localStorage.setItem(`exam_${examId}_lastSave`, Date.now());
         setLastSaveTime(Date.now());
-
-        const lastToast = localStorage.getItem(`exam_${examId}_lastToast`);
-        if (!lastToast || Date.now() - parseInt(lastToast) > 120000) {
-          toast.success("💾 Sauvegarde automatique effectuée", { duration: 2000, icon: '💾' });
-          localStorage.setItem(`exam_${examId}_lastToast`, Date.now());
-        }
       }
     }, 30000);
 
@@ -261,26 +257,11 @@ const QuizCompositionPage = () => {
 
   useEffect(() => {
     if (quizFinishedRef.current || waitingForStartRef.current) return;
-
     localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
     localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
     localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
     localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
   }, [answers, currentQuestionIndex, attempts, showResult, examId, quizFinished, waitingForStart]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (!quizFinishedRef.current && !submittingRef.current && Object.keys(answersRef.current).length > 0) {
-        localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
-        localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
-        localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
-        localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [examId]);
 
   const clearAutoSave = useCallback(() => {
     localStorage.removeItem(`exam_${examId}_answers`);
@@ -307,30 +288,24 @@ const QuizCompositionPage = () => {
     const answeredCount = Object.keys(answersRef.current).length;
     const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
     
-    console.log('[QuizCompositionPage] 📊 Envoi progression:', {
-        progress,
-        currentQuestion: index + 1,
-        answered: answeredCount,
-        total,
-        percentage
-    });
-    
     socketRef.current.emit('updateStudentProgress', {
-        examId: examRef.current._id,
-        progress,
-        currentQuestion: index + 1,
-        totalQuestions: total,
-        score: answeredCount,
-        percentage: percentage
+      examId: examRef.current._id,
+      progress,
+      currentQuestion: index + 1,
+      totalQuestions: total,
+      score: answeredCount,
+      percentage: percentage
     });
-}, []);
+  }, []);
 
-  // Soumission finale
+  // ═══════════════════════════════════════════════════════════════
+  // ✅ SOUMISSION CORRIGÉE - Utilisation de l'INDEX pour le backend
+  // ═══════════════════════════════════════════════════════════════
   const handleSubmitExam = useCallback(async (isManual = false) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
     if (!examRef.current || !examRef.current._id) {
-      console.error('[QuizCompositionPage] ❌ examRef.current est undefined ou _id manquant lors de la soumission');
+      console.error('[QuizCompositionPage] ❌ examRef.current est undefined');
       toast.error("Erreur: impossible de soumettre l'examen.");
       submittingRef.current = false;
       quizFinishedRef.current = false;
@@ -348,9 +323,12 @@ const QuizCompositionPage = () => {
 
     if (socketRef.current?.connected) {
       try {
-        socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
+        socketRef.current.emit('examSubmitting', { 
+          studentSocketId: socketRef.current.id, 
+          examId: examRef.current._id 
+        });
       } catch (e) {
-        console.error("Erreur d'émission socket 'examSubmitting':", e);
+        console.error("Erreur d'émission socket:", e);
       }
     }
 
@@ -367,21 +345,28 @@ const QuizCompositionPage = () => {
         level: studentInfoRef.current?.level || ''
       };
 
-      // ✅ Formater les answers avec l'INDEX
+      // ✅ CORRECTION CRITIQUE: Utiliser l'INDEX comme clé pour le backend
+      // Le backend compare answers[idx] avec questions[idx].bonOpRep
       const currentQuestionsList = examRef.current.questions || [];
       const formattedAnswers = {};
 
       currentQuestionsList.forEach((question, idx) => {
-        let answer = answersRef.current[question._id] || answersRef.current[idx] || null;
-        if (answer) {
-          formattedAnswers[idx] = String(answer);
+        // Chercher la réponse d'abord par UUID, puis par index
+        let answer = answersRef.current[question._id];
+        if (answer === undefined && answersRef.current[idx] !== undefined) {
+          answer = answersRef.current[idx];
+          // Synchroniser pour la prochaine fois
+          answersRef.current[question._id] = answer;
+          setAnswers(prev => ({ ...prev, [question._id]: answer }));
         }
+        
+        // ✅ TOUJOURS utiliser l'index comme clé pour le backend
+        formattedAnswers[idx] = answer || null;
       });
 
-      console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
+      console.log('[QuizCompositionPage] 📤 Soumission:', {
         examId: examRef.current._id,
-        studentInfo: studentData,
-        answersCount: Object.keys(formattedAnswers).length,
+        answersCount: Object.keys(formattedAnswers).filter(k => formattedAnswers[k] !== null).length,
         totalQuestions: currentQuestionsList.length,
         formattedAnswers
       });
@@ -399,7 +384,7 @@ const QuizCompositionPage = () => {
       const correctionDetails = res.data?.details || null;
 
       if (!result) {
-        console.error("Réponse de soumission invalide: 'result' est manquant.", res.data);
+        console.error("Réponse de soumission invalide:", res.data);
         toast.error("Échec de la soumission: Réponse serveur inattendue.");
         submittingRef.current = false;
         quizFinishedRef.current = false;
@@ -413,10 +398,13 @@ const QuizCompositionPage = () => {
 
       if (socketRef.current?.connected) {
         try {
-          socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
+          socketRef.current.emit('examSubmitted', { 
+            studentSocketId: socketRef.current.id, 
+            examResultId: result._id 
+          });
           socketRef.current.disconnect();
         } catch (e) {
-          console.error("Erreur d'émission socket 'examSubmitted':", e);
+          console.error("Erreur d'émission socket:", e);
         }
       }
 
@@ -451,7 +439,6 @@ const QuizCompositionPage = () => {
 
     } catch (error) {
       console.error("Erreur soumission:", error);
-      console.error("Détails erreur:", error.response?.data);
       submittingRef.current = false;
       quizFinishedRef.current = false;
       setQuizFinished(false);
@@ -536,13 +523,13 @@ const QuizCompositionPage = () => {
     handleSubmitExam(true);
   }, [handleSubmitExam]);
 
-  const handleOptionChange = (questionId, selectedOption) => {
+  // ✅ CORRECTION: Stocker la réponse avec UUID ET index
+  const handleOptionChange = (questionId, selectedOption, questionIndex) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
     const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
     if (!currentQ) return;
 
-    const questionIndex = examRef.current?.questions?.findIndex(q => q._id === questionId);
     const currentAttempts = attemptsRef.current[questionId] || 0;
 
     if (configRef.current?.allowRetry && currentAttempts >= 1) {
@@ -558,7 +545,7 @@ const QuizCompositionPage = () => {
       isCorrect = selectedOption === currentQ.correctAnswer;
     }
 
-    // ✅ Sauvegarder avec l'UUID ET l'index
+    // ✅ Stocker avec UUID ET index pour compatibilité
     const newAnswers = {
       ...answersRef.current,
       [questionId]: selectedOption,
@@ -578,7 +565,7 @@ const QuizCompositionPage = () => {
 
     if (configRef.current?.showCorrectAnswer && !isCorrect) {
       const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
-      toast.info(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
+      toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
     }
 
     if (!isCorrect && configRef.current?.allowRetry && newAttempts[questionId] === 1) {
@@ -642,7 +629,7 @@ const QuizCompositionPage = () => {
         console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
         console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
 
-        let fetchedQuestions = examData.questions.map(q => normalizeQuestion({ ...q, _id: q._id || uuidv4() }));
+        let fetchedQuestions = examData.questions.map((q, idx) => normalizeQuestion({ ...q, _id: q._id || `q_${idx}` }));
 
         const safeConfig = parsed.config || {};
 
@@ -723,7 +710,7 @@ const QuizCompositionPage = () => {
     stableSessionIdRef.current = stableId;
 
     newSocket.on('connect', () => {
-      console.log('[QuizCompositionPage] ✅ Socket connecté (polling), ID:', newSocket.id);
+      console.log('[QuizCompositionPage] ✅ Socket connecté, ID:', newSocket.id);
 
       newSocket.emit('registerSession', {
         type: 'student',
@@ -732,8 +719,6 @@ const QuizCompositionPage = () => {
       });
 
       const currentStatus = configRef.current?.examOption === 'B' || configRef.current?.examOption === 'A' ? 'waiting' : 'composing';
-
-      console.log(`[QuizCompositionPage] 📋 Envoi studentReadyForExam: status=${currentStatus}, option=${parsed.examOption}`);
 
       newSocket.emit('studentReadyForExam', {
         examId,
@@ -750,19 +735,17 @@ const QuizCompositionPage = () => {
       toast.error("Problème de connexion. Reconnexion en cours...");
     });
 
-    newSocket.on('disconnect', (reason) => {
-      console.log('[QuizCompositionPage] 👋 Socket déconnecté:', reason);
-    });
-
-    newSocket.on('reconnect', (attemptNumber) => {
-      console.log('[QuizCompositionPage] 🔄 Socket reconnecté après', attemptNumber, 'tentatives');
-      toast.success("Reconnecté au serveur");
-    });
-
-    newSocket.on('examStartedForOptionB', (data) => {
+    newSocket.on('examStarted', (data) => {
       if (data.examId !== examId) return;
       waitingForStartRef.current = false;
       setWaitingForStart(false);
+      
+      if (data.examOption) {
+        const updatedConfig = { ...configRef.current, examOption: data.examOption };
+        setConfig(updatedConfig);
+        configRef.current = updatedConfig;
+      }
+      
       const qIdx = data.questionIndex || 0;
       currentQuestionIndexRef.current = qIdx;
       setCurrentQuestionIndex(qIdx);
@@ -771,49 +754,25 @@ const QuizCompositionPage = () => {
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
-   // Dans le useEffect de connexion socket, remplacer examStarted par :
-newSocket.on('examStarted', (data) => {
-  if (data.examId !== examId) return;
-  waitingForStartRef.current = false;
-  setWaitingForStart(false);
-  
-  // ✅ Stocker l'option reçue du serveur
-  if (data.examOption) {
-    const updatedConfig = { ...configRef.current, examOption: data.examOption };
-    setConfig(updatedConfig);
-    configRef.current = updatedConfig;
-  }
-  
-  const qIdx = data.questionIndex || 0;
-  currentQuestionIndexRef.current = qIdx;
-  setCurrentQuestionIndex(qIdx);
-  setTimerResetTrigger(prev => prev + 1);
-  toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
-  setTimeout(() => sendProgressUpdate(qIdx), 500);
-});
-
-// ✅ Pour Option A : écouter displayQuestion (superviseur avance)
-newSocket.on('displayQuestion', (data) => {
-  if (data.examId !== examId) return;
-  const idx = data.questionIndex ?? 0;
-  if (examRef.current && idx >= examRef.current.questions.length) {
-    if (!quizFinishedRef.current && !submittingRef.current) handleSubmitExam(false);
-    return;
-  }
-  
-  // ✅ Pour Option A, le superviseur contrôle l'avancement
-  currentQuestionIndexRef.current = idx;
-  setCurrentQuestionIndex(idx);
-  setTimerResetTrigger(prev => prev + 1);
-  
-  // Réinitialiser le timer pour la nouvelle question
-  const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion 
-    || (configRef.current?.timePerQuestion || 60) * 60;
-  setRemainingTime(timeForQuestion);
-  
-  toast.info(`Question ${idx + 1}`, { icon: '📋', duration: 2000 });
-  setTimeout(() => sendProgressUpdate(idx), 500);
-});
+    newSocket.on('displayQuestion', (data) => {
+      if (data.examId !== examId) return;
+      const idx = data.questionIndex ?? 0;
+      if (examRef.current && idx >= examRef.current.questions.length) {
+        if (!quizFinishedRef.current && !submittingRef.current) handleSubmitExam(false);
+        return;
+      }
+      
+      currentQuestionIndexRef.current = idx;
+      setCurrentQuestionIndex(idx);
+      setTimerResetTrigger(prev => prev + 1);
+      
+      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion 
+        || (configRef.current?.timePerQuestion || 60) * 60;
+      setRemainingTime(timeForQuestion);
+      
+      toast(`Question ${idx + 1}`, { icon: '📋', duration: 2000 });
+      setTimeout(() => sendProgressUpdate(idx), 500);
+    });
 
     newSocket.on('examFinished', (data) => {
       if (data.examId === examId && !quizFinishedRef.current && !submittingRef.current) {
@@ -902,7 +861,7 @@ newSocket.on('displayQuestion', (data) => {
   const currentQuestion = questions[currentQuestionIndex];
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = (answeredCount / questions.length) * 100;
-  const disablePrev = quizFinished || currentQuestionIndex === 0 || config?.examOption === 'A' || config?.examOption === 'B' || config?.examOption === 'D';
+  const disablePrev = quizFinished || currentQuestionIndex === 0 || config?.examOption === 'A' || config?.examOption === 'D';
   const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || config?.examOption === 'A' || config?.examOption === 'D' || (config?.examOption === 'B' && !answers[currentQuestion?._id]);
 
   if (!currentQuestion) {
@@ -982,7 +941,7 @@ newSocket.on('displayQuestion', (data) => {
                       sendProgressUpdate(idx);
                     }}
                     disabled={quizFinished}
-                    style={styles.questionButton(idx === currentQuestionIndex, answers[q._id])}
+                    style={styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx])}
                   >
                     {idx + 1}
                   </button>
@@ -996,7 +955,7 @@ newSocket.on('displayQuestion', (data) => {
               <div style={styles.questionCard}>
                 <div style={styles.questionHeader}>
                   <span style={styles.questionNumber}>Question {currentQuestionIndex + 1}</span>
-                  {answers[currentQuestion._id] && (
+                  {(answers[currentQuestion._id] || answers[currentQuestionIndex]) && (
                     <span style={styles.answeredBadge}>Répondue</span>
                   )}
                   {showResult[currentQuestion._id] !== undefined && (
@@ -1025,13 +984,14 @@ newSocket.on('displayQuestion', (data) => {
                 <p style={styles.questionText}>{currentQuestion.libQuestion || currentQuestion.text}</p>
                 <div style={styles.optionsList}>
                   {currentQuestion.options.map((opt, idx) => {
-                    const isSelected = answers[currentQuestion._id] === opt;
+                    const currentAnswer = answers[currentQuestion._id] || answers[currentQuestionIndex];
+                    const isSelected = currentAnswer === opt;
                     const isCorrect = typeof currentQuestion.bonOpRep === 'number'
                       ? idx === currentQuestion.bonOpRep
                       : opt === currentQuestion.correctAnswer;
 
                     const isOptionDisabled = quizFinished || submittingRef.current ||
-                      (config?.examOption !== 'C' && answers[currentQuestion._id] &&
+                      (config?.examOption !== 'C' && currentAnswer &&
                        !(config?.allowRetry && attempts[currentQuestion._id] === 0));
 
                     const canRetry = config?.allowRetry && attempts[currentQuestion._id] === 1;
@@ -1052,7 +1012,7 @@ newSocket.on('displayQuestion', (data) => {
                           type="radio"
                           name={`q-${currentQuestion._id}`}
                           checked={isSelected}
-                          onChange={() => handleOptionChange(currentQuestion._id, opt)}
+                          onChange={() => handleOptionChange(currentQuestion._id, opt, currentQuestionIndex)}
                           disabled={isDisabled}
                           style={{ marginRight: '12px', accentColor: '#3b82f6' }}
                         />
@@ -1093,12 +1053,6 @@ newSocket.on('displayQuestion', (data) => {
                   <><Send size={16} /> {config?.examOption === 'C' ? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
                 )}
               </button>
-            )}
-            {!quizFinished && config?.examOption === 'A' && (
-              <div style={styles.autoSubmitHint}><Clock size={14} /> Soumission automatique (60s/question)</div>
-            )}
-            {!quizFinished && config?.examOption === 'B' && (
-              <div style={styles.supervisorHint}><div style={styles.pulseDotSmall} /> Fin contrôlée par le superviseur</div>
             )}
           </div>
 
@@ -1153,7 +1107,6 @@ const styles = {
     color: opt === 'A' ? '#ef4444' : opt === 'B' ? '#3b82f6' : opt === 'C' ? '#8b5cf6' : '#f59e0b',
   }),
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
-  timerArea: { textAlign: 'right' },
   globalTimerHint: { display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.1em', color: '#475569', marginTop: 4, textAlign: 'center' },
   progressArea: { marginBottom: '16px' },
   progressLabels: { display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '8px' },
@@ -1180,16 +1133,13 @@ const styles = {
   prevButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: disabled ? '#4b5563' : '#f8fafc', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
   nextButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: disabled ? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
   submitButton: (submitting) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: submitting ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }),
-  autoSubmitHint: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600 },
-  supervisorHint: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600 },
-  waitingIndicator: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#94a3b8', fontSize: '0.875rem' },
   finishedBox: { marginTop: '32px', padding: '24px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: '12px', textAlign: 'center' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
   modal: { background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', textAlign: 'center' },
   modalButtons: { display: 'flex', gap: '12px', justifyContent: 'center', marginTop: 24 },
   waitingContainer: { minHeight: '100vh', background: 'linear-gradient(135deg, #05071a, #0a0f2e)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", padding: '24px' },
   waitingCard: { background: 'rgba(15,23,42,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '24px', padding: '48px 40px', textAlign: 'center', maxWidth: '480px', width: '100%' },
-  waitingIcon: { width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(59,130,246,0.12)', border: '2px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', animation: 'pulseBorder 2s infinite' },
+  waitingIcon: { width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(59,130,246,0.12)', border: '2px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' },
   waitingCount: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderRadius: '12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', marginBottom: '16px' },
   connectedBadge: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px 20px', borderRadius: '12px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' },
   pulseDot: { width: 10, height: 10, borderRadius: '50%', background: '#10b981', animation: 'pulse 1.5s infinite' },

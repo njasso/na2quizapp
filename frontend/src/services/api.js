@@ -1,40 +1,18 @@
 // src/services/api.js - VERSION UNIFIÉE COMPLÈTE
 // ─────────────────────────────────────────────────────────────
 //  Toutes les fonctions d'appel API pour NA²QUIZ
-//  Support production/développement avec IP dynamique
+//  Support production/développement avec détection automatique
 // ─────────────────────────────────────────────────────────────
+
 import axios from 'axios';
+import ENV_CONFIG from '../config/env';
 
-// ==================== CONFIGURATION DYNAMIQUE ====================
-const BACKEND_IP = process.env.REACT_APP_BACKEND_IP || '192.168.0.1';
-const BACKEND_PORT = process.env.REACT_APP_BACKEND_PORT || '5000';
-const PROD_BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-
-const getBackendUrl = () => {
-  // Production: URL personnalisée
-  if (process.env.NODE_ENV === 'production') {
-    if (PROD_BACKEND_URL) {
-      console.log('[API] 🌐 Production URL configurée:', PROD_BACKEND_URL);
-      return PROD_BACKEND_URL;
-    }
-    // ✅ Fallback correct pour Render
-    return 'https://na2quizapp.onrender.com';
-  }
-  
-  // Développement: localhost par défaut
-  if (process.env.NODE_ENV === 'development') {
-    return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-  }
-  
-  return 'https://na2quizapp.onrender.com';
-};
-
-const API_BASE = getBackendUrl();
-console.log('[API] 🚀 Backend URL configurée:', API_BASE);
+console.log('[API] 🚀 Backend URL configurée:', ENV_CONFIG.BACKEND_URL);
+console.log('[API] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
 // ==================== CLIENT AXIOS ====================
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: ENV_CONFIG.BACKEND_URL,
   timeout: 60000, // 60 secondes par défaut
   headers: {
     'Content-Type': 'application/json',
@@ -94,12 +72,12 @@ api.interceptors.response.use(
 
     // Timeout
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      return Promise.reject(new Error(`Timeout : Le serveur ${API_BASE} ne répond pas.`));
+      return Promise.reject(new Error(`Timeout : Le serveur ${ENV_CONFIG.BACKEND_URL} ne répond pas.`));
     }
 
     // Serveur inaccessible
     if (!error.response) {
-      return Promise.reject(new Error(`Impossible de contacter le serveur ${API_BASE}. Vérifiez que le serveur est démarré.`));
+      return Promise.reject(new Error(`Impossible de contacter le serveur ${ENV_CONFIG.BACKEND_URL}. Vérifiez que le serveur est démarré.`));
     }
 
     // 401 - Token expiré
@@ -201,7 +179,7 @@ export const generateQuestionsAI = async (data) => {
   try {
     console.log('🚀 [IA] Envoi à /api/ai/generate-questions:', data);
     const response = await api.post('/api/ai/generate-questions', data, {
-      timeout: 120000, // ✅ 120 secondes (2 minutes) au lieu de 90000
+      timeout: 120000, // ✅ 120 secondes (2 minutes)
     });
     
     // Normalisation selon la réponse
@@ -218,6 +196,7 @@ export const generateQuestionsAI = async (data) => {
     throw error;
   }
 };
+
 export const checkConfig = () => api.get('/api/check-config');
 export const getAIConfig = () => api.get('/api/ai/config');
 
@@ -242,7 +221,7 @@ export const getBulletin = (resultId) => api.get(`/api/bulletin/${resultId}`, {
 });
 
 export const printBulletin = (resultId) => {
-  window.open(`${API_BASE}/api/bulletin/${resultId}`, '_blank');
+  window.open(`${ENV_CONFIG.BACKEND_URL}/api/bulletin/${resultId}`, '_blank');
 };
 
 // ==================== STATISTIQUES & SANTÉ ====================

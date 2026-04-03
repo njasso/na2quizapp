@@ -1,15 +1,4 @@
-/**
- * SurveillancePage.jsx — Page de surveillance NA² QuizApp
- * Version COMPLÈTE OPTIMISÉE avec support de la nouvelle structure QCM
- * - Historique des sessions
- * - Alertes d'anomalies (déconnexions massives)
- * - Option A (Collective Figée) complète avec avancement automatique
- * - Export des logs
- * - Filtrage avancé
- * - Support des champs domaine, niveau, matiere
- * - ✅ Support des images des épreuves
- */
-
+// src/pages/surveillance/SurveillancePage.jsx - VERSION COMPLÈTE CORRIGÉE
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
 import { toast, Toaster } from 'react-hot-toast';
@@ -29,17 +18,16 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { getExams, getResults, getActiveSessions, getSurveillanceData } from '../../services/api';
+import ENV_CONFIG from '../../config/env';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// ══════════════════════════════════════════════════════════════
-// CONFIGURATION
-// ══════════════════════════════════════════════════════════════
-const NODE_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || NODE_BACKEND_URL;
+const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
 
 console.log('[Surveillance] Backend URL:', NODE_BACKEND_URL);
 console.log('[Surveillance] Socket URL:', SOCKET_URL);
+console.log('[Surveillance] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
 // ══════════════════════════════════════════════════════════════
 //  SOUS-COMPOSANTS
@@ -186,7 +174,6 @@ const StudentCard = React.memo(({ student, examTitle, examInfo, backendUrl, onAl
         {examTitle}
       </div>
 
-      {/* Affichage des infos de l'épreuve (domaine, niveau, matière) */}
       {examInfo && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
           {examInfo.domain && (
@@ -757,7 +744,7 @@ const SurveillancePage = () => {
   }, [getExamInfo]);
 
   // ══════════════════════════════════════════════════════════════
-  //  AVANCEMENT AUTOMATIQUE OPTION A
+  //  AVANCEMENT AUTOMATIQUE OPTION A - CORRIGÉ
   // ══════════════════════════════════════════════════════════════
 
   const handleAdvanceQuestion = useCallback(() => {
@@ -779,15 +766,16 @@ const SurveillancePage = () => {
         examId: selectedExamId,
         questionIndex: nextIdx,
       });
+      toast.success(`Question ${nextIdx + 1} affichée`);
     } else if (selectedExamOption === 'A') {
       socketRef.current.emit('advanceQuestionForOptionA', {
         examId: selectedExamId,
         nextQuestionIndex: nextIdx,
       });
+      toast.success(`Question ${nextIdx + 1}`);
     }
 
     setCurrentQIdx(prev => ({ ...prev, [selectedExamId]: nextIdx }));
-    toast.success(`Question ${nextIdx + 1} affichée sur tous les terminaux.`);
   }, [selectedExamId, currentQIdx, selectedExamOption, exams]);
 
   useEffect(() => {
@@ -802,7 +790,10 @@ const SurveillancePage = () => {
         const exam = exams.find(e => e._id === selectedExamId);
         if (exam && currentQuestion < (exam.questions?.length || 0) - 1) {
           handleAdvanceQuestion();
-          toast(`Avancement automatique: Question ${currentQuestion + 2}`, { icon: 'ℹ️', duration: 2000 });
+          toast(`Avancement automatique: Question ${currentQuestion + 2}`, { 
+            icon: 'ℹ️', 
+            duration: 2000 
+          });
         }
       }, 60000);
     }
@@ -963,21 +954,44 @@ const SurveillancePage = () => {
   // ══════════════════════════════════════════════════════════════
 
   const handleDistributeExam = useCallback(() => {
-    if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
-    if (!selectedExamOption) return toast.error('Choisissez une option.');
-    if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
+    if (!selectedExamId) {
+      toast.error('Sélectionnez une épreuve.');
+      return;
+    }
+    if (!selectedExamOption) {
+      toast.error('Choisissez une option.');
+      return;
+    }
+    if (!socketRef.current?.connected) {
+      toast.error('Socket non connecté.');
+      return;
+    }
 
+    console.log('[Surveillance] Distribution épreuve:', selectedExamId, 'Option:', selectedExamOption);
+    
     socketRef.current.emit('distributeExam', {
       examId: selectedExamId,
       examOption: selectedExamOption,
+      config: null,
+      questionCount: 0
     });
+    
     toast.success(`Épreuve distribuée — Option ${selectedExamOption}`);
   }, [selectedExamId, selectedExamOption]);
 
   const handleStartExam = useCallback(() => {
-    if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
-    if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
-    if (isStartingExam) return toast('Démarrage en cours...', { icon: '⏳' });
+    if (!selectedExamId) {
+      toast.error('Sélectionnez une épreuve.');
+      return;
+    }
+    if (!socketRef.current?.connected) {
+      toast.error('Socket non connecté.');
+      return;
+    }
+    if (isStartingExam) {
+      toast('Démarrage en cours...', { icon: '⏳' });
+      return;
+    }
 
     const uniqueSessionsLocal = getUniqueSessions(activeSessions);
     
@@ -989,7 +1003,8 @@ const SurveillancePage = () => {
 
     if (targetStudents.length === 0) {
       const exam = exams.find(e => e._id === selectedExamId);
-      return toast.error(`⚠️ Aucun étudiant en attente pour "${exam?.title || 'cette épreuve'}"`);
+      toast.error(`⚠️ Aucun étudiant en attente pour "${exam?.title || 'cette épreuve'}"`);
+      return;
     }
 
     toast((t) => (
@@ -1032,8 +1047,14 @@ const SurveillancePage = () => {
   }, [selectedExamId, selectedExamOption, activeSessions, getUniqueSessions, exams, isStartingExam, saveSessionToHistory]);
 
   const handleFinishExam = useCallback(() => {
-    if (!selectedExamId) return toast.error('Sélectionnez une épreuve.');
-    if (!socketRef.current?.connected) return toast.error('Socket non connecté.');
+    if (!selectedExamId) {
+      toast.error('Sélectionnez une épreuve.');
+      return;
+    }
+    if (!socketRef.current?.connected) {
+      toast.error('Socket non connecté.');
+      return;
+    }
 
     toast((t) => (
       <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', color: '#fff' }}>
@@ -1084,7 +1105,10 @@ const SurveillancePage = () => {
 
   // ── Impression classement avec image ───────────────────────────────────
   const printRankings = useCallback(() => {
-    if (!rankingsData.length) return toast.error('Aucun classement à imprimer.');
+    if (!rankingsData.length) {
+      toast.error('Aucun classement à imprimer.');
+      return;
+    }
     const exam = exams.find(e => e._id === rankingExamId);
     const examTitle = exam?.title || 'Épreuve';
     const examDomain = exam?.domain || '';
