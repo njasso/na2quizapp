@@ -1,4 +1,4 @@
-// src/pages/composition/ResultsPage.jsx — avec affichage de la configuration et support des nouveaux champs QCM
+// src/pages/composition/ResultsPage.jsx — Version complète corrigée
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -45,16 +45,30 @@ const ResultsPage = () => {
 
     const terminalSessionId = passedTerminalSessionId || localStorage.getItem('terminalSessionId');
 
+    // ✅ Débogage - Afficher les données reçues
+    useEffect(() => {
+        console.log('=== DÉBOGAGE RESULTS PAGE ===');
+        console.log('submittedAnswers:', submittedAnswers);
+        console.log('studentInfo:', studentInfo);
+        console.log('submittedScore:', submittedScore);
+        console.log('submittedPercentage:', submittedPercentage);
+        console.log('passedExamQuestions:', passedExamQuestions?.length);
+        console.log('passedResultSnapshot:', passedResultSnapshot);
+        
+        if (submittedAnswers) {
+            console.log('Clés des réponses:', Object.keys(submittedAnswers));
+            console.log('Valeurs des réponses:', Object.values(submittedAnswers));
+        }
+    }, []);
+
     const cleanupBeforeRedirect = useCallback(() => {
         if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
     }, []);
 
-    // ✅ Correction : redirection vers le terminal sur Render
     const redirectToTerminal = useCallback(() => {
         cleanupBeforeRedirect();
         localStorage.removeItem('studentInfoForExam');
-        // Nettoyer les sauvegardes automatiques
         if (examId) {
             localStorage.removeItem(`exam_${examId}_answers`);
             localStorage.removeItem(`exam_${examId}_index`);
@@ -86,8 +100,8 @@ const ResultsPage = () => {
         }, 300000);
     }, []);
 
-    // Fonction pour normaliser les questions du nouveau format
-    const normalizeQuestionForDisplay = (q, studentAnswer) => {
+    // ✅ Fonction pour normaliser les questions - Version corrigée
+    const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
         // Déterminer l'index de la bonne réponse
         let correctAnswerIndex = -1;
         let correctAnswerText = '';
@@ -100,20 +114,39 @@ const ResultsPage = () => {
             correctAnswerIndex = q.options?.findIndex(opt => opt === q.correctAnswer) || -1;
         }
         
+        // ✅ Récupérer la réponse de l'étudiant
+        let finalStudentAnswer = 'Non répondu';
+        if (studentAnswer && studentAnswer !== 'Non répondu' && studentAnswer !== undefined) {
+            finalStudentAnswer = studentAnswer;
+        } else if (submittedAnswers) {
+            // Essayer différentes clés pour trouver la réponse
+            const qId = q._id?.toString();
+            finalStudentAnswer = submittedAnswers[qId] 
+                || submittedAnswers[q._id] 
+                || submittedAnswers[questionIndex]
+                || submittedAnswers[`q${questionIndex}`]
+                || submittedAnswers[`question_${questionIndex}`]
+                || 'Non répondu';
+        }
+        
         // Déterminer si la réponse est correcte
         let isCorrect = false;
-        if (typeof q.bonOpRep === 'number') {
-            const selectedIndex = q.options?.findIndex(opt => opt === studentAnswer);
-            isCorrect = selectedIndex === q.bonOpRep;
-        } else {
-            isCorrect = studentAnswer === q.correctAnswer;
+        if (finalStudentAnswer !== 'Non répondu') {
+            if (typeof q.bonOpRep === 'number') {
+                const selectedIndex = q.options?.findIndex(opt => opt === finalStudentAnswer);
+                isCorrect = selectedIndex === q.bonOpRep;
+            } else {
+                isCorrect = finalStudentAnswer === q.correctAnswer;
+            }
         }
+        
+        console.log(`[Q${questionIndex}] ID: ${q._id}, Réponse: "${finalStudentAnswer}", Correcte: ${isCorrect}`);
         
         return {
             _id: q._id,
-            questionText: q.libQuestion || q.question || q.text,
+            questionText: q.libQuestion || q.question || q.text || 'Question sans texte',
             options: q.options || [],
-            studentAnswer: studentAnswer || 'Non répondu',
+            studentAnswer: finalStudentAnswer,
             correctAnswer: correctAnswerText,
             isCorrect,
             type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
@@ -127,6 +160,7 @@ const ResultsPage = () => {
 
     useEffect(() => {
         if (!examId || !submittedAnswers || !studentInfo || submittedScore === undefined || submittedPercentage === undefined) {
+            console.error('Données manquantes:', { examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage });
             toast.error("Données de résultats manquantes. Veuillez refaire l'épreuve.");
             navigate(`/exam/profile/${examId}`, { replace: true });
             return;
@@ -134,17 +168,16 @@ const ResultsPage = () => {
 
         const fetchAndProcessResults = async () => {
             try {
-                // ✅ Ajout du token JWT
                 const token = getAuthToken();
                 const axiosConfig = token ? {
                     headers: { Authorization: `Bearer ${token}` }
                 } : {};
 
-                // Utiliser le snapshot s'il existe
+                // ✅ Utiliser le snapshot s'il existe
                 if (passedResultSnapshot?.examQuestions?.length > 0) {
-                    questionDetailsRef.current = passedResultSnapshot.examQuestions.map(q => {
-                        const answer = submittedAnswers[q._id?.toString()] || submittedAnswers[q._id] || 'Non répondu';
-                        return normalizeQuestionForDisplay(q, answer);
+                    console.log('Utilisation du snapshot avec', passedResultSnapshot.examQuestions.length, 'questions');
+                    questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
+                        return normalizeQuestionForDisplay(q, null, idx);
                     });
                 }
 
@@ -157,11 +190,11 @@ const ResultsPage = () => {
                 setExam(examData);
                 setConfig(examData.config || null);
 
-                // Si pas de snapshot, construire depuis les questions de l'examen
+                // ✅ Si pas de snapshot, construire depuis les questions de l'examen
                 if (!passedResultSnapshot?.examQuestions?.length) {
-                    questionDetailsRef.current = examData.questions.map(q => {
-                        const answer = submittedAnswers[q._id] || submittedAnswers[q._id?.toString()] || 'Non répondu';
-                        return normalizeQuestionForDisplay(q, answer);
+                    console.log('Construction des questions depuis l\'examen');
+                    questionDetailsRef.current = examData.questions.map((q, idx) => {
+                        return normalizeQuestionForDisplay(q, null, idx);
                     });
                 }
 
@@ -172,9 +205,8 @@ const ResultsPage = () => {
                     (actualPassingScore ? ` (seuil: ${actualPassingScore}%)` : '')
                 );
             } catch (error) {
-                console.error("Erreur lors du chargement des détails de l'épreuve pour les résultats:", error);
+                console.error("Erreur lors du chargement des détails:", error);
                 
-                // ✅ Gestion de l'erreur 401
                 if (error.response?.status === 401) {
                     toast.error("Session expirée. Veuillez vous reconnecter.");
                     localStorage.removeItem('userToken');
@@ -185,9 +217,9 @@ const ResultsPage = () => {
                 
                 // Fallback: utiliser les données passées dans state
                 if (passedExamQuestions?.length > 0) {
+                    console.log('Fallback vers passedExamQuestions');
                     questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
-                        const answer = submittedAnswers[q._id] || submittedAnswers[idx] || 'Non répondu';
-                        return normalizeQuestionForDisplay(q, answer);
+                        return normalizeQuestionForDisplay(q, null, idx);
                     });
                     setExam({
                         title: passedExamTitle || 'Titre inconnu',
@@ -200,20 +232,6 @@ const ResultsPage = () => {
                         duration: passedResultSnapshot?.duration || 60,
                     });
                     setConfig(passedResultSnapshot?.config || null);
-                } else if (error.response?.status === 404 && passedExamQuestions?.length > 0) {
-                    toast.error("Épreuve introuvable sur le serveur. Affichage à partir des données locales.");
-                    setExam({
-                        title: passedExamTitle || 'Titre inconnu',
-                        questions: passedExamQuestions,
-                        passingScore: passedPassingScore,
-                        domain: 'Domaine inconnu', subject: 'Matière inconnue',
-                        category: 'Catégorie inconnue', level: studentInfo?.level || 'N/A', duration: 60,
-                    });
-                    setConfig(null);
-                    questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
-                        const answer = submittedAnswers[q._id] || submittedAnswers[idx] || 'Non répondu';
-                        return normalizeQuestionForDisplay(q, answer);
-                    });
                 } else {
                     toast.error(`Erreur: ${error.response ? error.response.status : 'Réseau ou serveur inaccessible'}`);
                     setExam(null);
@@ -369,7 +387,6 @@ const ResultsPage = () => {
         doc.text('Bulletin de Résultats', 105, yPos, { align: 'center' });
         yPos += 15;
 
-        // Informations étudiant
         doc.setFontSize(14);
         doc.setTextColor(59, 130, 246);
         doc.text('Informations de l\'étudiant :', margin, yPos);
@@ -382,7 +399,6 @@ const ResultsPage = () => {
         if (studentInfo?.matricule) { doc.text(`Matricule: ${studentInfo?.matricule}`, margin, yPos); yPos += lineHeight; }
         yPos += 10;
 
-        // Résumé de l'épreuve
         doc.setFontSize(14);
         doc.setTextColor(59, 130, 246);
         doc.text('Résumé de l\'épreuve :', margin, yPos);
@@ -396,7 +412,6 @@ const ResultsPage = () => {
         doc.text(`Niveau: ${exam.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
         doc.text(`Durée: ${exam.duration || 'N/A'} minutes`, margin, yPos); yPos += 10;
 
-        // Performance
         doc.setFontSize(14);
         doc.setTextColor(59, 130, 246);
         doc.text('Performance :', margin, yPos);
@@ -421,7 +436,6 @@ const ResultsPage = () => {
         doc.text(`Statut: ${submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 10;
         doc.setTextColor(0, 0, 0);
 
-        // Configuration
         if (config) {
             doc.setFontSize(14);
             doc.setTextColor(139, 92, 246);
@@ -446,7 +460,6 @@ const ResultsPage = () => {
             yPos += 5;
         }
 
-        // Détails des réponses
         doc.setFontSize(14);
         doc.setTextColor(59, 130, 246);
         doc.text('Détails des réponses :', margin, yPos);
@@ -519,6 +532,9 @@ const ResultsPage = () => {
     const totalQuestions = exam.questions?.length || 0;
     const currentPassStatus = submittedPercentage >= (exam.passingScore || passedPassingScore) ? 'Réussi' : 'Échoué';
 
+    // ✅ Ajout d'un bloc de débogage visuel temporaire
+    const showDebugInfo = process.env.NODE_ENV === 'development';
+
     return (
         <div style={{
             minHeight: '100vh', fontFamily: "'DM Sans', sans-serif",
@@ -530,7 +546,6 @@ const ResultsPage = () => {
 
             <main style={{ position: 'relative', zIndex: 1, maxWidth: '900px', margin: '0 auto' }}>
 
-                {/* Compte à rebours retour terminal */}
                 {!isLoading && redirectTimerActive && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
                         style={{ marginBottom: '16px', padding: '12px 20px', background: countdown <= 30 ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.1)', border: `1px solid ${countdown <= 30 ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.25)'}`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
@@ -548,6 +563,16 @@ const ResultsPage = () => {
                     </motion.div>
                 )}
 
+                {/* ✅ Bloc de débogage temporaire */}
+                {showDebugInfo && submittedAnswers && (
+                    <div style={{ marginBottom: '20px', padding: '10px', background: '#1e293b', borderRadius: '8px', fontSize: '0.7rem' }}>
+                        <h4 style={{ color: '#f8fafc', marginBottom: '5px' }}>Débogage - Réponses reçues :</h4>
+                        <pre style={{ color: '#94a3b8', overflow: 'auto', maxHeight: '100px' }}>
+                            {JSON.stringify(submittedAnswers, null, 2)}
+                        </pre>
+                    </div>
+                )}
+
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                     style={{ background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '24px', padding: '32px' }}>
                     
@@ -561,7 +586,6 @@ const ResultsPage = () => {
                         </h1>
                     </div>
 
-                    {/* Informations Étudiant et Performance */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '32px' }}>
                         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}
                             style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', padding: '20px' }}>
@@ -604,7 +628,6 @@ const ResultsPage = () => {
                         </motion.div>
                     </div>
 
-                    {/* Configuration de l'épreuve */}
                     {config && (
                         <div style={{ marginBottom: '24px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: '14px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -649,7 +672,6 @@ const ResultsPage = () => {
                         </div>
                     )}
 
-                    {/* Détails des Réponses */}
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} style={{ marginBottom: '32px' }}>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#f8fafc', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <FileText size={20} color="#3b82f6" /> Détails des Réponses
@@ -692,7 +714,6 @@ const ResultsPage = () => {
                         </div>
                     </motion.div>
 
-                    {/* Boutons d'export */}
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={printBulletin}
                             style={{ flex: 1, minWidth: '160px', padding: '14px', background: 'linear-gradient(135deg, #0f172a, #1e293b)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '12px', color: '#93c5fd', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}>
