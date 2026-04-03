@@ -419,27 +419,53 @@ const ReportsPage = () => {
 
   // ── Chargement ───────────────────────────────────────────────
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [resResp, examResp] = await Promise.all([
-        api.get('/api/results'),
-        api.get('/api/exams'),
-      ]);
-      // ✅ L'intercepteur api retourne déjà response.data directement
-      // results.js → tableau direct : resResp = [...]
-      // exams.js   → { success, data: [...] } : examResp.data = [...]
-      const r = Array.isArray(resResp) ? resResp
-        : Array.isArray(resResp?.data) ? resResp.data : [];
-      const e = Array.isArray(examResp?.data) ? examResp.data
-        : Array.isArray(examResp) ? examResp : [];
-      setResults(r);
-      setExams(e);
-    } catch (err) {
-      toast.error('Erreur chargement : ' + err.message);
-    } finally { setLoading(false); }
-  }, []);
+  setLoading(true);
+  try {
+    const [resResp, examResp] = await Promise.all([
+      api.get('/api/results'),
+      api.get('/api/exams'),
+    ]);
+    
+    // ✅ Extraction robuste des résultats
+    let r = [];
+    if (resResp?.data && Array.isArray(resResp.data)) {
+      r = resResp.data;
+    } else if (resResp?.results && Array.isArray(resResp.results)) {
+      r = resResp.results;
+    } else if (Array.isArray(resResp)) {
+      r = resResp;
+    }
+    
+    // ✅ Extraction robuste des examens
+    let e = [];
+    if (examResp?.data && Array.isArray(examResp.data)) {
+      e = examResp.data;
+    } else if (examResp?.exams && Array.isArray(examResp.exams)) {
+      e = examResp.exams;
+    } else if (Array.isArray(examResp)) {
+      e = examResp;
+    }
+    
+    console.log('📊 Résultats chargés:', r.length);
+    console.log('📚 Examens chargés:', e.length);
+    
+    setResults(r);
+    setExams(e);
+  } catch (err) {
+    console.error('❌ Erreur chargement:', err);
+    toast.error('Erreur chargement : ' + err.message);
+  } finally { 
+    setLoading(false);
+  }
+}, []);
 
-  useEffect(() => { load(); }, [load]);
+ useEffect(() => { 
+  load(); 
+}, [load]);
+
+// Pour debug - afficher la structure dans la console
+console.log('Structure résultats:', results);
+console.log('Structure examens:', exams);
 
   // ── Classements ───────────────────────────────────────────────
   useEffect(() => {
