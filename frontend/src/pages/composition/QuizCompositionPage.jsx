@@ -316,90 +316,117 @@ const QuizCompositionPage = () => {
 
   // Soumission finale
   const handleSubmitExam = useCallback(async (isManual = false) => {
-    if (quizFinishedRef.current || submittingRef.current) return;
+  if (quizFinishedRef.current || submittingRef.current) return;
 
-    submittingRef.current = true;
-    quizFinishedRef.current = true;
-    setQuizFinished(true);
-    setIsSubmitting(true);
+  submittingRef.current = true;
+  quizFinishedRef.current = true;
+  setQuizFinished(true);
+  setIsSubmitting(true);
+  
+  clearAutoSave();
+
+  if (socketRef.current?.connected) {
+    try {
+      socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
+    } catch (e) {}
+  }
+
+  try {
+    const token = getAuthToken();
+    const axiosConfig = token ? {
+      headers: { Authorization: `Bearer ${token}` }
+    } : {};
+
+    // ✅ Formater les answers correctement
+    const formattedAnswers = {};
+    Object.entries(answersRef.current).forEach(([questionId, answer]) => {
+      // Trouver la question correspondante
+      const question = examRef.current.questions.find(q => q._id === questionId);
+      if (question) {
+        // Trouver l'index de la réponse sélectionnée
+        const answerIndex = question.options.findIndex(opt => opt === answer);
+        formattedAnswers[questionId] = answerIndex !== -1 ? answerIndex : answer;
+      } else {
+        formattedAnswers[questionId] = answer;
+      }
+    });
+
+    console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
+      examId: examRef.current._id,
+      studentInfo: studentInfoRef.current,
+      answersCount: Object.keys(formattedAnswers).length,
+      totalQuestions: examRef.current.questions.length
+    });
+
+    const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
+      examId: examRef.current._id,
+      studentInfo: {
+        firstName: studentInfoRef.current?.firstName || '',
+        lastName: studentInfoRef.current?.lastName || '',
+        matricule: studentInfoRef.current?.matricule || '',
+        level: studentInfoRef.current?.level || ''
+      },
+      answers: formattedAnswers,
+      config: configRef.current || {}
+    }, { 
+      timeout: 10000,
+      ...axiosConfig
+    });
     
-    clearAutoSave();
+    const { result, details: correctionDetails } = res.data;
+    setShowConfetti(true);
+    toast.success(isManual ? "Examen soumis avec succès !" : "Temps écoulé ! Examen soumis automatiquement...");
 
     if (socketRef.current?.connected) {
-      try {
-        socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
-      } catch (e) {}
+      socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
+      socketRef.current.disconnect();
     }
 
-    try {
-      const token = getAuthToken();
-      const axiosConfig = token ? {
-        headers: { Authorization: `Bearer ${token}` }
-      } : {};
-
-      const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
-        examId: examRef.current._id,
-        studentInfo: studentInfoRef.current,
-        answers: answersRef.current,
-        config: configRef.current
-      }, { 
-        timeout: 10000,
-        ...axiosConfig
-      });
-      
-      const { result, details: correctionDetails } = res.data;
-      setShowConfetti(true);
-      toast.success(isManual ? "Examen soumis avec succès !" : "Temps écoulé ! Examen soumis automatiquement...");
-
-      if (socketRef.current?.connected) {
-        socketRef.current.emit('examSubmitted', { studentSocketId: socketRef.current.id, examResultId: result._id });
-        socketRef.current.disconnect();
-      }
-
-      setTimeout(() => {
-        navigate(`/results/${examRef.current._id}`, {
-          state: {
-            submittedAnswers: answersRef.current,
-            studentInfo: studentInfoRef.current,
-            submittedScore: result.score,
-            submittedPercentage: result.percentage,
-            examTitle: examRef.current.title,
-            passingScore: examRef.current.passingScore,
-            examQuestions: examRef.current.questions,
-            questionDetails: correctionDetails || null,
-            resultSnapshot: {
-              examTitle: result.examTitle || examRef.current.title,
-              examLevel: result.examLevel || examRef.current.level,
-              domain: result.domain || examRef.current.domain,
-              subject: result.subject || examRef.current.subject,
-              category: result.category || examRef.current.category,
-              duration: result.duration || examRef.current.duration,
-              passingScore: result.passingScore || examRef.current.passingScore,
-              examOption: result.examOption || configRef.current?.examOption,
-              examQuestions: result.examQuestions || [],
-            },
-            terminalSessionId: terminalSessionIdRef.current
+    setTimeout(() => {
+      navigate(`/results/${examRef.current._id}`, {
+        state: {
+          submittedAnswers: formattedAnswers,
+          studentInfo: studentInfoRef.current,
+          submittedScore: result.score,
+          submittedPercentage: result.percentage,
+          examTitle: examRef.current.title,
+          passingScore: examRef.current.passingScore,
+          examQuestions: examRef.current.questions,
+          questionDetails: correctionDetails || null,
+          resultSnapshot: {
+            examTitle: result.examTitle || examRef.current.title,
+            examLevel: result.examLevel || examRef.current.level,
+            domain: result.domain || examRef.current.domain,
+            subject: result.subject || examRef.current.subject,
+            category: result.category || examRef.current.category,
+            duration: result.duration || examRef.current.duration,
+            passingScore: result.passingScore || examRef.current.passingScore,
+            examOption: result.examOption || configRef.current?.examOption,
+            examQuestions: result.examQuestions || [],
           },
-          replace: true
-        });
-      }, 1500);
+          terminalSessionId: terminalSessionIdRef.current
+        },
+        replace: true
+      });
+    }, 1500);
 
-    } catch (error) {
-      console.error("Erreur soumission:", error);
-      submittingRef.current = false;
-      quizFinishedRef.current = false;
-      setQuizFinished(false);
-      setIsSubmitting(false);
-      if (error.response?.status === 401) {
-        toast.error("Session expirée. Veuillez vous reconnecter.");
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('token');
-        setTimeout(() => navigate('/login'), 2000);
-      } else {
-        toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
-      }
+  } catch (error) {
+    console.error("Erreur soumission:", error);
+    console.error("Détails erreur:", error.response?.data);
+    submittingRef.current = false;
+    quizFinishedRef.current = false;
+    setQuizFinished(false);
+    setIsSubmitting(false);
+    if (error.response?.status === 401) {
+      toast.error("Session expirée. Veuillez vous reconnecter.");
+      localStorage.removeItem('userToken');
+      localStorage.removeItem('token');
+      setTimeout(() => navigate('/login'), 2000);
+    } else {
+      toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
     }
-  }, [navigate, clearAutoSave]);
+  }
+}, [navigate, clearAutoSave]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
