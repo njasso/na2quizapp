@@ -318,9 +318,14 @@ const QuizCompositionPage = () => {
  const handleSubmitExam = useCallback(async (isManual = false) => {
   if (quizFinishedRef.current || submittingRef.current) return;
 
-  // ✅ Vérifier que examRef.current existe
-  if (!examRef.current || !examRef.current._id) {
-    console.error('[QuizCompositionPage] ❌ examRef.current est undefined');
+  // ✅ Utiliser l'état exam au lieu de examRef
+  const currentExam = exam; // exam est dans le scope
+  const currentStudentInfo = studentInfo;
+  const currentAnswers = answers;
+  const currentConfig = config;
+
+  if (!currentExam || !currentExam._id) {
+    console.error('[QuizCompositionPage] ❌ exam est undefined');
     toast.error("Erreur: impossible de soumettre l'examen");
     submittingRef.current = false;
     quizFinishedRef.current = false;
@@ -338,7 +343,7 @@ const QuizCompositionPage = () => {
 
   if (socketRef.current?.connected) {
     try {
-      socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: examRef.current._id });
+      socketRef.current.emit('examSubmitting', { studentSocketId: socketRef.current.id, examId: currentExam._id });
     } catch (e) {}
   }
 
@@ -348,17 +353,15 @@ const QuizCompositionPage = () => {
       headers: { Authorization: `Bearer ${token}` }
     } : {};
 
-    // ✅ Vérifier que studentInfoRef.current existe
     const studentData = {
-      firstName: studentInfoRef.current?.firstName || studentInfoRef.current?.name?.split(' ')[0] || '',
-      lastName: studentInfoRef.current?.lastName || studentInfoRef.current?.name?.split(' ')[1] || '',
-      matricule: studentInfoRef.current?.matricule || '',
-      level: studentInfoRef.current?.level || ''
+      firstName: currentStudentInfo?.firstName || currentStudentInfo?.name?.split(' ')[0] || '',
+      lastName: currentStudentInfo?.lastName || currentStudentInfo?.name?.split(' ')[1] || '',
+      matricule: currentStudentInfo?.matricule || '',
+      level: currentStudentInfo?.level || ''
     };
 
-    // ✅ Formater les answers
     const formattedAnswers = {};
-    Object.entries(answersRef.current || {}).forEach(([questionId, answer]) => {
+    Object.entries(currentAnswers || {}).forEach(([questionId, answer]) => {
       if (typeof answer === 'object' && answer !== null) {
         formattedAnswers[questionId] = answer.value || answer.option || String(answer);
       } else if (answer !== undefined && answer !== null) {
@@ -367,14 +370,14 @@ const QuizCompositionPage = () => {
     });
 
     console.log('[QuizCompositionPage] 📤 Soumission des résultats:', {
-      examId: examRef.current._id,
+      examId: currentExam._id,
       studentInfo: studentData,
       answersCount: Object.keys(formattedAnswers).length,
-      totalQuestions: examRef.current.questions?.length || 0
+      totalQuestions: currentExam.questions?.length || 0
     });
 
     const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
-      examId: examRef.current._id,
+      examId: currentExam._id,
       studentInfo: studentData,
       answers: formattedAnswers
     }, { 
@@ -392,25 +395,25 @@ const QuizCompositionPage = () => {
     }
 
     setTimeout(() => {
-      navigate(`/results/${examRef.current._id}`, {
+      navigate(`/results/${currentExam._id}`, {
         state: {
           submittedAnswers: formattedAnswers,
           studentInfo: studentData,
           submittedScore: result.score,
           submittedPercentage: result.percentage,
-          examTitle: examRef.current.title,
-          passingScore: examRef.current.passingScore,
-          examQuestions: examRef.current.questions,
+          examTitle: currentExam.title,
+          passingScore: currentExam.passingScore,
+          examQuestions: currentExam.questions,
           questionDetails: correctionDetails || null,
           resultSnapshot: {
-            examTitle: result.examTitle || examRef.current.title,
-            examLevel: result.examLevel || examRef.current.level,
-            domain: result.domain || examRef.current.domain,
-            subject: result.subject || examRef.current.subject,
-            category: result.category || examRef.current.category,
-            duration: result.duration || examRef.current.duration,
-            passingScore: result.passingScore || examRef.current.passingScore,
-            examOption: result.examOption || configRef.current?.examOption,
+            examTitle: result.examTitle || currentExam.title,
+            examLevel: result.examLevel || currentExam.level,
+            domain: result.domain || currentExam.domain,
+            subject: result.subject || currentExam.subject,
+            category: result.category || currentExam.category,
+            duration: result.duration || currentExam.duration,
+            passingScore: result.passingScore || currentExam.passingScore,
+            examOption: result.examOption || currentConfig?.examOption,
             examQuestions: result.examQuestions || [],
           },
           terminalSessionId: terminalSessionIdRef.current
@@ -435,7 +438,7 @@ const QuizCompositionPage = () => {
       toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
     }
   }
-}, [navigate, clearAutoSave]);
+}, [navigate, clearAutoSave, exam, studentInfo, answers, config]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
