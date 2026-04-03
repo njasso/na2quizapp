@@ -24,12 +24,14 @@
     observer.disconnect();
   }, 8000);
 
-  // Vérification backend — URL relative (Netlify Functions)
-  fetch('/api/health')
+  // ✅ Utiliser la variable d'environnement ou fallback
+  var BACKEND_URL = window.REACT_APP_BACKEND_URL || 'https://na2quizapp.onrender.com';
+  
+  fetch(BACKEND_URL + '/health')
     .then(function (r) {
       console.log('[Loader] ✅ Backend accessible — statut:', r.status);
     })
-    .catch(function () {
-      console.warn('[Loader] ⚠️ Backend non accessible');
+    .catch(function (err) {
+      console.warn('[Loader] ⚠️ Backend non accessible:', err.message);
     });
 })();
