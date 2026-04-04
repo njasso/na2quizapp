@@ -1,13 +1,13 @@
-// src/pages/creation/CreateQuestion.jsx
-// Création de question individuelle avec validation pédagogique - VERSION COMPLÈTE AVEC CHAPITRE OBLIGATOIRE
+// src/pages/creation/CreateQuestion.jsx - VERSION FINALE AVEC LOGS COMPLETS
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Save, ArrowLeft, BookOpen, Layers, Tag, Clock, Award, 
   HelpCircle, PlusCircle, Trash2, AlertCircle, Loader, 
-  XCircle, Eye, CheckCircle 
+  XCircle, Eye, CheckCircle, Image as ImageIcon  // ← Ajoutez ImageIcon ici
 } from 'lucide-react';
+
 import { useAuth } from '../../contexts/AuthContext';
 import { saveQuestions } from '../../services/api';
 import ImageUploader from '../../components/ImageUploader';
@@ -22,6 +22,12 @@ import DOMAIN_DATA, {
   getMatiereNom
 } from '../../data/domainConfig';
 import toast from 'react-hot-toast';
+import ENV_CONFIG from '../../config/env';
+
+const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+console.log('[CreateQuestion] 🔧 Composant chargé');
+console.log('[CreateQuestion] 🌐 BACKEND_URL:', BACKEND_URL);
 
 const QUESTION_TYPES = [
   { id: 1, nom: "Notions de base (le Savoir)", description: "Évaluation des connaissances théoriques" },
@@ -29,15 +35,69 @@ const QUESTION_TYPES = [
   { id: 3, nom: "Savoir-être", description: "Évaluation du potentiel psychologique" }
 ];
 
-// Composant d'aperçu de la question
-// Composant d'aperçu de la question (à placer avant le composant principal)
+// ✅ Composant d'aperçu de la question avec logs
 const QuestionPreviewModal = ({ question, onClose }) => {
-  if (!question) return null;
+  console.log('[PreviewModal] 🖼️ Question reçue:', question);
   
-  const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
+  if (!question) {
+    console.log('[PreviewModal] ❌ Aucune question');
+    return null;
+  }
+  
+  // Fonction pour obtenir l'URL complète de l'image
+  const getFullImageUrl = () => {
+    console.log('[PreviewModal] 🔍 Recherche de l\'image...');
+    console.log('[PreviewModal] - imageQuestion:', question.imageQuestion);
+    console.log('[PreviewModal] - imageBase64:', question.imageBase64 ? '(présent)' : '(absent)');
+    console.log('[PreviewModal] - imageMetadata:', question.imageMetadata);
+    
+    // Priorité à imageQuestion (URL)
+    let imagePath = question.imageQuestion || question.imageBase64 || null;
+    
+    if (!imagePath) {
+      console.log('[PreviewModal] ❌ Aucune image trouvée');
+      return null;
+    }
+    
+    console.log('[PreviewModal] 📷 Image path brute:', imagePath.substring(0, 100));
+    
+    // Déjà une URL complète
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      console.log('[PreviewModal] ✅ URL complète détectée');
+      return imagePath;
+    }
+    
+    // Déjà en base64
+    if (imagePath.startsWith('data:')) {
+      console.log('[PreviewModal] ✅ Base64 détecté, longueur:', imagePath.length);
+      return imagePath;
+    }
+    
+    // Chemin relatif
+    if (imagePath.startsWith('/uploads/')) {
+      const fullUrl = `${BACKEND_URL}${imagePath}`;
+      console.log('[PreviewModal] ✅ Chemin relatif converti:', fullUrl);
+      return fullUrl;
+    }
+    
+    // Nom de fichier seul
+    if (imagePath.includes('qcm-')) {
+      const fullUrl = `${BACKEND_URL}/uploads/questions/${imagePath}`;
+      console.log('[PreviewModal] ✅ Nom de fichier converti:', fullUrl);
+      return fullUrl;
+    }
+    
+    console.log('[PreviewModal] ⚠️ Format non reconnu, retour tel quel');
+    return imagePath;
+  };
+  
+  const imageSrc = getFullImageUrl();
   const filledOptions = question.options?.filter(opt => opt && opt.trim() !== '') || [];
   const isMultipleChoice = question.typeQuestion === 2;
-  const correctAnswers = isMultipleChoice ? question.correctAnswers || [] : [question.correctAnswer];
+  const correctAnswers = isMultipleChoice ? (question.correctAnswers || []) : [question.correctAnswer];
+  
+  console.log('[PreviewModal] 🖼️ Image finale:', imageSrc);
+  console.log('[PreviewModal] 📝 Options:', filledOptions.length);
   
   return (
     <motion.div
@@ -73,13 +133,45 @@ const QuestionPreviewModal = ({ question, onClose }) => {
           </button>
         </div>
         
-        {imageSrc && (
+        {/* AFFICHAGE DE L'IMAGE */}
+        {imageSrc ? (
           <div style={{ marginBottom: 16, textAlign: 'center' }}>
             <img 
               src={imageSrc} 
-              alt="Illustration" 
-              style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 8, objectFit: 'contain' }} 
+              alt="Illustration de la question" 
+              style={{ 
+                maxWidth: '100%', 
+                maxHeight: 200, 
+                borderRadius: 12, 
+                objectFit: 'contain',
+                background: 'rgba(0,0,0,0.2)'
+              }} 
+              onLoad={() => console.log('[PreviewModal] ✅ Image chargée avec succès')}
+              onError={(e) => {
+                console.error('[PreviewModal] ❌ Erreur chargement image:', imageSrc);
+                e.target.style.display = 'none';
+                const parent = e.target.parentElement;
+                if (parent && !parent.querySelector('.error-message')) {
+                  const errorMsg = document.createElement('p');
+                  errorMsg.className = 'error-message';
+                  errorMsg.style.cssText = 'color:#ef4444;font-size:0.7rem;margin-top:8px;text-align:center;';
+                  errorMsg.textContent = '⚠️ Image non disponible';
+                  parent.appendChild(errorMsg);
+                }
+              }}
             />
+          </div>
+        ) : (
+          <div style={{ 
+            marginBottom: 16, 
+            padding: 20, 
+            textAlign: 'center', 
+            background: 'rgba(0,0,0,0.2)', 
+            borderRadius: 8,
+            color: '#64748b'
+          }}>
+            <ImageIcon size={24} style={{ marginBottom: 8 }} />
+            <p style={{ fontSize: '0.7rem' }}>Aucune image</p>
           </div>
         )}
         
@@ -140,7 +232,6 @@ const QuestionPreviewModal = ({ question, onClose }) => {
           </div>
         </div>
 
-        {/* ✅ Affichage du chapitre dans l'aperçu */}
         {question.libChapitre && (
           <div style={{ marginBottom: 16, padding: 8, background: 'rgba(139,92,246,0.1)', borderRadius: 8 }}>
             <p style={{ color: '#a78bfa', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -160,8 +251,12 @@ const QuestionPreviewModal = ({ question, onClose }) => {
 };
 
 const CreateQuestion = () => {
+  console.log('[CreateQuestion] 🚀 Composant monté');
+  
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  console.log('[CreateQuestion] 👤 Utilisateur:', user?.name, user?.role);
 
   // Référentiel
   const [selectedDomainId, setSelectedDomainId] = useState('');
@@ -201,7 +296,7 @@ const CreateQuestion = () => {
     domaine: false,
     niveau: false,
     matiere: false,
-    libChapitre: false, // ✅ NOUVEAU
+    libChapitre: false,
   });
 
   // Mise à jour des noms
@@ -209,6 +304,7 @@ const CreateQuestion = () => {
     if (selectedDomainId) {
       const nom = getDomainNom(selectedDomainId);
       setDomainNom(nom);
+      console.log('[CreateQuestion] Domaine sélectionné:', nom);
     }
   }, [selectedDomainId]);
 
@@ -216,6 +312,7 @@ const CreateQuestion = () => {
     if (selectedDomainId && selectedSousDomaineId) {
       const nom = getSousDomaineNom(selectedDomainId, selectedSousDomaineId);
       setSousDomaineNom(nom);
+      console.log('[CreateQuestion] Sous-domaine sélectionné:', nom);
     }
   }, [selectedDomainId, selectedSousDomaineId]);
 
@@ -223,6 +320,7 @@ const CreateQuestion = () => {
     if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
       const nom = getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId);
       setLevelNom(nom);
+      console.log('[CreateQuestion] Niveau sélectionné:', nom);
     }
   }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
 
@@ -230,18 +328,23 @@ const CreateQuestion = () => {
     if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
       const nom = getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId);
       setMatiereNom(nom);
+      console.log('[CreateQuestion] Matière sélectionnée:', nom);
     }
   }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
 
   // Gestion des options dynamiques
   const addOption = () => {
-    if (options.length < 5) setOptions([...options, '']);
+    if (options.length < 5) {
+      setOptions([...options, '']);
+      console.log('[CreateQuestion] Option ajoutée, total:', options.length + 1);
+    }
   };
 
   const removeOption = (index) => {
     if (options.length > 3) {
       const newOptions = options.filter((_, i) => i !== index);
       setOptions(newOptions);
+      console.log('[CreateQuestion] Option supprimée, reste:', newOptions.length);
       if (typeQuestion === 1 && correctAnswer === options[index]) {
         setCorrectAnswer('');
       }
@@ -260,23 +363,35 @@ const CreateQuestion = () => {
   const handleCorrectAnswerChange = (value, index) => {
     if (typeQuestion === 1) {
       setCorrectAnswer(value);
+      console.log('[CreateQuestion] Réponse correcte (unique):', value);
     } else {
       if (correctAnswers.includes(value)) {
         setCorrectAnswers(correctAnswers.filter(a => a !== value));
+        console.log('[CreateQuestion] Réponse retirée:', value);
       } else {
         setCorrectAnswers([...correctAnswers, value]);
+        console.log('[CreateQuestion] Réponse ajoutée:', value);
       }
     }
   };
 
+  // ✅ Gestion du changement d'image avec logs
   const handleImageChange = (url, base64, metadata) => {
-    console.log('Image change:', { url, base64: !!base64, metadata });
+    console.log('[CreateQuestion] ========== IMAGE CHANGE RECEIVED ==========');
+    console.log('[CreateQuestion] 📷 url:', url);
+    console.log('[CreateQuestion] 📷 base64 présent:', !!base64);
+    console.log('[CreateQuestion] 📷 base64 length:', base64?.length);
+    console.log('[CreateQuestion] 📷 metadata:', metadata);
+    
     setImageQuestion(url || '');
     setImageBase64(base64 || '');
     setImageMetadata(metadata || {});
+    
+    console.log('[CreateQuestion] ✅ État mis à jour - imageQuestion:', url);
+    console.log('[CreateQuestion] ✅ État mis à jour - imageBase64 présent:', !!base64);
   };
 
-  // ✅ Validation du formulaire avec chapitre obligatoire
+  // Validation du formulaire
   const validateForm = () => {
     const filledOptions = options.filter(opt => opt.trim() !== '');
     const hasCorrectAnswer = typeQuestion === 1 
@@ -290,17 +405,21 @@ const CreateQuestion = () => {
       domaine: !selectedDomainId,
       niveau: !selectedLevelId,
       matiere: !selectedMatiereId,
-      libChapitre: !libChapitre.trim(), // ✅ Chapitre obligatoire
+      libChapitre: !libChapitre.trim(),
     };
     setValidationErrors(errors);
-    return !errors.libQuestion && !errors.options && !errors.correctAnswer && 
+    
+    const isValid = !errors.libQuestion && !errors.options && !errors.correctAnswer && 
            !errors.domaine && !errors.niveau && !errors.matiere && !errors.libChapitre;
+    
+    console.log('[CreateQuestion] Validation:', isValid ? '✅ OK' : '❌ ERREURS', errors);
+    return isValid;
   };
 
   // Construction de l'objet question pour l'aperçu
   const buildPreviewQuestion = () => {
     const filledOptions = options.filter(opt => opt.trim() !== '');
-    return {
+    const previewData = {
       libQuestion,
       options: filledOptions,
       correctAnswer,
@@ -313,12 +432,24 @@ const CreateQuestion = () => {
       niveau: levelNom,
       matiere: matiereNom,
       libChapitre,
-      imageQuestion,
-      imageBase64,
+      imageQuestion: imageQuestion,
+      imageBase64: imageBase64,
+      imageMetadata: imageMetadata,
     };
+    
+    console.log('[CreateQuestion] 📦 Construction aperçu:', {
+      libQuestion: previewData.libQuestion?.substring(0, 50),
+      imageQuestion: previewData.imageQuestion,
+      imageBase64: previewData.imageBase64 ? '(présent)' : '(absent)',
+      optionsCount: previewData.options.length
+    });
+    
+    return previewData;
   };
 
   const handleSave = async () => {
+    console.log('[CreateQuestion] 💾 Tentative de sauvegarde...');
+    
     if (!validateForm()) {
       toast.error('Veuillez corriger les erreurs avant d\'enregistrer');
       return;
@@ -326,7 +457,6 @@ const CreateQuestion = () => {
 
     const filledOptions = options.filter(opt => opt.trim() !== '');
     
-    // Vérifier que les noms sont résolus
     const resolvedDomainNom = domainNom || getDomainNom(selectedDomainId) || '';
     const resolvedLevelNom = levelNom || getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId) || '';
     const resolvedMatiereNom = matiereNom || getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId) || '';
@@ -337,13 +467,11 @@ const CreateQuestion = () => {
       return;
     }
     
-    // Vérifier que le chapitre est renseigné
     if (!libChapitre.trim()) {
       toast.error('Veuillez renseigner le chapitre');
       return;
     }
     
-    // Calculer bonOpRep (index de la bonne réponse dans le tableau d'options)
     let bonOpRep = null;
     if (typeQuestion === 1 && correctAnswer) {
       bonOpRep = filledOptions.findIndex(opt => opt === correctAnswer);
@@ -351,38 +479,43 @@ const CreateQuestion = () => {
       bonOpRep = filledOptions.findIndex(opt => correctAnswers.includes(opt));
     }
     
-    // Si bonOpRep est invalide, prendre 0 par défaut
     if (bonOpRep === -1 || bonOpRep === null) {
       bonOpRep = 0;
-      console.warn('bonOpRep invalide, utilisation de l\'index 0');
     }
+    
+    const questionData = {
+      libQuestion: libQuestion,
+      options: filledOptions,
+      correctAnswer: typeQuestion === 1 ? correctAnswer : correctAnswers,
+      bonOpRep: bonOpRep,
+      typeQuestion: typeQuestion,
+      points: points,
+      tempsMin: tempsMin,
+      explanation: explanation,
+      domaine: resolvedDomainNom,
+      niveau: resolvedLevelNom,
+      matiere: resolvedMatiereNom,
+      sousDomaine: resolvedSousDomaineNom,
+      libChapitre: libChapitre,
+      imageQuestion: imageQuestion,
+      imageBase64: imageBase64,
+      imageMetadata: imageMetadata,
+      matriculeAuteur: user?.matricule || user?.email || '',
+      status: 'pending'
+    };
+
+    console.log('[CreateQuestion] 📤 Envoi des données:', {
+      libQuestion: questionData.libQuestion?.substring(0, 50),
+      imageQuestion: questionData.imageQuestion,
+      imageBase64: questionData.imageBase64 ? '(présent, longueur: ' + questionData.imageBase64.length + ')' : '(absent)',
+      optionsCount: questionData.options.length,
+      bonOpRep: questionData.bonOpRep
+    });
     
     setIsLoading(true);
     try {
-      const questionData = {
-        libQuestion: libQuestion,
-        options: filledOptions,
-        correctAnswer: typeQuestion === 1 ? correctAnswer : correctAnswers,
-        bonOpRep: bonOpRep,
-        typeQuestion: typeQuestion,
-        points: points,
-        tempsMin: tempsMin,
-        explanation: explanation,
-        domaine: resolvedDomainNom,
-        niveau: resolvedLevelNom,
-        matiere: resolvedMatiereNom,
-        sousDomaine: resolvedSousDomaineNom,
-        libChapitre: libChapitre, // ✅ Chapitre inclus
-        imageQuestion: imageQuestion,
-        imageBase64: imageBase64,
-        imageMetadata: imageMetadata,
-        matriculeAuteur: user?.matricule || user?.email || '',
-        status: 'pending'
-      };
-
-      console.log('📤 Envoi des données à /api/questions/save:', JSON.stringify(questionData, null, 2));
-
       const response = await saveQuestions({ questions: [questionData] });
+      console.log('[CreateQuestion] ✅ Réponse serveur:', response);
 
       if (response.success) {
         toast.success('Question créée et envoyée en validation !');
@@ -391,7 +524,7 @@ const CreateQuestion = () => {
         throw new Error(response.error || 'Erreur lors de la création');
       }
     } catch (error) {
-      console.error('Erreur:', error);
+      console.error('[CreateQuestion] ❌ Erreur:', error);
       toast.error(error.message || 'Erreur lors de la création');
     } finally {
       setIsLoading(false);
@@ -537,7 +670,7 @@ const CreateQuestion = () => {
             {validationErrors.libQuestion && <p style={{ color: '#ef4444', fontSize: '0.7rem' }}><AlertCircle size={12} /> Le libellé est requis</p>}
           </div>
 
-          {/* Image */}
+          {/* Image Uploader */}
           <ImageUploader 
             value={imageQuestion || imageBase64} 
             onChange={handleImageChange}
@@ -568,6 +701,7 @@ const CreateQuestion = () => {
             )}
             {validationErrors.options && <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 8 }}><AlertCircle size={12} /> Entre 3 et 5 options sont requises</p>}
           </div>
+          
           {/* Points et temps */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
@@ -582,7 +716,7 @@ const CreateQuestion = () => {
             </div>
           </div>
 
-          {/* ✅ Chapitre - DEVENU OBLIGATOIRE (correctement positionné) */}
+          {/* Chapitre */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
               Chapitre <span style={{ color: '#ef4444' }}>*</span>
@@ -638,7 +772,10 @@ const CreateQuestion = () => {
             <motion.button 
               whileHover={{ scale: 1.02 }} 
               whileTap={{ scale: 0.98 }} 
-              onClick={() => setShowPreview(true)}
+              onClick={() => {
+                console.log('[CreateQuestion] 👁️ Ouverture aperçu');
+                setShowPreview(true);
+              }}
               disabled={!libQuestion.trim() || options.filter(opt => opt.trim()).length < 3}
               style={{ 
                 padding: '12px 20px', 
@@ -705,17 +842,23 @@ const CreateQuestion = () => {
         </div>
       </main>
 
-      {/* Modal d'aperçu avec affichage du chapitre */}
+      {/* Modal d'aperçu */}
       <AnimatePresence>
         {showPreview && previewQuestion.libQuestion && (
           <QuestionPreviewModal 
             question={previewQuestion} 
-            onClose={() => setShowPreview(false)} 
+            onClose={() => {
+              console.log('[CreateQuestion] 🔒 Fermeture aperçu');
+              setShowPreview(false);
+            }} 
           />
         )}
       </AnimatePresence>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+      `}</style>
     </div>
   );
 };

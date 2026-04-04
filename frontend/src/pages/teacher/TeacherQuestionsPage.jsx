@@ -1,12 +1,11 @@
-// src/pages/teacher/TeacherQuestionsPage.jsx
-// Liste des questions de l'enseignant/saisisseur avec suivi de validation et notifications en temps réel
+// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE avec affichage des images
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, ArrowLeft, RefreshCw, Search, Eye, Edit, Trash2,
   CheckCircle, XCircle, Clock, Tag, Layers, BookOpen, PlusCircle,
-  AlertCircle, Filter, Bell, BellOff, Image as ImageIcon, User
+  AlertCircle, Filter, Bell, BellOff, Image as ImageIcon, User, XCircle as XCircleIcon
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -14,10 +13,14 @@ import io from 'socket.io-client';
 import ENV_CONFIG from '../../config/env';
 import toast from 'react-hot-toast';
 
+const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
 const TeacherQuestionsPage = () => {
   const navigate = useNavigate();
   const { user, hasRole } = useAuth();
   
+  console.log('=== TeacherQuestionsPage - DÉMARRAGE ===');
+  console.log('BACKEND_URL:', BACKEND_URL);
   console.log('=== DEBUG USER OBJECT ===');
   console.log('user complet:', user);
   console.log('user._id:', user?._id);
@@ -226,6 +229,16 @@ const TeacherQuestionsPage = () => {
       }
       
       console.log(`[fetchMyQuestions] ${data.length} questions chargées`);
+      
+      // Log détaillé de la première question
+      if (data.length > 0) {
+        console.log('[fetchMyQuestions] PREMIÈRE QUESTION (JSON):', JSON.stringify(data[0], null, 2));
+        console.log('[fetchMyQuestions] Clés disponibles:', Object.keys(data[0]));
+        console.log('[fetchMyQuestions] imageQuestion:', data[0].imageQuestion);
+        console.log('[fetchMyQuestions] imageBase64 présent?', !!data[0].imageBase64);
+        console.log('[fetchMyQuestions] imageBase64 length:', data[0].imageBase64?.length);
+      }
+      
       setQuestions(data);
     } catch (error) {
       console.error('Erreur chargement questions:', error);
@@ -274,6 +287,7 @@ const TeacherQuestionsPage = () => {
   };
   
   const viewQuestionDetail = (question) => {
+    console.log('[viewQuestionDetail] Ouverture détail question:', question._id);
     setSelectedQuestion(question);
   };
   
@@ -293,16 +307,65 @@ const TeacherQuestionsPage = () => {
   
   const unreadCount = notifications.filter(n => !n.read).length;
   
+  // ✅ FONCTION CORRIGÉE POUR OBTENIR L'URL DE L'IMAGE
   const getImageUrl = (question) => {
-    if (question.imageQuestion) return question.imageQuestion;
-    if (question.imageBase64 && question.imageBase64.startsWith('data:')) return question.imageBase64;
-    return null;
+    if (!question) {
+      console.log('[getImageUrl] Question null');
+      return null;
+    }
+    
+    console.log(`[getImageUrl] Traitement question ${question._id}:`);
+    console.log(`  - imageQuestion: ${question.imageQuestion ? question.imageQuestion.substring(0, 80) : '(absent)'}`);
+    console.log(`  - imageBase64 présent: ${!!question.imageBase64}`);
+    console.log(`  - imageBase64 length: ${question.imageBase64?.length || 0}`);
+    
+    // Priorité à imageQuestion (URL stockée)
+    let imagePath = question.imageQuestion || question.imageBase64 || null;
+    
+    if (!imagePath) {
+      console.log('[getImageUrl] Aucune image trouvée');
+      return null;
+    }
+    
+    console.log('[getImageUrl] Image path brute:', imagePath.substring(0, 100));
+    
+    // Déjà une URL complète
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      console.log('[getImageUrl] URL complète détectée');
+      return imagePath;
+    }
+    
+    // Déjà en base64
+    if (imagePath.startsWith('data:')) {
+      console.log('[getImageUrl] Base64 détecté, longueur:', imagePath.length);
+      return imagePath;
+    }
+    
+    // Chemin relatif (/uploads/...)
+    if (imagePath.startsWith('/uploads/')) {
+      const fullUrl = `${BACKEND_URL}${imagePath}`;
+      console.log('[getImageUrl] Chemin relatif converti:', fullUrl);
+      return fullUrl;
+    }
+    
+    // Si c'est juste un nom de fichier
+    if (imagePath.includes('qcm-')) {
+      const fullUrl = `${BACKEND_URL}/uploads/questions/${imagePath}`;
+      console.log('[getImageUrl] Nom de fichier converti:', fullUrl);
+      return fullUrl;
+    }
+    
+    console.log('[getImageUrl] Format non reconnu, retour tel quel');
+    return imagePath;
   };
-  
+
+  // Modal de détail avec image
   const QuestionDetailModal = ({ question, onClose }) => {
     if (!question) return null;
     const status = getStatusBadge(question.status);
     const imageUrl = getImageUrl(question);
+    
+    console.log('[QuestionDetailModal] imageUrl finale:', imageUrl);
     
     return (
       <motion.div
@@ -339,11 +402,12 @@ const TeacherQuestionsPage = () => {
               {question.typeQuestion === 2 && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: '0.7rem' }}>(Multiples réponses)</span>}
             </h3>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
-              <XCircle size={24} />
+              <XCircleIcon size={24} />
             </button>
           </div>
           
-          {imageUrl && (
+          {/* AFFICHAGE DE L'IMAGE */}
+          {imageUrl ? (
             <div style={{ marginBottom: 16, textAlign: 'center' }}>
               <img 
                 src={imageUrl} 
@@ -356,7 +420,32 @@ const TeacherQuestionsPage = () => {
                   background: 'rgba(0,0,0,0.3)',
                   padding: '8px'
                 }} 
+                onLoad={() => console.log('[QuestionDetailModal] Image chargée avec succès:', imageUrl)}
+                onError={(e) => {
+                  console.error('[QuestionDetailModal] Erreur chargement image:', imageUrl);
+                  e.target.style.display = 'none';
+                  const parent = e.target.parentElement;
+                  if (parent && !parent.querySelector('.error-message')) {
+                    const errorMsg = document.createElement('p');
+                    errorMsg.className = 'error-message';
+                    errorMsg.style.cssText = 'color:#ef4444;font-size:0.7rem;margin-top:8px;text-align:center;';
+                    errorMsg.textContent = '⚠️ Image non disponible';
+                    parent.appendChild(errorMsg);
+                  }
+                }}
               />
+            </div>
+          ) : (
+            <div style={{ 
+              marginBottom: 16, 
+              padding: 20, 
+              textAlign: 'center', 
+              background: 'rgba(0,0,0,0.2)', 
+              borderRadius: 8,
+              color: '#64748b'
+            }}>
+              <ImageIcon size={24} style={{ marginBottom: 8 }} />
+              <p style={{ fontSize: '0.7rem' }}>Aucune image</p>
             </div>
           )}
           
@@ -431,12 +520,12 @@ const TeacherQuestionsPage = () => {
                 <p style={{ color: '#e2e8f0', fontSize: '0.8rem' }}>{question.matiere || '—'}</p>
               </div>
               <div style={{ padding: 8, background: 'rgba(59,130,246,0.05)', borderRadius: 8 }}>
-                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Points</span>
-                <p style={{ color: '#f59e0b', fontSize: '0.8rem' }}>{question.points || 1} pts</p>
+                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Chapitre</span>
+                <p style={{ color: '#e2e8f0', fontSize: '0.8rem' }}>{question.libChapitre || '—'}</p>
               </div>
               <div style={{ padding: 8, background: 'rgba(59,130,246,0.05)', borderRadius: 8 }}>
-                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Temps</span>
-                <p style={{ color: '#f59e0b', fontSize: '0.8rem' }}>{question.tempsMin || 1} min</p>
+                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Points / Temps</span>
+                <p style={{ color: '#f59e0b', fontSize: '0.8rem' }}>{question.points || 1} pts / {question.tempsMin || 1} min</p>
               </div>
             </div>
             

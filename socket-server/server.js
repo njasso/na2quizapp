@@ -578,16 +578,26 @@ app.get('/api/questions/public', async (req, res) => {
     if (sousDomaine) filter.sousDomaine = sousDomaine;
     if (niveau) filter.niveau = niveau;
     if (matiere) filter.matiere = matiere;
-    const questions = await Question.find(filter).sort({ createdAt: -1 }).limit(parseInt(limit));
+    const questions = await Question.find(filter)
+      .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
     res.json({ success: true, data: questions, count: questions.length });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { 
+    res.status(500).json({ success: false, error: err.message }); 
+  }
 });
 
 app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
   try {
-    const questions = await Question.find({ status: 'pending' }).populate('createdBy', 'name email').sort({ createdAt: -1 });
+    const questions = await Question.find({ status: 'pending' })
+      .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 });
     res.json({ success: true, data: questions });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { 
+    res.status(500).json({ success: false, error: err.message }); 
+  }
 });
 
 // ✅ ROUTE CORRIGÉE - Avec support de createdBy et SAISISEUR
@@ -646,10 +656,11 @@ app.get('/api/questions', protect, async (req, res) => {
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const questions = await Question.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate('createdBy', 'name email');
+  .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
+  .sort({ createdAt: -1 })
+  .skip(skip)
+  .limit(parseInt(limit))
+  .populate('createdBy', 'name email');
     
     const total = await Question.countDocuments(filter);
     
@@ -769,7 +780,6 @@ app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'
       if (bonOpRep === undefined && q.correctAnswer !== undefined) 
         bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
       
-      // ✅ Validation du chapitre pour chaque question
       if (!q.libChapitre || q.libChapitre.trim() === '') {
         throw new Error(`Le chapitre est obligatoire pour la question: ${questionText?.substring(0, 50)}`);
       }
@@ -782,7 +792,7 @@ app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'
         niveau: q.niveau || '', 
         domaine: q.domaine || '',
         sousDomaine: q.sousDomaine || '', 
-        libChapitre: q.libChapitre || '', // ✅ Ajouter le chapitre
+        libChapitre: q.libChapitre || '',
         typeQuestion: q.typeQuestion || 1, 
         points: q.points || 1, 
         explanation: q.explanation || '',
@@ -792,14 +802,165 @@ app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'
         matriculeAuteur: req.user.matricule,
         status: 'pending', 
         createdAt: new Date(), 
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        // ✅ AJOUTEZ CES 3 LIGNES :
+        imageQuestion: q.imageQuestion || '',
+        imageBase64: q.imageBase64 || '',
+        imageMetadata: q.imageMetadata || { originalName: '', mimeType: '', size: 0, storageType: 'none' }
       };
     });
     
     const result = await Question.insertMany(questionsWithMetadata);
     res.json({ success: true, message: `${result.length} questions enregistrées`, data: result });
   } catch (err) { 
+    console.error('[API] Erreur save:', err);
     res.status(500).json({ success: false, error: err.message }); 
+  }
+});
+
+// ==================== VALIDATION DES QUESTIONS ====================
+// ✅ Route pour valider ou rejeter une question (pour ADMIN_DELEGUE)
+app.put('/api/questions/:id/validate', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { approved, comment } = req.body;
+    
+    console.log(`[Validation] Traitement de la question ${id}`);
+    console.log(`[Validation] Approuvée: ${approved}, Commentaire: ${comment || 'aucun'}`);
+    
+    // Vérifier si la question existe
+    const question = await Question.findById(id);
+    if (!question) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Question non trouvée' 
+      });
+    }
+    
+    // Vérifier que la question est bien en attente
+    if (question.status !== 'pending') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cette question a déjà été ${question.status === 'approved' ? 'approuvée' : 'rejetée'}` 
+      });
+    }
+    
+    // Mettre à jour le statut
+    question.status = approved ? 'approved' : 'rejected';
+    question.approvedBy = req.user._id;
+    question.approvedAt = new Date();
+    
+    if (!approved && comment) {
+      question.rejectionComment = comment;
+    }
+    
+    await question.save();
+    
+    console.log(`[Validation] ✅ Question ${id} ${approved ? 'approuvée' : 'rejetée'} par ${req.user.name}`);
+    
+    res.json({
+      success: true,
+      message: approved ? 'Question approuvée avec succès' : 'Question rejetée',
+      data: {
+        _id: question._id,
+        status: question.status,
+        approvedBy: question.approvedBy,
+        approvedAt: question.approvedAt,
+        rejectionComment: question.rejectionComment
+      }
+    });
+    
+  } catch (err) {
+    console.error('[Validation] Erreur:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur lors de la validation',
+      error: err.message 
+    });
+  }
+});
+
+// ✅ Alternative : route PATCH pour la compatibilité
+app.patch('/api/questions/:id/status', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, comment } = req.body;
+    
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Status invalide. Utilisez "approved" ou "rejected"' 
+      });
+    }
+    
+    const question = await Question.findById(id);
+    if (!question) {
+      return res.status(404).json({ success: false, message: 'Question non trouvée' });
+    }
+    
+    if (question.status !== 'pending') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cette question a déjà été ${question.status}` 
+      });
+    }
+    
+    question.status = status;
+    question.approvedBy = req.user._id;
+    question.approvedAt = new Date();
+    
+    if (status === 'rejected' && comment) {
+      question.rejectionComment = comment;
+    }
+    
+    await question.save();
+    
+    res.json({
+      success: true,
+      message: status === 'approved' ? 'Question approuvée' : 'Question rejetée',
+      data: question
+    });
+    
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ Route pour obtenir les statistiques de validation
+app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const [pending, approved, rejected, total] = await Promise.all([
+      Question.countDocuments({ status: 'pending' }),
+      Question.countDocuments({ status: 'approved' }),
+      Question.countDocuments({ status: 'rejected' }),
+      Question.countDocuments()
+    ]);
+    
+    // Top validateurs
+    const topValidators = await Question.aggregate([
+      { $match: { approvedBy: { $exists: true } } },
+      { $group: { _id: '$approvedBy', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 5 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'validator' } },
+      { $unwind: { path: '$validator', preserveNullAndEmptyArrays: true } },
+      { $project: { name: '$validator.name', email: '$validator.email', count: 1 } }
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        pending,
+        approved,
+        rejected,
+        total,
+        approvalRate: total > 0 ? (approved / total * 100).toFixed(2) : 0,
+        topValidators
+      }
+    });
+    
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
