@@ -1,4 +1,4 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - Version complète avec chapitre obligatoire et contrôles points/temps
+// src/pages/creation/DatabaseQuizCreation.jsx - Version complète avec gestion des images
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,7 +6,7 @@ import {
   Database, Save, Trash2, ArrowLeft, Search,
   BookOpen, BookMarked, Loader, AlertCircle, RefreshCw,
   CheckCircle, XCircle, Tag, Layers, Clock, Plus, Eye,
-  Settings, ChevronDown, ChevronUp, Award, Timer , 
+  Settings, ChevronDown, ChevronUp, Award, Timer, Image as ImageIcon
 } from 'lucide-react';
 import DOMAIN_DATA, { 
   getAllDomaines, 
@@ -20,13 +20,26 @@ import DOMAIN_DATA, {
 } from '../../data/domainConfig';
 import { getQuestions, createExam } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import ImageUploader from '../../components/ImageUploader';
 import toast from 'react-hot-toast';
+import ENV_CONFIG from '../../config/env';
 
-// Composant d'aperçu de question
+const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+// Fonction pour obtenir l'URL complète de l'image
+const getImageUrl = (question) => {
+  if (!question) return null;
+  let imagePath = question.imageQuestion || question.imageBase64 || null;
+  if (!imagePath) return null;
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+  if (imagePath.startsWith('data:')) return imagePath;
+  if (imagePath.startsWith('/uploads/')) return `${BACKEND_URL}${imagePath}`;
+  return imagePath;
+};
+
+// Composant d'aperçu de question avec image
 const QuestionPreview = ({ question, onClose }) => {
   if (!question) return null;
-  const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
+  const imageSrc = getImageUrl(question);
   
   return (
     <motion.div
@@ -49,7 +62,11 @@ const QuestionPreview = ({ question, onClose }) => {
       
       {imageSrc && (
         <div style={{ marginBottom: 16, textAlign: 'center' }}>
-          <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'contain' }} />
+          <img 
+            src={imageSrc} 
+            alt="Illustration" 
+            style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'contain' }} 
+          />
         </div>
       )}
       
@@ -102,6 +119,133 @@ const QuestionPreview = ({ question, onClose }) => {
   );
 };
 
+// Composant QuestionCard avec image
+const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) => {
+  const imageSrc = getImageUrl(question);
+  
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      whileHover={{ y: -2 }}
+      style={{
+        background: isSelected ? 'rgba(16,185,129,0.1)' : 'rgba(15,23,42,0.7)',
+        backdropFilter: 'blur(12px)',
+        border: `1px solid ${isSelected ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        position: 'relative'
+      }}
+    >
+      {isSelected && (
+        <div style={{
+          position: 'absolute', top: 8, right: 8,
+          background: '#10b981', borderRadius: '50%',
+          width: 20, height: 20, display: 'flex',
+          alignItems: 'center', justifyContent: 'center'
+        }}>
+          <CheckCircle size={12} color="white" />
+        </div>
+      )}
+      
+      {imageSrc && (
+        <div style={{ marginBottom: 8 }}>
+          <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 60, borderRadius: 4, objectFit: 'contain' }} />
+        </div>
+      )}
+      
+      <p style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 8 }}>
+        {question.libQuestion.length > 100 ? question.libQuestion.substring(0, 100) + '...' : question.libQuestion}
+        {question.typeQuestion === 2 && (
+          <span style={{ color: '#f59e0b', marginLeft: 6 }}>(Multiple)</span>
+        )}
+      </p>
+      
+      {question.libChapitre && (
+        <div style={{ marginBottom: 8 }}>
+          <span style={{
+            fontSize: '0.6rem', padding: '2px 8px',
+            background: 'rgba(139,92,246,0.15)', borderRadius: 4,
+            color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: 4
+          }}>
+            📑 {question.libChapitre}
+          </span>
+        </div>
+      )}
+      
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {question.options.filter(opt => opt.trim()).slice(0, 4).map((opt, i) => {
+          const isCorrect = typeof question.bonOpRep === 'number' 
+            ? i === question.bonOpRep 
+            : (Array.isArray(question.correctAnswer) && question.correctAnswer.includes(opt));
+          return (
+            <span key={i} style={{
+              padding: '2px 6px',
+              background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
+              borderRadius: 4,
+              color: isCorrect ? '#10b981' : '#94a3b8',
+              fontSize: '0.7rem'
+            }}>
+              {String.fromCharCode(65 + i)}: {opt.length > 15 ? opt.substring(0, 15) + '...' : opt}
+            </span>
+          );
+        })}
+        {question.options.filter(opt => opt.trim()).length > 4 && (
+          <span style={{ fontSize: '0.6rem', color: '#64748b' }}>+{question.options.filter(opt => opt.trim()).length - 4}</span>
+        )}
+      </div>
+      
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: '0.6rem', color: '#64748b', flexWrap: 'wrap' }}>
+        <span>🎓 {question.niveau}</span>
+        <span>📖 {question.matiere}</span>
+        <span>⭐ {question.points} pts</span>
+        <span>⏱️ {question.tempsMinParQuestion}s</span>
+      </div>
+      
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onPreview(question); }}
+          style={{
+            padding: '4px 8px',
+            background: 'rgba(59,130,246,0.2)',
+            border: 'none',
+            borderRadius: 4,
+            color: '#3b82f6',
+            cursor: 'pointer',
+            fontSize: '0.7rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4
+          }}
+        >
+          <Eye size={12} /> Aperçu
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelect(question); }}
+          style={{
+            padding: '4px 8px',
+            background: isSelected ? '#ef4444' : '#10b981',
+            border: 'none',
+            borderRadius: 4,
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '0.7rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4
+          }}
+        >
+          {isSelected ? <Trash2 size={12} /> : <Plus size={12} />}
+          {isSelected ? 'Retirer' : 'Ajouter'}
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 const DatabaseQuizCreation = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -112,7 +256,7 @@ const DatabaseQuizCreation = () => {
   const [selectedLevelId, setSelectedLevelId] = useState('');
   const [selectedMatiereId, setSelectedMatiereId] = useState('');
   
-  // Noms affichés (résolus)
+  // Noms affichés
   const [domainNom, setDomainNom] = useState('');
   const [sousDomaineNom, setSousDomaineNom] = useState('');
   const [levelNom, setLevelNom] = useState('');
@@ -128,7 +272,7 @@ const DatabaseQuizCreation = () => {
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(null);
   
-  // ✅ Configuration complète avec toutes les variantes
+  // Configuration
   const [config, setConfig] = useState({
     examOption: 'C',
     openRange: false,
@@ -146,12 +290,10 @@ const DatabaseQuizCreation = () => {
   });
   
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  
-  // ✅ États pour les avertissements
   const [totalPointsWarning, setTotalPointsWarning] = useState(false);
   const [totalTimeWarning, setTotalTimeWarning] = useState(false);
 
-  // Mettre à jour les noms quand les IDs changent
+  // Mise à jour des noms
   useEffect(() => {
     if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
   }, [selectedDomainId]);
@@ -177,19 +319,16 @@ const DatabaseQuizCreation = () => {
     ? (config.timePerQuestion * selectedQuestions.length) / 60
     : config.totalTime;
 
-  // ✅ Vérification des totaux
   useEffect(() => {
     setTotalPointsWarning(totalPoints > 100 || totalPoints < 10);
     setTotalTimeWarning(totalDuration > 180 || totalDuration < 15);
   }, [totalPoints, totalDuration]);
 
-  // ✅ Fonction d'ajustement des points
   const adjustPointsToTarget = (targetTotalPoints) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
       return;
     }
-    
     if (config.pointsType === 'uniform') {
       const newGlobalPoints = targetTotalPoints / selectedQuestions.length;
       setConfig({...config, globalPoints: Math.round(newGlobalPoints * 10) / 10});
@@ -205,13 +344,11 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // ✅ Fonction d'ajustement du temps
   const adjustTimeToTarget = (targetTotalMinutes) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
       return;
     }
-    
     if (config.timerPerQuestion) {
       const newTimePerQuestion = (targetTotalMinutes * 60) / selectedQuestions.length;
       setConfig({...config, timePerQuestion: Math.round(newTimePerQuestion)});
@@ -222,7 +359,6 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // ========== CHARGEMENT DES QUESTIONS ==========
   const loadAvailableQuestions = async () => {
     if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
       toast.error('Veuillez sélectionner tous les critères');
@@ -244,23 +380,19 @@ const DatabaseQuizCreation = () => {
       });
       
       const response = await getQuestions({
-  domaine: resolvedDomainNom,
-  sousDomaine: resolvedSousDomNom,
-  niveau: resolvedLevelNom,
-  matiere: resolvedMatiereNom,
-  libChapitre: searchChapitre, // ✅ Ajout possible si besoin
-  status: 'approved',
-  limit: 1000
-});
+        domaine: resolvedDomainNom,
+        sousDomaine: resolvedSousDomNom,
+        niveau: resolvedLevelNom,
+        matiere: resolvedMatiereNom,
+        libChapitre: searchChapitre,
+        status: 'approved',
+        limit: 1000
+      });
 
       let allQuestions = [];
-      if (Array.isArray(response)) {
-        allQuestions = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        allQuestions = response.data;
-      } else if (response?.questions && Array.isArray(response.questions)) {
-        allQuestions = response.questions;
-      }
+      if (Array.isArray(response)) allQuestions = response;
+      else if (response?.data && Array.isArray(response.data)) allQuestions = response.data;
+      else if (response?.questions && Array.isArray(response.questions)) allQuestions = response.questions;
 
       const normalized = allQuestions.map((q, idx) => ({
         id: q._id || q.id || idx,
@@ -288,7 +420,6 @@ const DatabaseQuizCreation = () => {
       }));
 
       setAvailableQuestions(normalized);
-
       if (normalized.length === 0) {
         toast.error(`Aucune question trouvée pour ${resolvedMatiereNom} (niveau ${resolvedLevelNom})`);
       } else {
@@ -302,7 +433,6 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Recharger quand les critères changent
   useEffect(() => {
     if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId) {
       loadAvailableQuestions();
@@ -311,13 +441,11 @@ const DatabaseQuizCreation = () => {
     }
   }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId]);
 
-  // Filtrer les questions par recherche
   const filteredQuestions = availableQuestions.filter(q =>
     q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     q.libChapitre?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Ajouter une question
   const addQuestion = (question) => {
     if (!selectedQuestions.some(q => q.id === question.id)) {
       setSelectedQuestions([...selectedQuestions, question]);
@@ -327,13 +455,11 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Retirer une question
   const removeQuestion = (questionId) => {
     setSelectedQuestions(selectedQuestions.filter(q => q.id !== questionId));
     toast.success('Question retirée');
   };
 
-  // Déplacer une question
   const moveQuestionUp = (index) => {
     if (index > 0) {
       const newQuestions = [...selectedQuestions];
@@ -350,7 +476,6 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // ✅ Sauvegarder l'épreuve avec vérifications
   const saveExam = async () => {
     if (!examTitle || selectedQuestions.length === 0) {
       toast.error('Veuillez donner un titre et sélectionner au moins une question');
@@ -367,26 +492,16 @@ const DatabaseQuizCreation = () => {
       return;
     }
 
-    // ✅ Vérification des points
     if (totalPoints > 100) {
-      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) dépasse 100. Voulez-vous continuer quand même ?`)) {
-        return;
-      }
+      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) dépasse 100. Voulez-vous continuer quand même ?`)) return;
     } else if (totalPoints < 10) {
-      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) est inférieur à 10. Voulez-vous continuer quand même ?`)) {
-        return;
-      }
+      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) est inférieur à 10. Voulez-vous continuer quand même ?`)) return;
     }
 
-    // ✅ Vérification du temps
     if (totalDuration > 180) {
-      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) dépasse 3 heures. Voulez-vous continuer quand même ?`)) {
-        return;
-      }
+      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) dépasse 3 heures. Voulez-vous continuer quand même ?`)) return;
     } else if (totalDuration < 15) {
-      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`)) {
-        return;
-      }
+      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`)) return;
     }
 
     setIsLoading(true);
@@ -395,9 +510,7 @@ const DatabaseQuizCreation = () => {
         const validOptions = q.options.filter(opt => opt && opt.trim() !== '');
         
         let points = q.points || 1;
-        if (config.pointsType === 'uniform') {
-          points = config.globalPoints;
-        }
+        if (config.pointsType === 'uniform') points = config.globalPoints;
         
         return {
           nQuestion: idx + 1,
@@ -408,6 +521,8 @@ const DatabaseQuizCreation = () => {
           libChapitre: q.libChapitre || '',
           libQuestion: q.libQuestion,
           imageQuestion: q.imageQuestion || '',
+          imageBase64: q.imageBase64 || '',
+          imageMetadata: q.imageMetadata || {},
           typeQuestion: q.typeQuestion,
           opRep1: validOptions[0] || '',
           opRep2: validOptions[1] || '',
@@ -419,8 +534,6 @@ const DatabaseQuizCreation = () => {
           tempsMinParQuestion: q.tempsMinParQuestion || 60,
           points: points,
           explanation: q.explanation || '',
-          imageBase64: q.imageBase64 || '',
-          imageMetadata: q.imageMetadata || {},
           matriculeAuteur: user?.matricule || user?.email || '',
           dateCrea: new Date().toISOString(),
         };
@@ -474,7 +587,6 @@ const DatabaseQuizCreation = () => {
       };
       
       const response = await createExam(examData);
-
       if (response.success !== false) {
         toast.success('Épreuve créée avec succès!');
         navigate('/exams');
