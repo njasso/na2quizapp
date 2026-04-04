@@ -213,9 +213,9 @@ const QuizCompositionPage = () => {
     }
 
     let imageUrl = q.imageQuestion || '';
-    if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
-      imageUrl = q.imageBase64;
-    }
+if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
+  imageUrl = q.imageBase64;
+}
 
     return {
       _id: q._id || uuidv4(),
@@ -243,11 +243,38 @@ const QuizCompositionPage = () => {
   };
 
   // Obtenir l'URL de l'image
-  const getImageUrl = (question) => {
-    if (question.imageQuestion) return question.imageQuestion;
-    if (question.imageBase64 && question.imageBase64.startsWith('data:')) return question.imageBase64;
-    return null;
-  };
+  // Remplacer la fonction getImageUrl actuelle par :
+
+const getImageUrl = (question) => {
+  if (!question) return null;
+  
+  // Priorité à imageQuestion (URL stockée)
+  let imagePath = question.imageQuestion || question.imageBase64 || null;
+  
+  if (!imagePath) return null;
+  
+  // Déjà une URL complète
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+  
+  // Déjà en base64
+  if (imagePath.startsWith('data:')) {
+    return imagePath;
+  }
+  
+  // Chemin relatif (/uploads/...)
+  if (imagePath.startsWith('/uploads/')) {
+    return `${NODE_BACKEND_URL}${imagePath}`;
+  }
+  
+  // Nom de fichier seul
+  if (imagePath.includes('qcm-')) {
+    return `${NODE_BACKEND_URL}/uploads/questions/${imagePath}`;
+  }
+  
+  return imagePath;
+};
 
   // Obtenir les points à afficher (selon pointsType)
   const getDisplayPoints = useCallback((question) => {
@@ -466,7 +493,29 @@ const QuizCompositionPage = () => {
       };
 
       const currentQuestionsList = examRef.current.questions || [];
-      const formattedAnswers = {};
+const formattedAnswers = {};
+
+currentQuestionsList.forEach((question, idx) => {
+  // ✅ CORRECTION: Utiliser l'index de la question pour récupérer la réponse
+  // Ne pas utiliser question._id car les IDs peuvent ne pas correspondre
+  let answer = answersRef.current[idx];  // ← Utiliser l'index
+  
+  // Fallback si pas trouvé par index
+  if (answer === undefined) {
+    answer = answersRef.current[question._id];
+  }
+  
+  // Si answer est un objet (cas multiple), prendre la valeur
+  if (answer && typeof answer === 'object') {
+    answer = answer.value || answer.text || null;
+  }
+  
+  formattedAnswers[idx] = answer || null;
+  
+  console.log(`[Soumission] Question ${idx}: réponse = "${answer}"`);
+});
+
+console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers);
 
       currentQuestionsList.forEach((question, idx) => {
         let answer = answersRef.current[question._id];
@@ -675,9 +724,10 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
   // Stocker la réponse (avec UUID ET index pour compatibilité)
   const newAnswers = {
     ...answersRef.current,
-    [questionId]: selectedOption,
-    [questionIndex]: selectedOption
+    [questionIndex]: selectedOption,  // ← Priorité à l'index
+    [questionId]: selectedOption      // ← Backup par ID
   };
+  
   answersRef.current = newAnswers;
   setAnswers(newAnswers);
 

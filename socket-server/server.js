@@ -1114,79 +1114,110 @@ app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DEL
 // ==================== RESULT ROUTES ====================
 app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    console.log('[API] Recherche résultats pour matricule:', req.user.matricule);
-    console.log('[API] Utilisateur:', req.user.email, req.user.role);
+    console.log('[API] === RECHERCHE RÉSULTATS APPRENANT ===');
+    console.log('[API] Utilisateur ID:', req.user._id);
+    console.log('[API] Matricule utilisateur:', req.user.matricule);
+    console.log('[API] Email utilisateur:', req.user.email);
+    console.log('[API] Rôle:', req.user.role);
     
+    // ✅ CORRECTION: Rechercher par plusieurs critères
     let results = [];
+    
+    // 1. Recherche par matricule (si disponible)
     if (req.user.matricule) {
-      results = await Result.find({ 'studentInfo.matricule': req.user.matricule })
-        .populate('examId', 'title domain subject level')
-        .sort({ createdAt: -1 });
-    } else {
-      console.warn('[API] Utilisateur sans matricule, recherche par email?');
       results = await Result.find({ 
-        'studentInfo.email': req.user.email 
-      }).sort({ createdAt: -1 });
+        $or: [
+          { 'studentInfo.matricule': req.user.matricule },
+          { 'studentInfo.matricule': req.user.matricule?.toUpperCase() },
+          { 'studentInfo.matricule': req.user.matricule?.toLowerCase() }
+        ]
+      })
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+      
+      console.log(`[API] Recherche par matricule: ${results.length} résultats`);
     }
     
-    console.log('[API] Résultats trouvés:', results.length);
+    // 2. Si aucun résultat, rechercher par userId (champ createdBy ou userId)
+    if (results.length === 0 && req.user._id) {
+      results = await Result.find({ 
+        $or: [
+          { userId: req.user._id },
+          { createdBy: req.user._id },
+          { 'studentInfo.email': req.user.email }
+        ]
+      })
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+      
+      console.log(`[API] Recherche par userId/email: ${results.length} résultats`);
+    }
+    
+    // 3. Fallback: chercher dans tous les résultats et filtrer manuellement
+    if (results.length === 0) {
+      const allResults = await Result.find({})
+        .populate('examId', 'title domain subject level')
+        .sort({ createdAt: -1 });
+      
+      // Filtrer manuellement par nom ou email
+      results = allResults.filter(r => {
+        const studentName = `${r.studentInfo?.firstName} ${r.studentInfo?.lastName}`.toLowerCase();
+        const userName = `${req.user.name}`.toLowerCase();
+        return studentName.includes(userName) || userName.includes(studentName);
+      });
+      
+      console.log(`[API] Recherche par nom: ${results.length} résultats`);
+    }
+    
+    console.log(`[API] ✅ Résultats trouvés au total: ${results.length}`);
+    
+    // Si encore aucun résultat, retourner un tableau vide avec un message clair
+    if (results.length === 0) {
+      console.warn(`[API] ⚠️ Aucun résultat trouvé pour l'utilisateur ${req.user.email}`);
+    }
     
     res.json({ 
       success: true, 
       data: results,
-      count: results.length 
+      count: results.length,
+      message: results.length === 0 ? 'Aucun résultat trouvé pour votre compte' : undefined
     });
+    
   } catch (err) { 
     console.error('[API] Erreur:', err);
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
-
-app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
-  try {
-    const exam = await Exam.findById(req.params.examId);
-    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
-    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
-    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
-    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
-    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1 });
-    res.json({ success: true, data: results });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
-  try {
-    const results = await Result.find({}).populate('examId', 'title domain subject level passingScore').sort({ createdAt: -1 });
-    res.json({ success: true, data: results, count: results.length });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
-  try {
-    const result = await Result.findById(req.params.id).populate('examId');
-    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
-    const isOwner = result.studentInfo?.matricule === req.user.matricule;
-    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'].includes(req.user.role);
-    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, message: 'Accès non autorisé' });
-    res.json({ success: true, data: result });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
 // ==================== RESULT ROUTES ====================
-// ✅ ROUTE POST CORRIGÉE - Version finale parfaite
-// ==================== RESULT ROUTES ====================
-// ✅ ROUTE POST CORRIGÉE ET AMÉLIORÉE - Version finale
+// ✅ ROUTE POST CORRIGÉE ET OPTIMISÉE - Version finale
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
     
-    console.log('[API] Soumission résultats - examId:', examId);
+    console.log('[API] === SOUMISSION RÉSULTATS ===');
+    console.log('[API] examId:', examId);
+    console.log('[API] studentInfo:', studentInfo);
     console.log('[API] answers reçues:', answers);
+    console.log('[API] answers clés:', Object.keys(answers || {}));
+    
+    // Vérification des données obligatoires
+    if (!examId) {
+      return res.status(400).json({ success: false, message: 'examId requis' });
+    }
+    if (!studentInfo || !studentInfo.firstName || !studentInfo.lastName) {
+      return res.status(400).json({ success: false, message: 'Informations étudiant requises' });
+    }
+    if (!answers || Object.keys(answers).length === 0) {
+      return res.status(400).json({ success: false, message: 'Réponses requises' });
+    }
     
     const exam = await Exam.findById(examId);
     if (!exam) {
       return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     }
+    
+    console.log('[API] Examen trouvé:', exam.title);
+    console.log('[API] Nombre de questions:', exam.questions?.length);
     
     // ✅ Récupérer la configuration de l'épreuve
     const config = exam.config || {};
@@ -1210,13 +1241,11 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       return options;
     };
     
-    // ✅ Gestion de la plage ouverte : ne traiter que les questions répondues
+    // ✅ Gestion de la plage ouverte
     let questionsToGrade = exam.questions;
     let requiredQuestionsCount = requiredQuestions;
     
     if (openRange && requiredQuestionsCount > 0) {
-      // Pour la plage ouverte, l'étudiant peut choisir les questions à traiter
-      // On ne garde que les questions auxquelles il a répondu
       const answeredQuestions = [];
       exam.questions.forEach((q, idx) => {
         const hasAnswer = answers[idx] !== undefined && answers[idx] !== null && answers[idx] !== '';
@@ -1225,7 +1254,6 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         }
       });
       
-      // Trier pour garder l'ordre original ou prendre les N premières répondues
       questionsToGrade = answeredQuestions.slice(0, requiredQuestionsCount).map(item => item.question);
       
       console.log('[API] Plage ouverte - Questions répondues:', answeredQuestions.length);
@@ -1234,10 +1262,13 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     
     let score = 0;
     let totalPoints = 0;
-    const questionResults = []; // Pour stocker les détails par question
+    const questionResults = [];
+    const correctCount = 0;
     
-    // ✅ Calcul du score avec support des points variables
-    questionsToGrade.forEach((q, position) => {
+    // ✅ Calcul du score
+    for (let idx = 0; idx < questionsToGrade.length; idx++) {
+      const q = questionsToGrade[idx];
+      
       // Déterminer les points de la question
       let points = q.points || 1;
       if (pointsType === 'uniform') {
@@ -1245,31 +1276,54 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       }
       totalPoints += points;
       
-      // Récupérer la réponse de l'étudiant (par index original ou par position)
-      const originalIndex = q.originalIndex !== undefined ? q.originalIndex : exam.questions.findIndex(eq => eq._id === q._id);
-      const studentAnswer = answers[originalIndex] || answers[String(originalIndex)] || answers[position];
+      // Récupérer la réponse de l'étudiant
+      let studentAnswer = null;
+      
+      // Essayer différents formats de clés
+      if (answers[idx] !== undefined) {
+        studentAnswer = answers[idx];
+      } else if (answers[String(idx)] !== undefined) {
+        studentAnswer = answers[String(idx)];
+      } else if (q._id && answers[q._id.toString()] !== undefined) {
+        studentAnswer = answers[q._id.toString()];
+      } else if (answers[`q${idx}`] !== undefined) {
+        studentAnswer = answers[`q${idx}`];
+      } else if (answers[`question_${idx}`] !== undefined) {
+        studentAnswer = answers[`question_${idx}`];
+      }
       
       const options = getQuestionOptions(q);
       const correctAnswerIndex = q.bonOpRep;
-      const correctAnswerText = options[correctAnswerIndex] || q.correctAnswer;
+      const correctAnswerText = options[correctAnswerIndex] || q.correctAnswer || '';
       
       let isCorrect = false;
       let selectedIndex = -1;
       
-      if (studentAnswer && studentAnswer !== '') {
-        selectedIndex = options.findIndex(opt => opt === studentAnswer);
+      if (studentAnswer && studentAnswer !== '' && studentAnswer !== 'Non répondu') {
+        // Chercher l'index de la réponse sélectionnée
+        selectedIndex = options.findIndex(opt => 
+          String(opt).trim().toLowerCase() === String(studentAnswer).trim().toLowerCase()
+        );
+        
+        // Comparer avec l'index correct
         isCorrect = selectedIndex === correctAnswerIndex;
+        
+        // Si pas trouvé par texte, essayer par index direct
+        if (!isCorrect && typeof studentAnswer === 'number') {
+          isCorrect = studentAnswer === correctAnswerIndex;
+          selectedIndex = studentAnswer;
+        }
       }
       
       if (isCorrect) {
         score += points;
       }
       
-      console.log(`[Q${originalIndex}] Réponse: "${studentAnswer || 'NON'}", Correcte: ${isCorrect ? '✓' : '✗'}, Points: ${points}`);
+      console.log(`[API] Q${idx}: réponse="${studentAnswer}", correcte=${isCorrect ? '✓' : '✗'}, points=${points}`);
       
       questionResults.push({
         questionId: q._id,
-        libQuestion: q.libQuestion || q.question || q.text,
+        libQuestion: q.libQuestion || q.question || q.text || 'Question sans texte',
         studentAnswer: studentAnswer || 'Non répondu',
         correctAnswer: correctAnswerText,
         isCorrect,
@@ -1279,13 +1333,13 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         correctIndex: correctAnswerIndex,
         explanation: q.explanation || ''
       });
-    });
+    }
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
     console.log('[API] Score final:', score, '/', totalPoints, '=', percentage, '%');
     
-    // ✅ Construction du snapshot avec toutes les questions (pour l'affichage)
+    // ✅ Construction du snapshot des questions
     const examQuestionsWithOptions = exam.questions.map(q => ({
       _id: q._id,
       libQuestion: q.libQuestion || q.question || q.text,
@@ -1296,15 +1350,17 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       explanation: q.explanation || ''
     }));
     
-    // ✅ Création du résultat avec toutes les informations
+    // ✅ Création du résultat
     const result = new Result({
       examId,
       studentInfo: {
         firstName: studentInfo.firstName || '',
         lastName: studentInfo.lastName || '',
         matricule: studentInfo.matricule || '',
-        level: studentInfo.level || ''
+        level: studentInfo.level || '',
+        email: studentInfo.email || req.user?.email || ''
       },
+      userId: req.user?._id,
       answers: new Map(Object.entries(answers)),
       score,
       percentage,
@@ -1318,7 +1374,6 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       passingScore: exam.passingScore,
       examOption: exam.examOption,
       examQuestions: examQuestionsWithOptions,
-      // ✅ Ajout de la configuration pour le bulletin
       config: {
         examOption: exam.examOption,
         openRange: openRange,
@@ -1334,13 +1389,13 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         globalPoints: globalPoints,
         timerDisplayMode: config.timerDisplayMode || 'permanent'
       },
-      // ✅ Ajout des résultats détaillés par question
       questionDetails: questionResults
     });
     
     await result.save();
     
     console.log('[API] ✅ Résultat sauvegardé - ID:', result._id);
+    console.log('[API] ✅ Pour étudiant:', studentInfo.firstName, studentInfo.lastName, `(${studentInfo.matricule || 'sans matricule'})`);
     
     res.status(201).json({ 
       success: true, 
@@ -1357,10 +1412,182 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     });
     
   } catch (err) {
-    console.error('[API] Erreur soumission résultats:', err);
+    console.error('[API] ❌ Erreur soumission résultats:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ==================== ROUTES POUR RÉSULTATS APPRENANT ====================
+
+// ✅ ROUTE CORRIGÉE - Récupération des résultats de l'apprenant connecté
+app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    console.log('[API] === RECHERCHE RÉSULTATS APPRENANT ===');
+    console.log('[API] Utilisateur ID:', req.user._id);
+    console.log('[API] Matricule:', req.user.matricule);
+    console.log('[API] Email:', req.user.email);
+    console.log('[API] Nom:', req.user.name);
+    
+    let results = [];
+    
+    // 1. Recherche par userId (le plus fiable)
+    results = await Result.find({ 
+      $or: [
+        { userId: req.user._id },
+        { createdBy: req.user._id }
+      ]
+    })
+    .populate('examId', 'title domain subject level')
+    .sort({ createdAt: -1 });
+    
+    console.log(`[API] Recherche par userId: ${results.length} résultats`);
+    
+    // 2. Recherche par matricule
+    if (results.length === 0 && req.user.matricule) {
+      results = await Result.find({ 
+        'studentInfo.matricule': { $regex: new RegExp(`^${req.user.matricule}$`, 'i') }
+      })
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+      
+      console.log(`[API] Recherche par matricule: ${results.length} résultats`);
+    }
+    
+    // 3. Recherche par email
+    if (results.length === 0 && req.user.email) {
+      results = await Result.find({ 
+        'studentInfo.email': { $regex: new RegExp(`^${req.user.email}$`, 'i') }
+      })
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+      
+      console.log(`[API] Recherche par email: ${results.length} résultats`);
+    }
+    
+    // 4. Recherche par nom
+    if (results.length === 0 && req.user.name) {
+      const nameParts = req.user.name.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      results = await Result.find({ 
+        $or: [
+          { 'studentInfo.firstName': { $regex: new RegExp(firstName, 'i') } },
+          { 'studentInfo.lastName': { $regex: new RegExp(lastName, 'i') } }
+        ]
+      })
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+      
+      console.log(`[API] Recherche par nom: ${results.length} résultats`);
+    }
+    
+    console.log(`[API] ✅ Résultats finaux: ${results.length}`);
+    
+    res.json({ 
+      success: true, 
+      data: results,
+      count: results.length 
+    });
+    
+  } catch (err) { 
+    console.error('[API] Erreur:', err);
+    res.status(500).json({ success: false, message: err.message }); 
+  }
+});
+
+// ✅ NOUVELLE ROUTE - Mes résultats (fallback)
+app.get('/api/results/my-results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME', 'ENSEIGNANT'), async (req, res) => {
+  try {
+    console.log('[API] === RECHERCHE MES RÉSULTATS ===');
+    
+    // Récupérer tous les résultats et filtrer par nom
+    const allResults = await Result.find({})
+      .populate('examId', 'title domain subject level')
+      .sort({ createdAt: -1 });
+    
+    const userName = req.user.name?.toLowerCase() || '';
+    const userEmail = req.user.email?.toLowerCase() || '';
+    const userMatricule = req.user.matricule?.toLowerCase() || '';
+    
+    const filteredResults = allResults.filter(r => {
+      const studentName = `${r.studentInfo?.firstName || ''} ${r.studentInfo?.lastName || ''}`.toLowerCase();
+      const studentEmail = (r.studentInfo?.email || '').toLowerCase();
+      const studentMatricule = (r.studentInfo?.matricule || '').toLowerCase();
+      
+      return studentName === userName ||
+             studentName.includes(userName) ||
+             userName.includes(studentName) ||
+             studentEmail === userEmail ||
+             studentMatricule === userMatricule;
+    });
+    
+    console.log(`[API] ${filteredResults.length} résultats trouvés pour ${req.user.name}`);
+    
+    res.json({ 
+      success: true, 
+      data: filteredResults,
+      count: filteredResults.length 
+    });
+    
+  } catch (err) {
+    console.error('[API] Erreur:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ ROUTE POUR TOUS LES RÉSULTATS (admin/teacher)
+app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const results = await Result.find({})
+      .populate('examId', 'title domain subject level passingScore')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, data: results, count: results.length });
+  } catch (err) { 
+    res.status(500).json({ success: false, message: err.message }); 
+  }
+});
+
+// ✅ ROUTE POUR RÉSULTATS D'UN EXAMEN
+app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    
+    const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    
+    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1 });
+    res.json({ success: true, data: results });
+  } catch (err) { 
+    res.status(500).json({ success: false, message: err.message }); 
+  }
+});
+
+// ✅ ROUTE POUR UN RÉSULTAT SPÉCIFIQUE
+app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id).populate('examId');
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    
+    const isOwner = result.studentInfo?.matricule === req.user.matricule ||
+                    result.userId?.toString() === req.user._id?.toString();
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    
+    res.json({ success: true, data: result });
+  } catch (err) { 
+    res.status(500).json({ success: false, message: err.message }); 
+  }
+});
+
 // ==================== IA ROUTES ====================
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
@@ -1676,78 +1903,141 @@ function escapeHtml(text) {
   });
 }
 
+// socket-server/server.js - Modifications pour bulletin et QR Code
+
+// ==================== BULLETIN HTML CORRIGÉ ====================
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId);
     if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
     const exam = await Exam.findById(result.examId);
+
+    // ✅ FIX: Utiliser examQuestions du result (contient les bonnes options normalisées)
     const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
     const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
+
+    // ✅ FIX: Calcul correct du totalPoints (somme des points, PAS le nombre de questions)
+    const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0) || questions.length;
+
+    // ✅ FIX: Note /20 basée sur le POURCENTAGE (pas score/nb questions)
     const noteOn20 = ((result.percentage / 100) * 20).toFixed(2);
+
+    // ✅ FIX: Vérifier les réponses correctement (par index ET par texte)
+    const getOptions = (q) => {
+      if (q.options?.length > 0) return q.options;
+      const opts = [];
+      for (let i = 1; i <= 5; i++) {
+        const v = q[`opRep${i}`];
+        if (v && v !== '') opts.push(String(v));
+      }
+      return opts;
+    };
+
     let mention = '';
     if (result.percentage >= 90) mention = 'Très Bien';
     else if (result.percentage >= 75) mention = 'Bien';
     else if (result.percentage >= 60) mention = 'Assez Bien';
     else if (result.percentage >= 50) mention = 'Passable';
     else mention = 'Insuffisant';
-    
+
+    // Recompter les bonnes réponses
+    let correctCount = 0;
     let rows = '';
     questions.forEach((q, i) => {
+      const opts = getOptions(q);
+      const correctIdx = typeof q.bonOpRep === 'number' ? q.bonOpRep : -1;
+      const correctAnswer = opts[correctIdx] || q.correctAnswer || '—';
+
       const qId = q._id?.toString();
-      const studentAnswer = qId && answers[qId] ? answers[qId] : '—';
-      const correctAnswer = q.correctAnswer || (q.options?.[q.bonOpRep] || '');
-      const isCorrect = studentAnswer !== '—' && String(studentAnswer).trim() === String(correctAnswer).trim();
-      rows += `<tr style="border-bottom:1px solid #e2e8f0;">
-                <td style="padding:12px 8px;">${i+1}<\/td>
-                <td style="padding:12px 8px;">${escapeHtml(q.libQuestion || q.question || '—')}<\/td>
-                <td style="padding:12px 8px; color:${isCorrect ? '#16a34a' : '#dc2626'}">${escapeHtml(studentAnswer)}<\/td>
-                <td style="padding:12px 8px; color:#16a34a;">${escapeHtml(correctAnswer)}<\/td>
-                <td style="padding:12px 8px; text-align:center;">${isCorrect ? '✅' : '❌'}<\/td>
+      const studentAnswer = answers[i] || answers[String(i)] || (qId ? answers[qId] : null) || '—';
+
+      let isCorrect = false;
+      if (studentAnswer !== '—' && studentAnswer !== null) {
+        const selectedIdx = opts.findIndex(opt => String(opt).trim() === String(studentAnswer).trim());
+        isCorrect = correctIdx >= 0 ? selectedIdx === correctIdx : String(studentAnswer).trim() === String(correctAnswer).trim();
+      }
+      if (isCorrect) correctCount++;
+
+      const pts = q.points || 1;
+      rows += `<tr style="border-bottom:1px solid #e2e8f0; background:${i%2===0?'#fafafa':'white'}">
+                <td style="padding:10px 8px; text-align:center; font-weight:600;">${i+1}<\/td>
+                <td style="padding:10px 8px; font-size:0.85rem;">${escapeHtml(q.libQuestion || q.question || '—')}<\/td>
+                <td style="padding:10px 8px; color:${isCorrect?'#16a34a':'#dc2626'}; font-weight:600;">${escapeHtml(String(studentAnswer))}<\/td>
+                <td style="padding:10px 8px; color:#16a34a; font-weight:500;">${escapeHtml(String(correctAnswer))}<\/td>
+                <td style="padding:10px 8px; text-align:center;">${isCorrect ? '✅' : '❌'}<\/td>
+                <td style="padding:10px 8px; text-align:center; color:#3b82f6;">${pts}<\/td>
               <\/tr>`;
     });
-    
+
+    // ✅ FIX: QR Code sécurisé
+    const qrData = encodeURIComponent(`NA2QUIZ|ID:${result._id}|MAT:${result.studentInfo?.matricule||''}|SC:${result.score}/${totalPoints}|PCT:${result.percentage}%|DATE:${new Date(result.createdAt||Date.now()).toLocaleDateString('fr-FR')}`);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}&bgcolor=ffffff&color=1e293b`;
+
+    const scoreDisplay = `${result.score} / ${totalPoints}`;
+    const correctDisplay = `${correctCount} bonne(s) réponse(s) sur ${questions.length}`;
+    const generatedAt = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Douala' });
+
     const html = `<!DOCTYPE html>
-    <html><head><meta charset="UTF-8"><title>Bulletin - ${escapeHtml(result.studentInfo?.lastName || 'Candidat')}</title>
+    <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Bulletin NA²QUIZ — ${escapeHtml(result.studentInfo?.lastName||'Candidat')}</title>
     <style>
       *{margin:0;padding:0;box-sizing:border-box;}
-      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:40px 20px;}
-      .container{max-width:1000px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden;}
-      .header{background:linear-gradient(135deg,#1e293b,#0f172a);color:white;padding:30px 40px;text-align:center;}
-      .logo{font-size:2rem;font-weight:800;background:linear-gradient(135deg,#f59e0b,#fbbf24);-webkit-background-clip:text;background-clip:text;color:transparent;}
-      .badge{display:inline-block;padding:6px 16px;border-radius:999px;font-weight:700;margin-top:16px;}
-      .badge.success{background:#10b98120;color:#10b981;border:1px solid #10b98140;}
-      .badge.error{background:#ef444420;color:#ef4444;border:1px solid #ef444440;}
-      .content{padding:32px 40px;}
-      .score-section{background:linear-gradient(135deg,#3b82f6,#2563eb);border-radius:16px;padding:24px;color:white;text-align:center;margin-bottom:32px;}
-      .score-percent{font-size:3rem;font-weight:800;}
-      .mention{display:inline-block;background:white;color:#f59e0b;padding:6px 20px;border-radius:999px;margin-top:16px;}
-      .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px;}
-      .info-card{background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;}
-      .info-label{font-size:0.7rem;text-transform:uppercase;color:#64748b;}
-      .info-value{font-size:0.95rem;font-weight:600;}
-      .question-table{width:100%;border-collapse:collapse;}
-      .question-table th{text-align:left;padding:12px 8px;background:#f1f5f9;color:#64748b;}
-      .question-table td{padding:12px 8px;vertical-align:top;}
-      .footer{background:#f8fafc;padding:20px;text-align:center;font-size:0.7rem;color:#94a3b8;}
-      .btn-print{text-align:center;margin-top:20px;}
-      .btn-print button{background:#3b82f6;color:white;border:none;padding:12px 32px;border-radius:10px;cursor:pointer;}
-      @media print{.btn-print{display:none;}}
-    </style>
-    </head><body>
-    <div class="container">
-      <div class="header"><div class="logo">NA²QUIZ</div><div class="badge ${result.passed ? 'success' : 'error'}">${result.passed ? '✓ REÇU' : '✗ AJOURNÉ'}</div></div>
-      <div class="content">
-        <div class="score-section"><div class="score-percent">${result.percentage}%</div><div>Note : ${noteOn20} / 20</div><div class="mention">${mention}</div></div>
-        <div class="info-grid">
-          <div class="info-card"><div class="info-label">Candidat</div><div class="info-value">${escapeHtml(result.studentInfo?.lastName || '')} ${escapeHtml(result.studentInfo?.firstName || '')}</div></div>
-          <div class="info-card"><div class="info-label">Matricule</div><div class="info-value">${escapeHtml(result.studentInfo?.matricule || '—')}</div></div>
-          <div class="info-card"><div class="info-label">Épreuve</div><div class="info-value">${escapeHtml(result.examTitle || exam?.title || '—')}</div></div>
-          <div class="info-card"><div class="info-label">Score</div><div class="info-value">${result.score} / ${result.totalQuestions || questions.length}</div></div>
-        </div>
-        <table class="question-table"><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Réponse correcte</th><th>Résultat</th></tr></thead><tbody>${rows}</tbody></table>
-        <div class="btn-print"><button onclick="window.print()">🖨️ Imprimer / PDF</button></div>
+      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:20px;}
+      .page{max-width:860px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.12);}
+      .header{background:linear-gradient(135deg,#0f172a,#1e293b);color:white;padding:24px 32px;display:flex;justify-content:space-between;align-items:center;}
+      .logo-block .logo{font-size:2.2rem;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#f59e0b,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent;}
+      .badge{padding:8px 20px;border-radius:999px;font-weight:700;font-size:0.9rem;border:2px solid;}
+      .badge.pass{background:rgba(16,185,129,.15);color:#10b981;border-color:#10b981;}
+      .badge.fail{background:rgba(239,68,68,.15);color:#ef4444;border-color:#ef4444;}
+      .qr-block{text-align:center;font-size:0.6rem;color:#94a3b8;}
+      .score-bar{background:linear-gradient(135deg,#3b82f6,#6366f1);padding:20px 32px;display:flex;justify-content:space-between;align-items:center;}
+      .score-pct{font-size:3rem;font-weight:900;color:white;line-height:1;}
+      .score-meta{text-align:right;color:rgba(255,255,255,.85);}
+      .score-meta .note{font-size:1.4rem;font-weight:700;color:white;}
+      .mention-badge{display:inline-block;background:rgba(255,255,255,.2);padding:4px 12px;border-radius:999px;font-size:0.75rem;margin-top:4px;}
+      .body{padding:24px 32px;}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+      .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0;}
+      .card-lbl{font-size:0.65rem;text-transform:uppercase;color:#64748b;letter-spacing:.06em;margin-bottom:4px;}
+      .card-val{font-size:0.92rem;font-weight:600;color:#0f172a;}
+      .section-title{font-size:0.75rem;text-transform:uppercase;color:#64748b;letter-spacing:.08em;margin:16px 0 8px;font-weight:600;}
+      table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+      thead tr{background:#0f172a;}
+      thead th{padding:10px 8px;text-align:left;color:white;font-weight:600;}
+      tbody tr:nth-child(even){background:#f8fafc;}
+      .footer{background:#0f172a;padding:14px 32px;display:flex;justify-content:space-between;align-items:center;}
+      .footer-text{font-size:0.65rem;color:#64748b;}
+      .btn{background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.85rem;margin-top:16px;}
+      .no-print{text-align:center;}
+      @media print{.no-print{display:none;}body{padding:0;}@page{size:A4;margin:10mm;}}
+    </style></head><body>
+    <div class="page">
+      <div class="header">
+        <div class="logo-block"><div class="logo">NA²QUIZ</div><div class="subtitle">Bulletin de Résultats Officiel</div></div>
+        <div class="badge ${result.passed?'pass':'fail'}">${result.passed?'✓ REÇU':'✗ AJOURNÉ'}</div>
+        <div class="qr-block"><img src="${qrUrl}" alt="QR Sécurité" width="80" height="80" style="border-radius:6px;border:2px solid #334155;"/><div style="margin-top:3px;">Vérif. sécurité</div></div>
       </div>
-      <div class="footer"><p>NA²QUIZ - Système d'Évaluation Intelligente</p><p>Africanut Industry - Ebolowa, Cameroun</p></div>
+      <div class="score-bar">
+        <div><div class="score-pct">${result.percentage}%</div><div style="color:rgba(255,255,255,.8);font-size:0.8rem;margin-top:2px;">${correctDisplay}</div></div>
+        <div class="score-meta"><div class="note">Note : ${noteOn20} / 20</div><div class="mention-badge">${mention}</div><div style="font-size:0.75rem;margin-top:4px;">Score : ${scoreDisplay} pts</div></div>
+      </div>
+      <div class="body">
+        <div class="grid2">
+          <div class="card"><div class="card-lbl">Candidat</div><div class="card-val">${escapeHtml((result.studentInfo?.lastName||'').toUpperCase())} ${escapeHtml(result.studentInfo?.firstName||'')}</div></div>
+          <div class="card"><div class="card-lbl">Matricule</div><div class="card-val" style="font-family:monospace">${escapeHtml(result.studentInfo?.matricule||'—')}</div></div>
+          <div class="card"><div class="card-lbl">Épreuve</div><div class="card-val">${escapeHtml(result.examTitle||exam?.title||'—')}</div></div>
+          <div class="card"><div class="card-lbl">Niveau / Matière</div><div class="card-val">${escapeHtml(result.examLevel||'')} ${result.subject?'· '+escapeHtml(result.subject):''}</div></div>
+          <div class="card"><div class="card-lbl">Seuil de réussite</div><div class="card-val">${result.passingScore||70}%</div></div>
+          <div class="card"><div class="card-lbl">Date de composition</div><div class="card-val">${generatedAt}</div></div>
+        </div>
+        <div class="section-title">Détail des réponses</div>
+        <table><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Bonne réponse</th><th>Résultat</th><th>Pts</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="no-print"><button class="btn" onclick="window.print()">🖨️ Imprimer / Enregistrer PDF</button></div>
+      </div>
+      <div class="footer">
+        <div class="footer-text"><div>NA²QUIZ · Système d'Évaluation Numérique</div><div>Africanut Industry · Ebolowa, Cameroun</div></div>
+        <div class="footer-text" style="text-align:right;"><div>Réf. bulletin : ${result._id}</div><div>Généré le ${generatedAt}</div></div>
+      </div>
     </div>
     </body></html>`;
     
@@ -1756,6 +2046,26 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
   } catch (err) {
     console.error('[API] Erreur bulletin:', err);
     res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>');
+  }
+});
+
+// ==================== ROUTE VÉRIFICATION QR CODE ====================
+app.get('/api/bulletin/verify/:resultId', async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.resultId)
+      .select('studentInfo score percentage passed examTitle createdAt');
+    if (!result) return res.status(404).json({ valid: false, message: 'Bulletin non trouvé' });
+    res.json({
+      valid: true,
+      candidat: `${result.studentInfo?.lastName} ${result.studentInfo?.firstName}`,
+      matricule: result.studentInfo?.matricule,
+      epreuve: result.examTitle,
+      score: `${result.score}pts · ${result.percentage}%`,
+      statut: result.passed ? 'REÇU' : 'AJOURNÉ',
+      date: result.createdAt
+    });
+  } catch (err) { 
+    res.status(500).json({ valid: false, error: err.message }); 
   }
 });
 

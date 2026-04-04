@@ -1,4 +1,4 @@
-// src/pages/composition/ResultsPage.jsx — Version complète avec export CSV
+// src/pages/composition/ResultsPage.jsx — Version complète corrigée
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -15,7 +15,6 @@ const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
 console.log('[ResultsPage] Backend URL:', NODE_BACKEND_URL);
 console.log('[ResultsPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
-// ✅ Fonction pour récupérer le token JWT
 const getAuthToken = () => {
     return localStorage.getItem('userToken') || localStorage.getItem('token');
 };
@@ -36,6 +35,7 @@ const ResultsPage = () => {
         questionDetails: passedQuestionDetails,
         resultSnapshot: passedResultSnapshot,
         terminalSessionId: passedTerminalSessionId,
+        resultId: passedResultId,
     } = state || {};
 
     const [exam, setExam] = useState(null);
@@ -48,8 +48,9 @@ const ResultsPage = () => {
     const countdownIntervalRef = useRef(null);
 
     const terminalSessionId = passedTerminalSessionId || localStorage.getItem('terminalSessionId');
+    const resultId = passedResultId || state?.resultId || '';
 
-    // ✅ Débogage - Afficher les données reçues
+    // ✅ Débogage
     useEffect(() => {
         console.log('=== DÉBOGAGE RESULTS PAGE ===');
         console.log('submittedAnswers:', submittedAnswers);
@@ -58,11 +59,7 @@ const ResultsPage = () => {
         console.log('submittedPercentage:', submittedPercentage);
         console.log('passedExamQuestions:', passedExamQuestions?.length);
         console.log('passedResultSnapshot:', passedResultSnapshot);
-        
-        if (submittedAnswers) {
-            console.log('Clés des réponses:', Object.keys(submittedAnswers));
-            console.log('Valeurs des réponses:', Object.values(submittedAnswers));
-        }
+        console.log('resultId:', resultId);
     }, []);
 
     const cleanupBeforeRedirect = useCallback(() => {
@@ -104,7 +101,31 @@ const ResultsPage = () => {
         }, 300000);
     }, []);
 
-    // ✅ Fonction pour normaliser les questions - Version corrigée
+    // ✅ FONCTION 1: getTotalQuestionsCount (déclarée en premier)
+    const getTotalQuestionsCount = useCallback(() => {
+        if (exam?.questions?.length > 0) return exam.questions.length;
+        if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
+        if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
+        if (questionDetailsRef.current.length > 0) return questionDetailsRef.current.length;
+        return 0;
+    }, [exam, passedResultSnapshot, passedExamQuestions]);
+
+    // ✅ FONCTION 2: getTotalPoints (dépend de getTotalQuestionsCount)
+    const getTotalPoints = useCallback(() => {
+    const questions = passedResultSnapshot?.examQuestions || passedExamQuestions || exam?.questions || [];
+    if (questions.length === 0) return getTotalQuestionsCount();
+    return questions.reduce((sum, q) => sum + (q.points || 1), 0);
+}, [passedResultSnapshot, passedExamQuestions, exam, getTotalQuestionsCount]);
+
+    // ✅ FONCTION 3: getNote (indépendante)
+    const getNote = useCallback(() => {
+    const bareme = 20;
+    // Note /20 basée sur le pourcentage du serveur (toujours exact)
+    const rawNote = (submittedPercentage / 100) * bareme;
+    return { note: parseFloat(rawNote.toFixed(2)), bareme };
+}, [submittedPercentage]);
+
+    // ✅ Fonction de normalisation
     const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
         let correctAnswerIndex = -1;
         let correctAnswerText = '';
@@ -158,15 +179,7 @@ const ResultsPage = () => {
         };
     };
 
-    // ✅ CORRECTION: Fonction pour obtenir le nombre total de questions
-    const getTotalQuestionsCount = useCallback(() => {
-        if (exam?.questions?.length > 0) return exam.questions.length;
-        if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
-        if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
-        if (questionDetailsRef.current.length > 0) return questionDetailsRef.current.length;
-        return 0;
-    }, [exam, passedResultSnapshot, passedExamQuestions]);
-
+    // ✅ useEffect principal pour charger les résultats
     useEffect(() => {
         if (!examId || !submittedAnswers || !studentInfo || submittedScore === undefined || submittedPercentage === undefined) {
             console.error('Données manquantes:', { examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage });
@@ -182,14 +195,12 @@ const ResultsPage = () => {
                     headers: { Authorization: `Bearer ${token}` }
                 } : {};
 
-                // ✅ PRIORITÉ ABSOLUE au snapshot
                 if (passedResultSnapshot?.examQuestions?.length > 0) {
                     console.log('Utilisation du snapshot avec', passedResultSnapshot.examQuestions.length, 'questions');
                     questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
                         return normalizeQuestionForDisplay(q, null, idx);
                     });
                     
-                    // ✅ CRÉER L'OBJET EXAM COMPLET À PARTIR DU SNAPSHOT
                     setExam({
                         _id: examId,
                         title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
@@ -204,7 +215,6 @@ const ResultsPage = () => {
                     setConfig(passedResultSnapshot.config || null);
                     setIsLoading(false);
                     
-                    // ✅ Afficher le toast de résultat
                     const actualPassingScore = passedResultSnapshot.passingScore || passedPassingScore || 70;
                     const passStatusText = submittedPercentage >= actualPassingScore ? 'Réussi' : 'Échoué';
                     toast[passStatusText === 'Réussi' ? 'success' : 'error'](
@@ -214,7 +224,6 @@ const ResultsPage = () => {
                     return;
                 }
 
-                // ✅ Fallback: appel API
                 const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
                     timeout: 10000,
                     ...axiosConfig 
@@ -250,7 +259,6 @@ const ResultsPage = () => {
                     return;
                 }
                 
-                // ✅ Fallback final: utiliser les données passées dans state
                 if (passedExamQuestions?.length > 0) {
                     console.log('Fallback vers passedExamQuestions');
                     questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
@@ -282,16 +290,6 @@ const ResultsPage = () => {
         return () => cleanupBeforeRedirect();
     }, [examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage, passedPassingScore, passedExamTitle, passedExamQuestions, passedQuestionDetails, passedResultSnapshot, navigate, cleanupBeforeRedirect]);
 
-    // ✅ CORRECTION: getNote avec fallbacks
-    const getNote = useCallback(() => {
-        if (!exam && !passedResultSnapshot) return null;
-        const bareme = exam?.totalPoints || passedResultSnapshot?.totalPoints || 20;
-        const total = getTotalQuestionsCount();
-        if (total === 0) return null;
-        const rawNote = (submittedScore / total) * bareme;
-        return { note: parseFloat(rawNote.toFixed(2)), bareme };
-    }, [exam, passedResultSnapshot, submittedScore, getTotalQuestionsCount]);
-
     const getOptionLabel = (opt) => {
         const labels = {
             A: 'Collective Figée',
@@ -302,12 +300,16 @@ const ResultsPage = () => {
         return labels[opt] || `Option ${opt}`;
     };
 
-    // ✅ NOUVELLE FONCTION: Export CSV
+    // ✅ Export CSV
     const exportToCSV = useCallback(() => {
         if (!questionDetailsRef.current.length) {
             toast.error('Aucune donnée à exporter');
             return;
         }
+        
+        const totalPoints = getTotalPoints();
+        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
+        const totalQ = getTotalQuestionsCount();
         
         const headers = [
             'Question', 'Votre réponse', 'Bonne réponse', 
@@ -326,7 +328,6 @@ const ResultsPage = () => {
             (q.explanation || '').replace(/"/g, '""')
         ]);
         
-        // Ajouter les informations de l'étudiant et du score en en-tête
         const infoRows = [
             [`"=== INFORMATIONS ÉTUDIANT ==="`, "", "", "", "", "", "", "", ""],
             [`"Nom: ${studentInfo?.lastName || 'N/A'}"`, "", "", "", "", "", "", "", ""],
@@ -334,12 +335,12 @@ const ResultsPage = () => {
             [`"Matricule: ${studentInfo?.matricule || 'N/A'}"`, "", "", "", "", "", "", "", ""],
             [`"Niveau: ${studentInfo?.level || 'N/A'}"`, "", "", "", "", "", "", "", ""],
             [`"==="`, "", "", "", "", "", "", "", ""],
-            [`"Score: ${submittedScore} / ${getTotalQuestionsCount()}"`, "", "", "", "", "", "", "", ""],
-            [`"Pourcentage: ${submittedPercentage.toFixed(2)}%"`, "", "", "", "", "", "", "", ""],
+            [`"Score: ${submittedScore} pts / ${totalPoints} pts · ${submittedPercentage.toFixed(2)}%"`, "", "", "", "", "", "", "", ""],
+            [`"Bonnes réponses: ${correctCount} / ${totalQ}"`, "", "", "", "", "", "", "", ""],
             [`"Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}"`, "", "", "", "", "", "", "", ""],
             [`"==="`, "", "", "", "", "", "", "", ""],
             [`"Date: ${new Date().toLocaleString('fr-FR')}"`, "", "", "", "", "", "", "", ""],
-            [``, "", "", "", "", "", "", "", ""] // Ligne vide
+            [``, "", "", "", "", "", "", "", ""]
         ];
         
         const csvContent = [...infoRows, headers, ...rows].map(row => 
@@ -356,107 +357,9 @@ const ResultsPage = () => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         toast.success('Export CSV réussi');
-    }, [questionDetailsRef, studentInfo, submittedScore, submittedPercentage, exam, passedPassingScore, getTotalQuestionsCount]);
+    }, [questionDetailsRef, studentInfo, submittedScore, submittedPercentage, exam, passedPassingScore, getTotalQuestionsCount, getTotalPoints]);
 
-    const printBulletin = useCallback(() => {
-        const noteInfo = getNote();
-        const noteStr = noteInfo ? `${noteInfo.note} / ${noteInfo.bareme}` : 'N/A';
-        const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'RÉUSSI' : 'ÉCHOUÉ';
-        const passColor = passStatus === 'RÉUSSI' ? '#10b981' : '#ef4444';
-        const totalQ = getTotalQuestionsCount();
-
-        const configHtml = config ? `
-            <div style="margin: 16px 0; padding: 12px; background: #f1f5f9; border-radius: 12px; border: 1px solid #8b5cf6;">
-                <h3 style="margin:0 0 8px; font-size:0.9rem; color:#6d28d9;">⚙️ Configuration de l'épreuve</h3>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.8rem;">
-                    <span><strong>Option :</strong></span><span>${getOptionLabel(config.examOption)} (${config.examOption})</span>
-                    ${config.openRange ? `<span><strong>Plage ouverte :</strong></span><span>${config.requiredQuestions} questions à traiter</span>` : ''}
-                    <span><strong>Séquencement :</strong></span><span>${config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}</span>
-                    ${config.allowRetry ? `<span><strong>Reprise :</strong></span><span>Autorisée (une fois)</span>` : ''}
-                    <span><strong>Chronomètre :</strong></span><span>${config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}</span>
-                    ${config.showBinaryResult ? '<span colspan="2">✓ Résultat binaire affiché après chaque QCM</span>' : ''}
-                    ${config.showCorrectAnswer ? '<span colspan="2">✓ Bonne réponse affichée après chaque QCM</span>' : ''}
-                </div>
-            </div>
-        ` : '';
-
-        const questionsHtml = questionDetailsRef.current.map((q, i) => `
-            <div style="margin-bottom:12px; padding:10px; border:1px solid ${q.isCorrect ? '#22c55e' : '#ef4444'}; border-radius:8px;">
-                <p style="font-weight:600; margin:0 0 6px;">Q${i + 1}. ${q.questionText}</p>
-                ${q.options.map((opt, optIdx) => {
-                    const isCorrectOpt = opt === q.correctAnswer;
-                    const isStudentOpt = opt === q.studentAnswer;
-                    return `
-                        <p style="margin:2px 0; padding:3px 8px; border-radius:4px;
-                            background:${isCorrectOpt ? '#dcfce7' : isStudentOpt && !isCorrectOpt ? '#fee2e2' : 'transparent'};
-                            color:${isCorrectOpt ? '#15803d' : isStudentOpt && !isCorrectOpt ? '#dc2626' : '#374151'}">
-                            ${String.fromCharCode(65 + optIdx)}. ${opt}${isStudentOpt ? ' ← votre réponse' : ''}${isCorrectOpt && !isStudentOpt ? ' ✓ correcte' : ''}
-                        </p>
-                    `;
-                }).join('')}
-                <p style="margin:6px 0 0; font-size:0.85rem; color:${q.isCorrect ? '#15803d' : '#dc2626'}; font-weight:600;">
-                    ${q.isCorrect ? '✓ Correct' : `✗ Incorrect — Bonne réponse : ${q.correctAnswer}`}
-                </p>
-                ${q.explanation ? `<p style="margin:4px 0 0; font-size:0.75rem; color:#64748b;">💡 ${q.explanation}</p>` : ''}
-            </div>
-        `).join('');
-
-        const win = window.open('', '_blank');
-        win.document.write(`<!DOCTYPE html><html><head>
-            <title>Corrigé — ${studentInfo?.lastName || ''} ${studentInfo?.firstName || ''}</title>
-            <style>
-                body { font-family: 'DM Sans', Arial, sans-serif; margin: 0; padding: 20px; color: #1e293b; }
-                @media print { @page { size: A4; margin: 15mm; } }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
-                .brand { font-size: 1.5rem; font-weight: 800; color: #3b82f6; }
-                .badge { padding: 6px 16px; border-radius: 999px; font-size: 1.1rem; font-weight: 800; background: ${passColor}22; color: ${passColor}; border: 2px solid ${passColor}; }
-                .note-box { text-align: center; margin: 16px 0; padding: 12px; background: #f8fafc; border-radius: 12px; border: 2px solid #3b82f6; }
-                .note-val { font-size: 2.5rem; font-weight: 800; color: #3b82f6; }
-                .note-label { font-size: 0.8rem; color: #64748b; }
-                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-                .info-box { padding: 12px; background: #f8fafc; border-radius: 8px; }
-                .info-box h3 { margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
-                p { margin: 3px 0; font-size: 0.875rem; }
-                h2 { font-size: 1rem; margin: 20px 0 10px; color: #1e293b; }
-            </style>
-        </head><body>
-            <div class="header">
-                <div>
-                    <div class="brand">NA²QUIZ</div>
-                    <div style="font-size:1.125rem; font-weight:700; margin-top:4px;">Corrigé Individuel</div>
-                    <div style="font-size:0.8rem; color:#64748b;">${new Date().toLocaleString('fr-FR')}</div>
-                </div>
-                <div class="badge">${passStatus}</div>
-            </div>
-            <div class="note-box">
-                <div class="note-label">NOTE OBTENUE</div>
-                <div class="note-val">${noteStr}</div>
-                <div class="note-label">${submittedScore} bonne(s) réponse(s) sur ${totalQ} · ${submittedPercentage.toFixed(2)}%</div>
-            </div>
-            <div class="info-grid">
-                <div class="info-box">
-                    <h3>Candidat</h3>
-                    <p><b>Nom :</b> ${studentInfo?.lastName || 'N/A'}</p>
-                    <p><b>Prénom :</b> ${studentInfo?.firstName || 'N/A'}</p>
-                    <p><b>Matricule :</b> ${studentInfo?.matricule || 'N/A'}</p>
-                    <p><b>Niveau :</b> ${studentInfo?.level || 'N/A'}</p>
-                </div>
-                <div class="info-box">
-                    <h3>Épreuve</h3>
-                    <p><b>Titre :</b> ${exam?.title || passedExamTitle || 'N/A'}</p>
-                    <p><b>Matière :</b> ${exam?.subject || 'N/A'}</p>
-                    <p><b>Domaine :</b> ${exam?.domain || 'N/A'}</p>
-                    <p><b>Seuil de réussite :</b> ${exam?.passingScore || passedPassingScore || 'N/A'}%</p>
-                </div>
-            </div>
-            ${configHtml}
-            <h2>Détail des réponses</h2>
-            ${questionsHtml}
-            <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 800); }</script>
-        </body></html>`);
-        win.document.close();
-    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount]);
-
+    // ✅ Export PDF
     const exportToPDF = useCallback(async () => {
         if ((!exam && !passedResultSnapshot) || !studentInfo || questionDetailsRef.current.length === 0) {
             toast.error("Données incomplètes pour l'export PDF.");
@@ -469,10 +372,10 @@ const ResultsPage = () => {
         const lineHeight = 7;
         const maxWidth = doc.internal.pageSize.width - 2 * margin;
         const totalQ = getTotalQuestionsCount();
+        const totalPoints = getTotalPoints();
+        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
 
-        try {
-            doc.addImage(logo, 'PNG', 10, 10, 20, 20);
-        } catch (e) { console.warn("Logo non trouvé"); }
+        try { doc.addImage(logo, 'PNG', 10, 10, 20, 20); } catch (e) { console.warn("Logo non trouvé"); }
         
         doc.setFontSize(16);
         doc.setTextColor(59, 130, 246);
@@ -500,9 +403,8 @@ const ResultsPage = () => {
         yPos += 10;
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
-        doc.text(`Titre de l'épreuve: ${exam?.title || passedExamTitle || 'N/A'}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Titre: ${exam?.title || passedExamTitle || 'N/A'}`, margin, yPos); yPos += lineHeight;
         doc.text(`Domaine: ${exam?.domain || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Catégorie: ${exam?.category || 'N/A'}`, margin, yPos); yPos += lineHeight;
         doc.text(`Matière: ${exam?.subject || 'N/A'}`, margin, yPos); yPos += lineHeight;
         doc.text(`Niveau: ${exam?.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
         doc.text(`Durée: ${exam?.duration || 'N/A'} minutes`, margin, yPos); yPos += 10;
@@ -513,9 +415,10 @@ const ResultsPage = () => {
         yPos += 10;
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
-        doc.text(`Score Obtenu: ${submittedScore} / ${totalQ}`, margin, yPos); yPos += lineHeight;
+        doc.text(`Score Obtenu: ${submittedScore} pts / ${totalPoints} pts totaux`, margin, yPos); yPos += lineHeight;
+        doc.text(`Bonnes réponses: ${correctCount} / ${totalQ} questions`, margin, yPos); yPos += lineHeight;
         doc.text(`Pourcentage: ${submittedPercentage.toFixed(2)}%`, margin, yPos); yPos += lineHeight;
-        doc.text(`Seuil de Réussite: ${exam?.passingScore || passedPassingScore || 'N/A'}%`, margin, yPos); yPos += lineHeight;
+        doc.text(`Seuil de Réussite: ${exam?.passingScore || passedPassingScore || 70}%`, margin, yPos); yPos += lineHeight;
         
         const noteInfo = getNote();
         if (noteInfo) {
@@ -524,11 +427,11 @@ const ResultsPage = () => {
             doc.text(`NOTE : ${noteInfo.note} / ${noteInfo.bareme}`, margin, yPos); yPos += lineHeight + 2;
             doc.setTextColor(0, 0, 0);
             doc.setFontSize(12);
-        } else { yPos += lineHeight; }
+        }
         
         const passStatusColor = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#22C55E' : '#EF4444';
         doc.setTextColor(passStatusColor);
-        doc.text(`Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 10;
+        doc.text(`Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 15;
         doc.setTextColor(0, 0, 0);
 
         if (config) {
@@ -591,14 +494,124 @@ const ResultsPage = () => {
         });
 
         try {
-            const qrCodeData = `Nom: ${studentInfo?.lastName || 'N/A'} ${studentInfo?.firstName || 'N/A'}\nMatricule: ${studentInfo?.matricule || 'N/A'}\nDate: ${new Date().toLocaleString()}`;
-            const qrCode = await QRCode.toDataURL(qrCodeData, { width: 100 });
-            doc.addImage(qrCode, 'PNG', doc.internal.pageSize.width - 120, doc.internal.pageSize.height - 120, 100, 100);
-        } catch (e) { console.warn("Erreur génération QR code:", e); }
+            const backendUrl = NODE_BACKEND_URL;
+            const qrVerifyUrl = resultId 
+                ? `${backendUrl}/api/bulletin/verify/${resultId}`
+                : `NA2QUIZ|MAT:${studentInfo?.matricule||''}|SC:${submittedScore}/${totalPoints}|PCT:${submittedPercentage?.toFixed(2)}%|${new Date().toLocaleDateString('fr-FR')}`;
+            const qrCode = await QRCode.toDataURL(qrVerifyUrl, { 
+                width: 100, 
+                margin: 1,
+                color: { dark: '#0f172a', light: '#ffffff' }
+            });
+            const pageW = doc.internal.pageSize.width;
+            const pageH = doc.internal.pageSize.height;
+            doc.addImage(qrCode, 'PNG', pageW - 42, pageH - 42, 32, 32);
+            doc.setFontSize(6);
+            doc.setTextColor(100, 116, 139);
+            doc.text('QR Vérif.', pageW - 34, pageH - 8, { align: 'center' });
+        } catch (e) { console.warn('Erreur génération QR code:', e); }
 
         doc.save(`bulletin_resultats_${studentInfo?.lastName || 'Anonyme'}_${studentInfo?.firstName || 'Anonyme'}.pdf`);
         toast.success("Le bulletin de résultats a été exporté en PDF !");
-    }, [exam, passedResultSnapshot, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount]);
+    }, [exam, passedResultSnapshot, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount, getTotalPoints, resultId]);
+
+    // ✅ Print bulletin
+    const printBulletin = useCallback(() => {
+        const noteInfo = getNote();
+        const noteStr = noteInfo ? `${noteInfo.note} / ${noteInfo.bareme}` : 'N/A';
+        const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'RÉUSSI' : 'ÉCHOUÉ';
+        const passColor = passStatus === 'RÉUSSI' ? '#10b981' : '#ef4444';
+        const totalQ = getTotalQuestionsCount();
+        const totalPts = getTotalPoints();
+        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
+
+        const configHtml = config ? `
+            <div style="margin: 16px 0; padding: 12px; background: #f1f5f9; border-radius: 12px; border: 1px solid #8b5cf6;">
+                <h3 style="margin:0 0 8px; font-size:0.9rem; color:#6d28d9;">⚙️ Configuration de l'épreuve</h3>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.8rem;">
+                    <span><strong>Option :</strong></span><span>${getOptionLabel(config.examOption)} (${config.examOption})</span>
+                    ${config.openRange ? `<span><strong>Plage ouverte :</strong></span><span>${config.requiredQuestions} questions à traiter</span>` : ''}
+                    <span><strong>Séquencement :</strong></span><span>${config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}</span>
+                    ${config.allowRetry ? `<span><strong>Reprise :</strong></span><span>Autorisée (une fois)</span>` : ''}
+                    <span><strong>Chronomètre :</strong></span><span>${config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}</span>
+                    ${config.showBinaryResult ? '<span colspan="2">✓ Résultat binaire affiché après chaque QCM</span>' : ''}
+                    ${config.showCorrectAnswer ? '<span colspan="2">✓ Bonne réponse affichée après chaque QCM</span>' : ''}
+                </div>
+            </div>
+        ` : '';
+
+        const questionsHtml = questionDetailsRef.current.map((q, i) => `
+            <div style="margin-bottom:12px; padding:10px; border:1px solid ${q.isCorrect ? '#22c55e' : '#ef4444'}; border-radius:8px;">
+                <p style="font-weight:600; margin:0 0 6px;">Q${i + 1}. ${q.questionText}</p>
+                ${q.options.map((opt, optIdx) => {
+                    const isCorrectOpt = opt === q.correctAnswer;
+                    const isStudentOpt = opt === q.studentAnswer;
+                    return `
+                        <p style="margin:2px 0; padding:3px 8px; border-radius:4px;
+                            background:${isCorrectOpt ? '#dcfce7' : isStudentOpt && !isCorrectOpt ? '#fee2e2' : 'transparent'};
+                            color:${isCorrectOpt ? '#15803d' : isStudentOpt && !isCorrectOpt ? '#dc2626' : '#374151'}">
+                            ${String.fromCharCode(65 + optIdx)}. ${opt}${isStudentOpt ? ' ← votre réponse' : ''}${isCorrectOpt && !isStudentOpt ? ' ✓ correcte' : ''}
+                        </p>
+                    `;
+                }).join('')}
+                <p style="margin:6px 0 0; font-size:0.85rem; color:${q.isCorrect ? '#15803d' : '#dc2626'}; font-weight:600;">
+                    ${q.isCorrect ? '✓ Correct' : `✗ Incorrect — Bonne réponse : ${q.correctAnswer}`}
+                </p>
+                ${q.explanation ? `<p style="margin:4px 0 0; font-size:0.75rem; color:#64748b;">💡 ${q.explanation}</p>` : ''}
+            </div>
+        `).join('');
+
+        const win = window.open('', '_blank');
+        win.document.write(`<!DOCTYPE html><html><head>
+            <title>Corrigé — ${studentInfo?.lastName || ''} ${studentInfo?.firstName || ''}</title>
+            <style>
+                body { font-family: 'DM Sans', Arial, sans-serif; margin: 0; padding: 20px; color: #1e293b; }
+                @media print { @page { size: A4; margin: 15mm; } }
+                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
+                .brand { font-size: 1.5rem; font-weight: 800; color: #3b82f6; }
+                .badge { padding: 6px 16px; border-radius: 999px; font-size: 1.1rem; font-weight: 800; background: ${passColor}22; color: ${passColor}; border: 2px solid ${passColor}; }
+                .note-box { text-align: center; margin: 16px 0; padding: 12px; background: #f8fafc; border-radius: 12px; border: 2px solid #3b82f6; }
+                .note-val { font-size: 2.5rem; font-weight: 800; color: #3b82f6; }
+                .note-label { font-size: 0.8rem; color: #64748b; }
+                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+                .info-box { padding: 12px; background: #f8fafc; border-radius: 8px; }
+                .info-box h3 { margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+                p { margin: 3px 0; font-size: 0.875rem; }
+                h2 { font-size: 1rem; margin: 20px 0 10px; color: #1e293b; }
+            </style>
+        </head><body>
+            <div class="header">
+                <div><div class="brand">NA²QUIZ</div><div style="font-size:1.125rem; font-weight:700; margin-top:4px;">Corrigé Individuel</div><div style="font-size:0.8rem; color:#64748b;">${new Date().toLocaleString('fr-FR')}</div></div>
+                <div class="badge">${passStatus}</div>
+            </div>
+            <div class="note-box">
+                <div class="note-label">NOTE OBTENUE</div>
+                <div class="note-val">${noteStr}</div>
+                <div class="note-label">${submittedScore} pts sur ${totalPts} pts · ${correctCount}/${totalQ} correctes · ${submittedPercentage.toFixed(2)}%</div>
+            </div>
+            <div class="info-grid">
+                <div class="info-box">
+                    <h3>Candidat</h3>
+                    <p><b>Nom :</b> ${studentInfo?.lastName || 'N/A'}</p>
+                    <p><b>Prénom :</b> ${studentInfo?.firstName || 'N/A'}</p>
+                    <p><b>Matricule :</b> ${studentInfo?.matricule || 'N/A'}</p>
+                    <p><b>Niveau :</b> ${studentInfo?.level || 'N/A'}</p>
+                </div>
+                <div class="info-box">
+                    <h3>Épreuve</h3>
+                    <p><b>Titre :</b> ${exam?.title || passedExamTitle || 'N/A'}</p>
+                    <p><b>Matière :</b> ${exam?.subject || 'N/A'}</p>
+                    <p><b>Domaine :</b> ${exam?.domain || 'N/A'}</p>
+                    <p><b>Seuil de réussite :</b> ${exam?.passingScore || passedPassingScore || 'N/A'}%</p>
+                </div>
+            </div>
+            ${configHtml}
+            <h2>Détail des réponses</h2>
+            ${questionsHtml}
+            <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 800); }</script>
+        </body></html>`);
+        win.document.close();
+    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount, getTotalPoints]);
 
     if (isLoading) {
         return (
@@ -625,6 +638,8 @@ const ResultsPage = () => {
     }
 
     const actualTotalQuestions = getTotalQuestionsCount();
+    const totalPoints = getTotalPoints();
+    const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
     const currentPassStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué';
     const showDebugInfo = process.env.NODE_ENV === 'development';
 
@@ -638,22 +653,21 @@ const ResultsPage = () => {
             <div style={{ position: 'fixed', top: '-15%', left: '50%', transform: 'translateX(-50%)', width: '70vw', height: '50vh', background: 'radial-gradient(ellipse, rgba(37,99,235,0.12) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
 
             <main style={{ position: 'relative', zIndex: 1, maxWidth: '900px', margin: '0 auto' }}>
-
                 {!isLoading && redirectTimerActive && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
                         style={{ marginBottom: '16px', padding: '12px 20px', background: countdown <= 30 ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.1)', border: `1px solid ${countdown <= 30 ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.25)'}`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: countdown <= 30 ? '#ef4444' : '#3b82f6', display: 'inline-block', animation: 'pulse 1s infinite' }} />
-                            <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Retour automatique au terminal dans</span>
-                            <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: '1.25rem', color: countdown <= 30 ? '#ef4444' : '#60a5fa', minWidth: '60px' }}>
-                                {Math.floor(countdown / 60).toString().padStart(2, '0')}:{(countdown % 60).toString().padStart(2, '0')}
-                            </span>
-                        </div>
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={extendStay}
-                            style={{ padding: '6px 12px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '8px', color: '#93c5fd', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
-                            + 5 min
-                        </motion.button>
-                    </motion.div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: countdown <= 30 ? '#ef4444' : '#3b82f6', display: 'inline-block', animation: 'pulse 1s infinite' }} />
+                                <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Retour automatique au terminal dans</span>
+                                <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: '1.25rem', color: countdown <= 30 ? '#ef4444' : '#60a5fa', minWidth: '60px' }}>
+                                    {Math.floor(countdown / 60).toString().padStart(2, '0')}:{(countdown % 60).toString().padStart(2, '0')}
+                                </span>
+                            </div>
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={extendStay}
+                                style={{ padding: '6px 12px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '8px', color: '#93c5fd', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                                + 5 min
+                            </motion.button>
+                        </motion.div>
                 )}
 
                 {showDebugInfo && submittedAnswers && (
@@ -701,7 +715,8 @@ const ResultsPage = () => {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Titre:</span> {exam?.title || passedExamTitle || 'N/A'}</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Score:</span> {submittedScore} / {actualTotalQuestions}</p>
+                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Points:</span> {submittedScore} / {totalPoints} pts</p>
+                                <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Bonnes rép.:</span> {correctCount} / {actualTotalQuestions} questions</p>
                                 <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Pourcentage:</span>{' '}
                                     <span style={{ color: submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#10b981' : '#ef4444', fontWeight: 600 }}>
                                         {submittedPercentage.toFixed(2)}%
@@ -729,31 +744,22 @@ const ResultsPage = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.78rem' }}>
                                 <span style={{ color: '#64748b' }}>Option :</span>
                                 <span style={{ color: '#e2e8f0' }}>{getOptionLabel(config.examOption)} ({config.examOption})</span>
-                                
                                 {config.openRange && (
                                     <>
                                         <span style={{ color: '#64748b' }}>Plage ouverte :</span>
                                         <span style={{ color: '#e2e8f0' }}>{config.requiredQuestions} questions à traiter</span>
                                     </>
                                 )}
-                                
                                 <span style={{ color: '#64748b' }}>Séquencement :</span>
                                 <span style={{ color: '#e2e8f0' }}>{config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}</span>
-                                
                                 {config.allowRetry && (
                                     <>
                                         <span style={{ color: '#64748b' }}>Reprise :</span>
                                         <span style={{ color: '#e2e8f0' }}>Autorisée (une fois)</span>
                                     </>
                                 )}
-                                
                                 <span style={{ color: '#64748b' }}>Chronomètre :</span>
-                                <span style={{ color: '#e2e8f0' }}>
-                                    {config.timerPerQuestion 
-                                        ? `${config.timePerQuestion} sec/question` 
-                                        : `${config.totalTime} min totales`}
-                                </span>
-                                
+                                <span style={{ color: '#e2e8f0' }}>{config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}</span>
                                 {config.showBinaryResult && (
                                     <span style={{ color: '#64748b', gridColumn: 'span 2' }}>✓ Résultat binaire affiché après chaque QCM</span>
                                 )}
@@ -769,24 +775,8 @@ const ResultsPage = () => {
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <FileText size={20} color="#3b82f6" /> Détails des Réponses
                             </h2>
-                            
-                            {/* ✅ NOUVEAU BOUTON EXPORT CSV */}
-                            <button
-                                onClick={exportToCSV}
-                                style={{
-                                    padding: '8px 16px',
-                                    background: 'rgba(16,185,129,0.1)',
-                                    border: '1px solid rgba(16,185,129,0.3)',
-                                    borderRadius: 8,
-                                    color: '#10b981',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontSize: '0.8rem',
-                                    fontWeight: 500
-                                }}
-                            >
+                            <button onClick={exportToCSV}
+                                style={{ padding: '8px 16px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', fontWeight: 500 }}>
                                 <Download size={14} /> Exporter CSV
                             </button>
                         </div>

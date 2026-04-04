@@ -1,4 +1,4 @@
-// src/pages/student/MyResultsPage.jsx - Version complète corrigée
+// src/pages/student/MyResultsPage.jsx - Version corrigée
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,16 +27,13 @@ const MyResultsPage = () => {
   const [expandedResult, setExpandedResult] = useState(null);
   const [stats, setStats] = useState({ total: 0, passed: 0, avgScore: 0, bestScore: 0, worstScore: 0 });
 
-  // Extraire les valeurs uniques pour les filtres
   const examTitles = useMemo(() => [...new Set(results.map(r => r.examTitle).filter(Boolean))], [results]);
   const subjects = useMemo(() => [...new Set(results.map(r => r.matiere || r.subject).filter(Boolean))], [results]);
   const domains = useMemo(() => [...new Set(results.map(r => r.domain).filter(Boolean))], [results]);
 
-  // Filtrer et trier les résultats
   const filteredResults = useMemo(() => {
     let filtered = [...results];
     
-    // Recherche textuelle
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(r => 
@@ -46,14 +43,12 @@ const MyResultsPage = () => {
       );
     }
     
-    // Filtres
     if (filterExam) filtered = filtered.filter(r => r.examTitle === filterExam);
     if (filterStatus === 'passed') filtered = filtered.filter(r => r.passed);
     if (filterStatus === 'failed') filtered = filtered.filter(r => !r.passed);
     if (filterSubject) filtered = filtered.filter(r => (r.matiere || r.subject) === filterSubject);
     if (filterDomain) filtered = filtered.filter(r => r.domain === filterDomain);
     
-    // Tri
     switch (sortBy) {
       case 'score-asc':
         filtered.sort((a, b) => (a.percentage || 0) - (b.percentage || 0));
@@ -96,15 +91,17 @@ const MyResultsPage = () => {
           throw new Error('Token non trouvé');
         }
         
-        // ✅ Récupération des résultats
+        // ✅ MODIFICATION: Utiliser la route générale /api/results
+        // et filtrer côté client si nécessaire
         let response;
         try {
-          response = await api.get('/api/results/student');
-          console.log('📦 Réponse /api/results/student:', response);
-        } catch (err) {
-          console.warn('Route /student échouée, tentative route générale');
+          // Essayer d'abord la route générale
           response = await api.get('/api/results');
           console.log('📦 Réponse /api/results:', response);
+        } catch (err) {
+          console.warn('Route /results échouée, tentative /student');
+          response = await api.get('/api/results/student');
+          console.log('📦 Réponse /api/results/student:', response);
         }
         
         // ✅ Extraction robuste des données
@@ -128,7 +125,7 @@ const MyResultsPage = () => {
         }
         // Format 5: chercher n'importe quel tableau
         else if (response && typeof response === 'object') {
-          for (const key of ['data', 'results', 'items', 'studentResults', 'docs']) {
+          for (const key of ['data', 'results', 'items', 'studentResults', 'docs', 'resultats']) {
             if (response[key] && Array.isArray(response[key])) {
               data = response[key];
               break;
@@ -138,45 +135,67 @@ const MyResultsPage = () => {
         
         console.log('📊 Données brutes extraites:', data.length);
         
-        // ✅ Filtrer par matricule si nécessaire (fallback)
+        // ✅ NE PAS filtrer par matricule, prendre tous les résultats
+        // ou filtrer par userId si disponible
         let filteredData = data;
+        
+        // Si l'utilisateur a un matricule, essayer de filtrer
         if (user?.matricule && data.length > 0) {
           const beforeFilter = filteredData.length;
-          filteredData = data.filter(r => 
-            r.studentInfo?.matricule === user.matricule ||
-            r.studentInfo?.matricule?.toUpperCase() === user.matricule?.toUpperCase()
-          );
+          filteredData = data.filter(r => {
+            // Vérifier par matricule
+            if (r.studentInfo?.matricule === user.matricule) return true;
+            if (r.studentInfo?.matricule?.toUpperCase() === user.matricule?.toUpperCase()) return true;
+            // Vérifier par userId
+            if (r.userId === user._id) return true;
+            if (r.createdBy === user._id) return true;
+            return false;
+          });
           console.log(`📊 Filtrage par matricule: ${beforeFilter} → ${filteredData.length}`);
         }
         
+        if (filteredData.length === 0 && data.length > 0) {
+          console.warn('⚠️ Aucun résultat filtré, affichage de tous les résultats');
+          filteredData = data;
+        }
+        
         // ✅ Normaliser les résultats
-        const normalizedResults = filteredData.map(r => ({
-          _id: r._id,
-          examId: r.examId,
-          examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
-          studentInfo: r.studentInfo || {
-            firstName: user?.name?.split(' ')[1] || '',
-            lastName: user?.name?.split(' ')[0] || '',
-            matricule: user?.matricule || ''
-          },
-          score: r.score || 0,
-          percentage: r.percentage || 0,
-          passed: r.passed || false,
-          totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
-          createdAt: r.createdAt,
-          domain: r.domain || r.examId?.domain || '',
-          subject: r.matiere || r.subject || r.examId?.subject || '',
-          level: r.level || r.examId?.level || '',
-          examOption: r.examOption || '',
-          examQuestions: r.examQuestions || [],
-          answers: r.answers || {},
-          note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
-          dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
-            day: '2-digit', 
-            month: 'long', 
-            year: 'numeric' 
-          }) : 'Date inconnue'
-        }));
+        const normalizedResults = filteredData.map(r => {
+          // Calculer le nombre de bonnes réponses si disponible
+          let correctAnswersCount = 0;
+          if (r.questionDetails && Array.isArray(r.questionDetails)) {
+            correctAnswersCount = r.questionDetails.filter(q => q.isCorrect === true).length;
+          }
+          
+          return {
+            _id: r._id,
+            examId: r.examId,
+            examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
+            studentInfo: r.studentInfo || {
+              firstName: user?.name?.split(' ')[1] || '',
+              lastName: user?.name?.split(' ')[0] || '',
+              matricule: user?.matricule || ''
+            },
+            score: r.score || 0,
+            percentage: r.percentage || 0,
+            passed: r.passed || false,
+            totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
+            correctAnswers: correctAnswersCount,
+            createdAt: r.createdAt,
+            domain: r.domain || r.examId?.domain || '',
+            subject: r.matiere || r.subject || r.examId?.subject || '',
+            level: r.level || r.examId?.level || '',
+            examOption: r.examOption || '',
+            examQuestions: r.examQuestions || [],
+            answers: r.answers || {},
+            note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
+            dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
+              day: '2-digit', 
+              month: 'long', 
+              year: 'numeric' 
+            }) : 'Date inconnue'
+          };
+        });
         
         console.log('✅ Résultats normalisés:', normalizedResults.length);
         if (normalizedResults.length > 0) {
@@ -365,7 +384,7 @@ const MyResultsPage = () => {
           </div>
         )}
 
-        {/* KPIs - seulement si des résultats existent */}
+        {/* KPIs */}
         {results.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
             <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 16, padding: 16 }}>
@@ -391,7 +410,7 @@ const MyResultsPage = () => {
           </div>
         )}
 
-        {/* Barre de recherche et filtres - seulement si des résultats existent */}
+        {/* Filtres */}
         {results.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
@@ -588,13 +607,9 @@ const MyResultsPage = () => {
                       backdropFilter: 'blur(12px)'
                     }}
                   >
-                    {/* En-tête avec mention et score */}
+                    {/* En-tête */}
                     <div 
-                      style={{ 
-                        padding: 24, 
-                        cursor: 'pointer',
-                        transition: 'background 0.2s'
-                      }}
+                      style={{ padding: 24, cursor: 'pointer', transition: 'background 0.2s' }}
                       onClick={() => setExpandedResult(isExpanded ? null : result._id)}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -602,9 +617,7 @@ const MyResultsPage = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                             <span style={{ fontSize: '2rem' }}>{mention.icon}</span>
                             <div>
-                              <h3 style={{ color: '#f8fafc', fontSize: '1.2rem', fontWeight: 600 }}>
-                                {result.examTitle}
-                              </h3>
+                              <h3 style={{ color: '#f8fafc', fontSize: '1.2rem', fontWeight: 600 }}>{result.examTitle}</h3>
                               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.75rem' }}>
                                   <Calendar size={12} /> {result.dateFormatted}
@@ -629,7 +642,6 @@ const MyResultsPage = () => {
                             </div>
                           </div>
                           
-                          {/* Tags domaine/niveau */}
                           {(result.domain || result.level) && (
                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                               {result.domain && (
@@ -664,14 +676,9 @@ const MyResultsPage = () => {
                         </div>
                       </div>
 
-                      {/* Statistiques rapides */}
                       <div style={{ 
-                        display: 'flex', 
-                        gap: 16, 
-                        paddingTop: 12, 
-                        borderTop: '1px solid rgba(255,255,255,0.05)',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap'
+                        display: 'flex', gap: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)',
+                        justifyContent: 'space-between', flexWrap: 'wrap'
                       }}>
                         <div style={{ display: 'flex', gap: 16 }}>
                           <div>
@@ -709,7 +716,6 @@ const MyResultsPage = () => {
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
                                   {result.examQuestions.slice(0, 5).map((q, idx) => {
-                                    // Vérifier si la réponse est correcte
                                     const qId = q._id?.toString();
                                     const studentAnswer = qId && result.answers ? result.answers[qId] : null;
                                     let isCorrect = false;
@@ -729,10 +735,7 @@ const MyResultsPage = () => {
                                         borderRadius: 8
                                       }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          {isCorrect ? 
-                                            <CheckCircle size={12} color="#10b981" /> : 
-                                            <XCircle size={12} color="#ef4444" />
-                                          }
+                                          {isCorrect ? <CheckCircle size={12} color="#10b981" /> : <XCircle size={12} color="#ef4444" />}
                                           <span style={{ color: '#e2e8f0', fontSize: '0.8rem' }}>
                                             Q{idx + 1}. {q.libQuestion || q.questionText || 'Question sans texte'}
                                           </span>
@@ -818,20 +821,10 @@ const MyResultsPage = () => {
       </div>
       
       <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        ::-webkit-scrollbar {
-          width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: rgba(15,23,42,0.3);
-          border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(99,102,241,0.3);
-          border-radius: 10px;
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 10px; }
       `}</style>
     </div>
   );

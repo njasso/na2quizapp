@@ -1,4 +1,4 @@
-// src/pages/surveillance/SurveillancePage.jsx - VERSION COMPLÈTE CORRIGÉE
+// src/pages/surveillance/SurveillancePage.jsx - VERSION COMPLÈTE CORRIGÉE AVEC IMAGES
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
 import { toast, Toaster } from 'react-hot-toast';
@@ -476,16 +476,43 @@ const SurveillancePage = () => {
     toast.error(alert.message, { duration: 5000 });
   }, []);
 
+  // ✅ FONCTION GETIMAGEURL CORRIGÉE - Cherche dans coverImage ET dans les questions
   const getImageUrl = useCallback((exam) => {
     if (!exam) return null;
-    if (exam.coverImage) return exam.coverImage;
-    if (exam.questions && exam.questions.length > 0) {
-      const firstQuestionWithImage = exam.questions.find(q => q.imageQuestion || q.imageBase64);
-      if (firstQuestionWithImage) {
-        return firstQuestionWithImage.imageQuestion || 
-               (firstQuestionWithImage.imageBase64?.startsWith('data:') ? firstQuestionWithImage.imageBase64 : null);
+    
+    console.log('[Surveillance] 🔍 Recherche image pour:', exam.title);
+    
+    // 1. Vérifier coverImage direct
+    if (exam.coverImage && exam.coverImage.trim() !== '') {
+      let url = exam.coverImage;
+      if (url.startsWith('/uploads/')) {
+        url = `${NODE_BACKEND_URL}${url}`;
+      }
+      console.log('[Surveillance] ✅ Image trouvée dans coverImage:', url);
+      return url;
+    }
+    
+    // 2. Chercher dans les questions de l'examen
+    if (exam.questions && Array.isArray(exam.questions) && exam.questions.length > 0) {
+      for (const question of exam.questions) {
+        // Vérifier imageQuestion
+        if (question.imageQuestion && question.imageQuestion.trim() !== '') {
+          let url = question.imageQuestion;
+          if (url.startsWith('/uploads/')) {
+            url = `${NODE_BACKEND_URL}${url}`;
+          }
+          console.log('[Surveillance] ✅ Image trouvée dans une question:', url);
+          return url;
+        }
+        // Vérifier imageBase64
+        if (question.imageBase64 && question.imageBase64.trim() !== '' && question.imageBase64.startsWith('data:')) {
+          console.log('[Surveillance] ✅ Image Base64 trouvée dans une question');
+          return question.imageBase64;
+        }
       }
     }
+    
+    console.log('[Surveillance] ❌ Aucune image trouvée pour:', exam.title);
     return null;
   }, []);
 
@@ -542,7 +569,7 @@ const SurveillancePage = () => {
   const totalTerminals = terminalsWaiting.length + terminalsWithExam.length;
   const totalStudents = studentsWaitingForStart.length + studentsReady.length + studentsActive.length;
 
-    // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════
   //  CONNEXION SOCKET.IO
   // ══════════════════════════════════════════════════════════════
 
@@ -692,19 +719,14 @@ const SurveillancePage = () => {
       addAlert({ type: 'terminal_ready', message: `Terminal ${data.terminalId} prêt pour l'épreuve`, severity: 'low' });
     });
 
-    // ✅ NOUVEAU: Alerte de sécurité (changement de fenêtre)
     socket.on('securityAlert', (alert) => {
       if (!isMounted.current) return;
       console.log('[Surveillance] 🚨 Alerte sécurité reçue:', alert);
-      
-      // Ajouter l'alerte dans le panneau d'alertes
       addAlert({
         type: 'security',
         message: alert.message,
         severity: alert.severity || 'medium'
       });
-      
-      // Notification toast
       toast.error(alert.message, { 
         duration: 8000, 
         icon: '⚠️',
@@ -712,7 +734,6 @@ const SurveillancePage = () => {
       });
     });
 
-    // ✅ NOUVEAU: Notification de changement de statut de question (pour enseignants)
     socket.on('questionStatusChanged', (data) => {
       if (!isMounted.current) return;
       console.log('[Surveillance] 📝 Statut question changé:', data);
@@ -789,7 +810,7 @@ const SurveillancePage = () => {
   }, [getExamInfo]);
 
   // ══════════════════════════════════════════════════════════════
-  //  AVANCEMENT AUTOMATIQUE OPTION A - CORRIGÉ
+  //  AVANCEMENT AUTOMATIQUE OPTION A
   // ══════════════════════════════════════════════════════════════
 
   const handleAdvanceQuestion = useCallback(() => {
