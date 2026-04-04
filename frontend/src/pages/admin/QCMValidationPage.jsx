@@ -9,6 +9,8 @@ import {
   Tag, Layers, BookOpen, Clock, Settings
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ENV_CONFIG from '../../config/env';
+
 
 const NODE_BACKEND_URL = 
   process.env.REACT_APP_BACKEND_URL ||

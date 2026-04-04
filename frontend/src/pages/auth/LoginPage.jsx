@@ -1,4 +1,4 @@
-// src/pages/auth/LoginPage.jsx - Version production prête
+// src/pages/auth/LoginPage.jsx - Version corrigée pour SAISISEUR
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
@@ -8,30 +8,21 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 // ==================== CONFIGURATION DYNAMIQUE ====================
-// Détection automatique de l'environnement
 const getBackendUrl = () => {
-  // En production (Netlify)
   if (process.env.NODE_ENV === 'production') {
-    // Utiliser l'URL Render configurée dans les variables d'environnement Netlify
     const renderUrl = process.env.REACT_APP_BACKEND_URL;
-    if (renderUrl) {
-      return renderUrl;
-    }
-    // Fallback: utiliser le même domaine mais avec /api (si les fonctions Netlify sont utilisées)
+    if (renderUrl) return renderUrl;
     return '';
   }
   
-  // En développement local
   if (process.env.NODE_ENV === 'development') {
     return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
   }
   
-  // Fallback pour les cas non déterminés
-  return process.env.REACT_APP_BACKEND_URL || 'http://192.168.0.1:5000';
+  return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 };
 
 const BACKEND_URL = getBackendUrl();
-
 console.log('[LoginPage] 🌐 Backend URL:', BACKEND_URL || '/api (relatif)');
 
 const LoginPage = () => {
@@ -49,12 +40,12 @@ const LoginPage = () => {
     setIsLoading(true);
     
     try {
-      // Construction de l'URL - si BACKEND_URL est vide, utiliser le chemin relatif
       const apiUrl = BACKEND_URL 
         ? `${BACKEND_URL}/api/auth/login`
         : '/api/auth/login';
       
       console.log('[LoginPage] 📡 Appel API:', apiUrl);
+      console.log('[LoginPage] 📧 Email:', email);
       
       const response = await axios.post(
         apiUrl,
@@ -67,38 +58,59 @@ const LoginPage = () => {
       );
       
       const data = response.data;
+      console.log('[LoginPage] 📦 Réponse API:', data);
+      console.log('[LoginPage] 🎭 Rôle reçu:', data.role);
       
       if (!data.token) {
         throw new Error('Token manquant dans la réponse.');
       }
       
-      // Stockage des données utilisateur
+      // ✅ Stockage correct des données utilisateur
       const userData = {
-        token: data.token,
+        _id: data._id || data.id,
         email: data.email,
         username: data.username || data.email,
         role: data.role || 'APPRENANT',
         name: data.name,
-        _id: data._id,
         matricule: data.matricule,
-        isAdmin: data.isAdmin || false
+        isAdmin: data.isAdmin || false,
+        token: data.token
       };
+      
+      console.log('[LoginPage] ✅ Utilisateur connecté:', userData.email);
+      console.log('[LoginPage] 🎭 Rôle final:', userData.role);
       
       // Appel au contexte d'authentification
       login(userData, data.token);
       
-      // Notification de bienvenue
-      toast.success(`Bienvenue ${data.name || data.email || '!'}`);
-      
-      // Redirection vers le tableau de bord unifié
-      navigate('/evaluate');
+      // ✅ Attendre que le contexte soit mis à jour
+      setTimeout(() => {
+        // Notification de bienvenue
+        toast.success(`Bienvenue ${userData.name || userData.email || '!'}`);
+        
+        // ✅ REDIRECTION BASÉE SUR LE RÔLE
+        if (userData.role === 'APPRENANT') {
+          console.log('[LoginPage] Redirection vers /available-exams');
+          navigate('/available-exams', { replace: true });
+        } else if (userData.role === 'SAISISEUR') {
+          console.log('[LoginPage] Redirection vers /evaluate (SAISISEUR)');
+          navigate('/evaluate', { replace: true });
+        } else if (userData.role === 'ENSEIGNANT') {
+          console.log('[LoginPage] Redirection vers /evaluate (ENSEIGNANT)');
+          navigate('/evaluate', { replace: true });
+        } else if (userData.role === 'ADMIN_DELEGUE') {
+          console.log('[LoginPage] Redirection vers /evaluate (ADMIN_DELEGUE)');
+          navigate('/evaluate', { replace: true });
+        } else {
+          console.log('[LoginPage] Redirection par défaut vers /evaluate');
+          navigate('/evaluate', { replace: true });
+        }
+      }, 100);
       
     } catch (err) {
       console.error('[LoginPage] ❌ Erreur:', err);
       
-      // Gestion des erreurs
       if (err.response) {
-        // Erreur serveur avec réponse
         const status = err.response.status;
         const message = err.response.data?.message || err.response.data?.error || 'Erreur de connexion';
         
@@ -147,7 +159,6 @@ const LoginPage = () => {
       position: 'relative',
       overflow: 'hidden',
     }}>
-      {/* Grille de fond */}
       <div style={{
         position: 'fixed',
         inset: 0,
@@ -156,7 +167,6 @@ const LoginPage = () => {
         pointerEvents: 'none',
       }} />
       
-      {/* Glow effect */}
       <div style={{
         position: 'fixed',
         top: '-20%',
@@ -179,7 +189,6 @@ const LoginPage = () => {
           maxWidth: '440px',
         }}
       >
-        {/* Logo / Brand */}
         <div style={{ textAlign: 'center', marginBottom: '36px' }}>
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
@@ -236,7 +245,6 @@ const LoginPage = () => {
           </motion.p>
         </div>
 
-        {/* Carte de connexion */}
         <div style={{
           background: 'rgba(15,23,42,0.75)',
           border: '1px solid rgba(59,130,246,0.15)',

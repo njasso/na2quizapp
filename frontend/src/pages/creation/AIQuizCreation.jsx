@@ -1,4 +1,4 @@
-// src/pages/creation/AIQuizCreation.jsx - Version PURE pour création de QCM
+// src/pages/creation/AIQuizCreation.jsx - Version complète avec chapitre obligatoire
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +32,135 @@ const QUESTION_TYPES = [
   { id: 3, nom: "Savoir-être", description: "Évaluation du potentiel psychologique" }
 ];
 
+// Composant d'aperçu de question avec chapitre
+const QuestionPreviewModal = ({ question, onClose }) => {
+  if (!question) return null;
+  
+  const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
+  const filledOptions = question.options?.filter(opt => opt && opt.trim() !== '') || [];
+  const isMultipleChoice = question.typeQuestion === 2;
+  const correctAnswers = isMultipleChoice ? (question.correctAnswers || [question.correctAnswer]) : [question.correctAnswer];
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '20px'
+      }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        style={{
+          background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)',
+          borderRadius: 20, padding: 24, width: '100%', maxWidth: 600,
+          maxHeight: '80vh', overflowY: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>
+            Aperçu de la question
+            {isMultipleChoice && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: '0.7rem' }}>(Choix multiples)</span>}
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+            <XCircle size={20} />
+          </button>
+        </div>
+        
+        {imageSrc && (
+          <div style={{ marginBottom: 16, textAlign: 'center' }}>
+            <img 
+              src={imageSrc} 
+              alt="Illustration" 
+              style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 8, objectFit: 'contain' }} 
+            />
+          </div>
+        )}
+        
+        <p style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, lineHeight: 1.5 }}>
+          {question.libQuestion}
+        </p>
+        
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>Options :</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {filledOptions.map((opt, i) => {
+              const isCorrect = isMultipleChoice 
+                ? correctAnswers.includes(opt)
+                : opt === question.correctAnswer;
+              return (
+                <div key={i} style={{
+                  padding: '10px 12px',
+                  background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}>
+                  <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
+                    {String.fromCharCode(65 + i)}.
+                  </span>
+                  <span style={{ color: '#94a3b8', flex: 1 }}>{opt}</span>
+                  {isCorrect && <CheckCircle size={14} color="#10b981" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        {question.explanation && (
+          <div style={{ marginBottom: 16, padding: 10, background: 'rgba(59,130,246,0.05)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.75rem' }}>💡 Explication : {question.explanation}</p>
+          </div>
+        )}
+        
+        {/* ✅ Affichage du chapitre */}
+        {question.libChapitre && (
+          <div style={{ marginBottom: 16, padding: 8, background: 'rgba(139,92,246,0.1)', borderRadius: 8 }}>
+            <p style={{ color: '#a78bfa', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BookOpen size={12} /> Chapitre : {question.libChapitre}
+            </p>
+          </div>
+        )}
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Points</p>
+            <p style={{ color: '#f59e0b', fontWeight: 600 }}>{question.points} pt{question.points > 1 ? 's' : ''}</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Temps</p>
+            <p style={{ color: '#60a5fa', fontWeight: 600 }}>{question.tempsMin || 1} min</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Niveau</p>
+            <p style={{ color: '#a78bfa', fontWeight: 600 }}>{question.niveau}</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Matière</p>
+            <p style={{ color: '#34d399', fontWeight: 600 }}>{question.matiere}</p>
+          </div>
+        </div>
+        
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 20px', background: '#475569', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+            Fermer
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 const AIQuizCreation = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -47,11 +176,18 @@ const AIQuizCreation = () => {
   const [levelNom, setLevelNom] = useState('');
   const [matiereNom, setMatiereNom] = useState('');
   
+  // ✅ Nouvel état pour le chapitre
+  const [libChapitre, setLibChapitre] = useState('');
+  
   const [questionType, setQuestionType] = useState('single');
   const [numQuestions, setNumQuestions] = useState(5);
   const [difficulty, setDifficulty] = useState('moyen');
   const keywordsRef = useRef('');
   const [expandedAdvanced, setExpandedAdvanced] = useState(false);
+  
+  // États pour les points
+  const [pointsType, setPointsType] = useState('uniform');
+  const [globalPoints, setGlobalPoints] = useState(1);
 
   // État des questions générées
   const [generatedQuestions, setGeneratedQuestions] = useState([]);
@@ -61,6 +197,10 @@ const AIQuizCreation = () => {
   const [authError, setAuthError] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editData, setEditData] = useState(null);
+  const [previewQuestion, setPreviewQuestion] = useState(null);
+  
+  // ✅ Validation du chapitre
+  const [chapitreError, setChapitreError] = useState(false);
 
   // Mise à jour des noms
   useEffect(() => { if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId)); }, [selectedDomainId]);
@@ -98,6 +238,14 @@ const AIQuizCreation = () => {
       toast.error('Veuillez remplir tous les champs obligatoires (Domaine, Sous-domaine, Niveau, Matière)');
       return;
     }
+    
+    // ✅ Vérification du chapitre
+    if (!libChapitre.trim()) {
+      setChapitreError(true);
+      toast.error('Veuillez renseigner le chapitre');
+      return;
+    }
+    setChapitreError(false);
 
     setIsLoading(true);
     setError(null);
@@ -113,6 +261,7 @@ const AIQuizCreation = () => {
         sousDomaine: resolvedSousDomNom,
         level: resolvedLevelNom,
         subject: resolvedMatiereNom,
+        chapter: libChapitre, // ✅ Ajout du chapitre dans la requête
         numQuestions: numQuestions,
         typeQuestion: questionType === 'multiple' ? 2 : 1,
         difficulty: getDifficultyFromLevel(),
@@ -140,6 +289,7 @@ const AIQuizCreation = () => {
           niveau: resolvedLevelNom,
           matiereId: parseInt(selectedMatiereId),
           matiere: resolvedMatiereNom,
+          libChapitre: libChapitre, // ✅ Ajout du chapitre dans chaque question
           imageQuestion: '', imageBase64: '', imageMetadata: {},
           matriculeAuteur: user?.matricule || user?.email || '',
         }));
@@ -184,29 +334,31 @@ const AIQuizCreation = () => {
     setIsLoading(true);
     try {
       const questionsToSave = generatedQuestions.map(q => ({
-  libQuestion: q.libQuestion?.trim() || 'Question sans libellé',
-  options: q.options.filter(opt => opt && opt.trim() !== ''),
-  correctAnswer: q.correctAnswer?.trim() || (q.options[0]?.trim() || 'A'),
-  typeQuestion: q.typeQuestion || 1,
-  points: q.points || 1,
-  tempsMin: q.tempsMin || 1,
-  explanation: q.explanation?.trim() || '',
-  domaine: resolvedDomainNom?.trim() || 'Non spécifié',
-  sousDomaine: resolvedSousDomNom?.trim() || 'Non spécifié',
-  niveau: resolvedLevelNom?.trim() || 'Non spécifié',
-  matiere: resolvedMatiereNom?.trim() || 'Non spécifié', // ← JAMAIS VIDE
-  imageQuestion: q.imageQuestion || '',
-  imageBase64: q.imageBase64 || '',
-  imageMetadata: q.imageMetadata || {},
-  matriculeAuteur: user?.matricule || user?.email || 'inconnu',
-  status: 'pending'
-}));
+        libQuestion: q.libQuestion?.trim() || 'Question sans libellé',
+        options: q.options.filter(opt => opt && opt.trim() !== ''),
+        correctAnswer: q.correctAnswer?.trim() || (q.options[0]?.trim() || 'A'),
+        typeQuestion: q.typeQuestion || 1,
+        points: pointsType === 'uniform' ? globalPoints : (q.points || 1),
+        tempsMin: q.tempsMin || 1,
+        explanation: q.explanation?.trim() || '',
+        domaine: resolvedDomainNom?.trim() || 'Non spécifié',
+        sousDomaine: resolvedSousDomNom?.trim() || 'Non spécifié',
+        niveau: resolvedLevelNom?.trim() || 'Non spécifié',
+        matiere: resolvedMatiereNom?.trim() || 'Non spécifié',
+        libChapitre: q.libChapitre || libChapitre, // ✅ Ajout du chapitre
+        imageQuestion: q.imageQuestion || '',
+        imageBase64: q.imageBase64 || '',
+        imageMetadata: q.imageMetadata || {},
+        matriculeAuteur: user?.matricule || user?.email || 'inconnu',
+        status: 'pending'
+      }));
 
       const response = await saveQuestions({ questions: questionsToSave });
 
       if (response.success) {
         toast.success(`${questionsToSave.length} questions envoyées en validation!`);
         setGeneratedQuestions([]);
+        setLibChapitre(''); // ✅ Réinitialiser le chapitre
         navigate('/teacher/questions');
       } else {
         throw new Error(response.error || 'Erreur lors de la sauvegarde');
@@ -245,6 +397,7 @@ const AIQuizCreation = () => {
       points: q.points,
       explanation: q.explanation,
       typeQuestion: q.typeQuestion,
+      libChapitre: q.libChapitre || libChapitre,
       imageQuestion: q.imageQuestion || '',
       imageBase64: q.imageBase64 || '',
     });
@@ -261,6 +414,7 @@ const AIQuizCreation = () => {
       points: editData.points,
       explanation: editData.explanation,
       typeQuestion: editData.typeQuestion,
+      libChapitre: editData.libChapitre,
       imageQuestion: editData.imageQuestion,
       imageBase64: editData.imageBase64,
     };
@@ -289,6 +443,11 @@ const AIQuizCreation = () => {
       sousDomaine: { id: selectedSousDomaineId, nom: sousDomaineNom },
       level: { id: selectedLevelId, nom: levelNom },
       subject: { id: selectedMatiereId, nom: matiereNom },
+      chapter: libChapitre, // ✅ Ajout du chapitre dans l'export
+      config: {
+        pointsType: pointsType,
+        globalPoints: globalPoints
+      },
       questions: generatedQuestions,
       exportedAt: new Date().toISOString()
     };
@@ -305,37 +464,6 @@ const AIQuizCreation = () => {
   const handleImageChange = (url, base64, metadata) => {
     if (!editData) return;
     setEditData({ ...editData, imageQuestion: url, imageBase64: base64, imageMetadata: metadata });
-  };
-
-  // Composant d'aperçu
-  const QuestionPreview = ({ question, onClose }) => {
-    if (!question) return null;
-    const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
-    return (
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1000, background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, padding: 24, width: '90%', maxWidth: 600 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h3 style={{ color: '#f8fafc' }}>Aperçu question</h3>
-          <button onClick={onClose}><XCircle size={20} color="#64748b" /></button>
-        </div>
-        {imageSrc && <img src={imageSrc} alt="" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 8, marginBottom: 16 }} />}
-        <p style={{ color: '#f8fafc', marginBottom: 16 }}>{question.libQuestion}</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {question.options.map((opt, i) => {
-            const isCorrect = opt === question.correctAnswer;
-            return (
-              <div key={i} style={{ padding: '8px 12px', background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`, borderRadius: 8 }}>
-                <span style={{ color: isCorrect ? '#10b981' : '#94a3b8' }}>{String.fromCharCode(65 + i)}. {opt}</span>
-                {isCorrect && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 8 }} />}
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '6px 12px', background: '#475569', borderRadius: 6, color: '#fff' }}>Fermer</button>
-        </div>
-      </motion.div>
-    );
   };
 
   if (authLoading) return <div style={styles.loaderContainer}><Loader2 size={48} color="#6366f1" className="animate-spin" /></div>;
@@ -418,6 +546,38 @@ const AIQuizCreation = () => {
             </div>
           </div>
 
+          {/* Affichage des noms sélectionnés */}
+          {(domainNom || sousDomaineNom || levelNom || matiereNom) && (
+            <div style={{ marginTop: 12, marginBottom: 20, padding: 8, background: 'rgba(99,102,241,0.05)', borderRadius: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {domainNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Domaine: {domainNom}</span>}
+              {sousDomaineNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Sous-domaine: {sousDomaineNom}</span>}
+              {levelNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Niveau: {levelNom}</span>}
+              {matiereNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Matière: {matiereNom}</span>}
+            </div>
+          )}
+
+          {/* ✅ Champ Chapitre - OBLIGATOIRE */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ ...styles.label, color: chapitreError ? '#ef4444' : '#94a3b8' }}>
+              Chapitre <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input 
+              type="text" 
+              value={libChapitre} 
+              onChange={(e) => { setLibChapitre(e.target.value); setChapitreError(false); }}
+              placeholder="Ex: Chapitre 3 - Les fonctions dérivées"
+              style={{
+                ...styles.input,
+                border: `1px solid ${chapitreError ? '#ef4444' : 'rgba(99,102,241,0.2)'}`
+              }}
+            />
+            {chapitreError && (
+              <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 4 }}>
+                <AlertCircle size={12} /> Le chapitre est obligatoire
+              </p>
+            )}
+          </div>
+
           <div style={{ marginBottom: 20 }}>
             <button onClick={() => setExpandedAdvanced(!expandedAdvanced)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '8px 0' }}>
               <Settings size={14} /> Paramètres avancés {expandedAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -446,6 +606,22 @@ const AIQuizCreation = () => {
                 <div>
                   <label style={styles.label}>Nombre de questions</label>
                   <input type="number" min="1" max="30" value={numQuestions} onChange={e => setNumQuestions(Math.min(30, Math.max(1, parseInt(e.target.value) || 5)))} style={styles.input} />
+                </div>
+                <div>
+                  <label style={styles.label}>Attribution des points</label>
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="radio" name="pointsType" checked={pointsType === 'uniform'} onChange={() => setPointsType('uniform')} />
+                      <span style={{ fontSize: '0.7rem' }}>Uniforme</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="radio" name="pointsType" checked={pointsType === 'variable'} onChange={() => setPointsType('variable')} />
+                      <span style={{ fontSize: '0.7rem' }}>Variable (par question)</span>
+                    </label>
+                  </div>
+                  {pointsType === 'uniform' && (
+                    <input type="number" min="0.5" max="10" step="0.5" value={globalPoints} onChange={e => setGlobalPoints(parseFloat(e.target.value) || 1)} style={styles.input} placeholder="Points par question" />
+                  )}
                 </div>
               </div>
             )}
@@ -510,6 +686,10 @@ const AIQuizCreation = () => {
                           <div><label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Points</label><input type="number" min="0.5" max="10" step="0.5" value={editData.points} onChange={e => setEditData({...editData, points: parseFloat(e.target.value)})} style={styles.input} /></div>
                           <div style={{ flex: 1 }}><label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Explication</label><input type="text" value={editData.explanation} onChange={e => setEditData({...editData, explanation: e.target.value})} style={styles.input} placeholder="Explication..." /></div>
                         </div>
+                        <div>
+                          <label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Chapitre</label>
+                          <input type="text" value={editData.libChapitre} onChange={e => setEditData({...editData, libChapitre: e.target.value})} style={styles.input} placeholder="Chapitre..." />
+                        </div>
                         <ImageUploader value={editData.imageQuestion || editData.imageBase64} onImageChange={handleImageChange} label="Image" />
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={saveEdit} style={{ marginTop: 12, padding: '8px 16px', background: '#10b981', border: 'none', borderRadius: 8, color: 'white', cursor: 'pointer' }}>Enregistrer</motion.button>
                       </div>
@@ -532,11 +712,13 @@ const AIQuizCreation = () => {
                             <div style={{ marginTop: 8, display: 'flex', gap: 12, fontSize: '0.65rem', color: '#64748b' }}>
                               <span>📚 N°Dom: {q.nDomaine}</span>
                               <span>🎓 Niv: {q.niveau}</span>
-                              <span>⭐ {q.points} pts</span>
+                              <span>⭐ {pointsType === 'uniform' ? globalPoints : q.points} pts</span>
+                              {q.libChapitre && <span>📑 {q.libChapitre}</span>}
                               {q.explanation && <span>💡 Avec explication</span>}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setPreviewQuestion(q)} title="Aperçu" style={{ padding: 6, background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, color: '#3b82f6', cursor: 'pointer' }}><Eye size={14} /></button>
                             <button onClick={() => startEdit(idx)} title="Modifier" style={{ padding: 6, background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, color: '#f59e0b', cursor: 'pointer' }}><Edit size={14} /></button>
                             <button onClick={() => duplicateQuestion(idx)} title="Dupliquer" style={{ padding: 6, background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, color: '#10b981', cursor: 'pointer' }}><Copy size={14} /></button>
                             <button onClick={() => removeQuestion(idx)} title="Supprimer" style={{ padding: 6, background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: '#ef4444', cursor: 'pointer' }}><Trash2 size={14} /></button>
@@ -558,6 +740,17 @@ const AIQuizCreation = () => {
           </div>
         )}
       </main>
+
+      {/* Modal d'aperçu */}
+      <AnimatePresence>
+        {previewQuestion && (
+          <QuestionPreviewModal 
+            question={previewQuestion} 
+            onClose={() => setPreviewQuestion(null)} 
+          />
+        )}
+      </AnimatePresence>
+
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #3b82f6' } }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
     </div>

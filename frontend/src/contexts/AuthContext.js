@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }) => {
         // S'assurer que le token est bien stocké
         const userWithToken = { ...parsed, token };
         setUser(userWithToken);
-        console.log('   ✅ Utilisateur chargé:', parsed.email, 'Rôle:', parsed.role);
+        console.log('   ✅ Utilisateur chargé:', parsed.email, 'Rôle:', parsed.role, 'ID:', parsed._id || parsed.id);
         
         // Optionnel: vérifier que le token est toujours valide
         refreshToken().catch(() => {
@@ -117,14 +117,17 @@ export const AuthProvider = ({ children }) => {
     );
     
     return () => api.interceptors.response.eject(interceptor);
-  }, [user]); // Dépendance user pour éviter les déconnexions en boucle
+  }, [user]);
 
   const login = useCallback((userData, token) => {
     console.log('🔐 AuthContext - Login:', userData.email || userData.username);
     
-    // Support des deux formats de données
+    // ✅ Support des deux formats de données avec _id et id
+    const userId = userData._id || userData.id;
+    
     const userInfo = {
-      id: userData._id || userData.id,
+      _id: userId,           // ✅ AJOUTÉ - pour TeacherQuestionsPage
+      id: userId,            // Gardé pour compatibilité
       email: userData.email,
       username: userData.username,
       name: userData.name,
@@ -134,6 +137,9 @@ export const AuthProvider = ({ children }) => {
       grade: userData.grade,
       isAdmin: userData.isAdmin
     };
+    
+    console.log('🔐 UserInfo sauvegardé:', userInfo);
+    console.log('🔐 User ID disponible:', userInfo._id);
     
     const authToken = token || userData.token;
     
@@ -167,11 +173,6 @@ export const AuthProvider = ({ children }) => {
     
     setUser(null);
     setError(null);
-    
-    // Optionnel: redirection vers login
-    // if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-    //   window.location.href = '/login';
-    // }
   }, []);
 
   const hasRole = useCallback((roles) => {

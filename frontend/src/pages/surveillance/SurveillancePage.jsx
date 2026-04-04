@@ -542,7 +542,7 @@ const SurveillancePage = () => {
   const totalTerminals = terminalsWaiting.length + terminalsWithExam.length;
   const totalStudents = studentsWaitingForStart.length + studentsReady.length + studentsActive.length;
 
-  // ══════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
   //  CONNEXION SOCKET.IO
   // ══════════════════════════════════════════════════════════════
 
@@ -690,6 +690,51 @@ const SurveillancePage = () => {
       if (!isMounted.current) return;
       console.log('[Surveillance] 🖥️ Terminal prêt:', data);
       addAlert({ type: 'terminal_ready', message: `Terminal ${data.terminalId} prêt pour l'épreuve`, severity: 'low' });
+    });
+
+    // ✅ NOUVEAU: Alerte de sécurité (changement de fenêtre)
+    socket.on('securityAlert', (alert) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] 🚨 Alerte sécurité reçue:', alert);
+      
+      // Ajouter l'alerte dans le panneau d'alertes
+      addAlert({
+        type: 'security',
+        message: alert.message,
+        severity: alert.severity || 'medium'
+      });
+      
+      // Notification toast
+      toast.error(alert.message, { 
+        duration: 8000, 
+        icon: '⚠️',
+        style: { background: '#ef4444', color: '#fff' }
+      });
+    });
+
+    // ✅ NOUVEAU: Notification de changement de statut de question (pour enseignants)
+    socket.on('questionStatusChanged', (data) => {
+      if (!isMounted.current) return;
+      console.log('[Surveillance] 📝 Statut question changé:', data);
+      
+      const isRejected = data.status === 'rejected';
+      const isApproved = data.status === 'approved';
+      
+      if (isRejected) {
+        addAlert({
+          type: 'question_rejected',
+          message: `❌ Question rejetée: ${data.questionText}${data.comment ? ` - Motif: ${data.comment}` : ''}`,
+          severity: 'medium'
+        });
+        toast.error(`Question rejetée: ${data.questionText}`, { duration: 8000 });
+      } else if (isApproved) {
+        addAlert({
+          type: 'question_approved',
+          message: `✅ Question approuvée: ${data.questionText}`,
+          severity: 'low'
+        });
+        toast.success(`Question approuvée: ${data.questionText}`, { duration: 5000 });
+      }
     });
 
     return () => {

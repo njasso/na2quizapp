@@ -1,4 +1,4 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - Version corrigée avec filtrage par noms
+// src/pages/creation/DatabaseQuizCreation.jsx - Version complète avec chapitre obligatoire et contrôles points/temps
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,7 +6,7 @@ import {
   Database, Save, Trash2, ArrowLeft, Search,
   BookOpen, BookMarked, Loader, AlertCircle, RefreshCw,
   CheckCircle, XCircle, Tag, Layers, Clock, Plus, Eye,
-  Settings, ChevronDown, ChevronUp
+  Settings, ChevronDown, ChevronUp, Award, Timer , 
 } from 'lucide-react';
 import DOMAIN_DATA, { 
   getAllDomaines, 
@@ -16,7 +16,7 @@ import DOMAIN_DATA, {
   getDomainNom,
   getSousDomaineNom,
   getLevelNom,
-  getMatiereNom
+  getMatiereNom, 
 } from '../../data/domainConfig';
 import { getQuestions, createExam } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -88,7 +88,7 @@ const QuestionPreview = ({ question, onClose }) => {
         <span>📁 Sous-domaine: {question.sousDomaine}</span>
         <span>🎓 Niveau: {question.niveau}</span>
         <span>📖 Matière: {question.matiere}</span>
-        {question.libChapitre && <span>📑 {question.libChapitre}</span>}
+        {question.libChapitre && <span>📑 Chapitre: {question.libChapitre}</span>}
         <span>⏱️ {question.tempsMin} min</span>
         <span>⭐ {question.points} pts</span>
       </div>
@@ -106,7 +106,7 @@ const DatabaseQuizCreation = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // État pour les IDs
+  // États pour les IDs
   const [selectedDomainId, setSelectedDomainId] = useState('');
   const [selectedSousDomaineId, setSelectedSousDomaineId] = useState('');
   const [selectedLevelId, setSelectedLevelId] = useState('');
@@ -117,7 +117,8 @@ const DatabaseQuizCreation = () => {
   const [sousDomaineNom, setSousDomaineNom] = useState('');
   const [levelNom, setLevelNom] = useState('');
   const [matiereNom, setMatiereNom] = useState('');
-  
+  const [searchChapitre, setSearchChapitre] = useState('');
+
   const [examTitle, setExamTitle] = useState('');
   const [examDescription, setExamDescription] = useState('');
   const [availableQuestions, setAvailableQuestions] = useState([]);
@@ -127,6 +128,7 @@ const DatabaseQuizCreation = () => {
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(null);
   
+  // ✅ Configuration complète avec toutes les variantes
   const [config, setConfig] = useState({
     examOption: 'C',
     openRange: false,
@@ -135,40 +137,92 @@ const DatabaseQuizCreation = () => {
     allowRetry: false,
     showBinaryResult: false,
     showCorrectAnswer: false,
-    timerConfig: 'permanent',
     timerPerQuestion: true,
     timePerQuestion: 60,
     totalTime: 60,
+    pointsType: 'uniform',
+    globalPoints: 1,
+    timerDisplayMode: 'permanent'
   });
   
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  
+  // ✅ États pour les avertissements
+  const [totalPointsWarning, setTotalPointsWarning] = useState(false);
+  const [totalTimeWarning, setTotalTimeWarning] = useState(false);
 
   // Mettre à jour les noms quand les IDs changent
   useEffect(() => {
-    if (selectedDomainId) {
-      setDomainNom(getDomainNom(selectedDomainId));
-    }
+    if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
   }, [selectedDomainId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId) {
-      setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
-    }
+    if (selectedDomainId && selectedSousDomaineId) setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
   }, [selectedDomainId, selectedSousDomaineId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
-      setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
-    }
+    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
   }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
-      setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
-    }
+    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
   }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
 
-  // ========== CHARGEMENT DES QUESTIONS - VERSION CORRIGÉE ==========
+  // Calcul des totaux
+  const totalPoints = config.pointsType === 'uniform'
+    ? config.globalPoints * selectedQuestions.length
+    : selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+    
+  const totalDuration = config.timerPerQuestion
+    ? (config.timePerQuestion * selectedQuestions.length) / 60
+    : config.totalTime;
+
+  // ✅ Vérification des totaux
+  useEffect(() => {
+    setTotalPointsWarning(totalPoints > 100 || totalPoints < 10);
+    setTotalTimeWarning(totalDuration > 180 || totalDuration < 15);
+  }, [totalPoints, totalDuration]);
+
+  // ✅ Fonction d'ajustement des points
+  const adjustPointsToTarget = (targetTotalPoints) => {
+    if (selectedQuestions.length === 0) {
+      toast.error('Aucune question sélectionnée');
+      return;
+    }
+    
+    if (config.pointsType === 'uniform') {
+      const newGlobalPoints = targetTotalPoints / selectedQuestions.length;
+      setConfig({...config, globalPoints: Math.round(newGlobalPoints * 10) / 10});
+      toast.success(`Points ajustés : ${Math.round(newGlobalPoints * 10) / 10} point(s) par question`);
+    } else {
+      const ratio = targetTotalPoints / totalPoints;
+      const updatedQuestions = selectedQuestions.map(q => ({
+        ...q,
+        points: Math.round((q.points * ratio) * 10) / 10
+      }));
+      setSelectedQuestions(updatedQuestions);
+      toast.success(`Points ajustés proportionnellement (ratio: ${ratio.toFixed(2)})`);
+    }
+  };
+
+  // ✅ Fonction d'ajustement du temps
+  const adjustTimeToTarget = (targetTotalMinutes) => {
+    if (selectedQuestions.length === 0) {
+      toast.error('Aucune question sélectionnée');
+      return;
+    }
+    
+    if (config.timerPerQuestion) {
+      const newTimePerQuestion = (targetTotalMinutes * 60) / selectedQuestions.length;
+      setConfig({...config, timePerQuestion: Math.round(newTimePerQuestion)});
+      toast.success(`Temps ajusté : ${Math.round(newTimePerQuestion)} secondes par question`);
+    } else {
+      setConfig({...config, totalTime: targetTotalMinutes});
+      toast.success(`Temps ajusté : ${targetTotalMinutes} minutes totales`);
+    }
+  };
+
+  // ========== CHARGEMENT DES QUESTIONS ==========
   const loadAvailableQuestions = async () => {
     if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
       toast.error('Veuillez sélectionner tous les critères');
@@ -177,7 +231,6 @@ const DatabaseQuizCreation = () => {
 
     setFetchingQuestions(true);
     try {
-      // ✅ Récupérer les NOMS résolus (pas les IDs)
       const resolvedDomainNom = domainNom || getDomainNom(selectedDomainId);
       const resolvedSousDomNom = sousDomaineNom || getSousDomaineNom(selectedDomainId, selectedSousDomaineId);
       const resolvedLevelNom = levelNom || getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId);
@@ -190,15 +243,15 @@ const DatabaseQuizCreation = () => {
         matiere: resolvedMatiereNom
       });
       
-      // ✅ Utiliser les NOMS pour le filtrage (correspond à ce qui est stocké dans la base)
       const response = await getQuestions({
-        domaine: resolvedDomainNom,
-        sousDomaine: resolvedSousDomNom,
-        niveau: resolvedLevelNom,
-        matiere: resolvedMatiereNom,
-        status: 'approved',
-        limit: 1000
-      });
+  domaine: resolvedDomainNom,
+  sousDomaine: resolvedSousDomNom,
+  niveau: resolvedLevelNom,
+  matiere: resolvedMatiereNom,
+  libChapitre: searchChapitre, // ✅ Ajout possible si besoin
+  status: 'approved',
+  limit: 1000
+});
 
       let allQuestions = [];
       if (Array.isArray(response)) {
@@ -260,7 +313,8 @@ const DatabaseQuizCreation = () => {
 
   // Filtrer les questions par recherche
   const filteredQuestions = availableQuestions.filter(q =>
-    q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase())
+    q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    q.libChapitre?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Ajouter une question
@@ -279,7 +333,7 @@ const DatabaseQuizCreation = () => {
     toast.success('Question retirée');
   };
 
-  // Déplacer une question vers le haut
+  // Déplacer une question
   const moveQuestionUp = (index) => {
     if (index > 0) {
       const newQuestions = [...selectedQuestions];
@@ -288,7 +342,6 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Déplacer une question vers le bas
   const moveQuestionDown = (index) => {
     if (index < selectedQuestions.length - 1) {
       const newQuestions = [...selectedQuestions];
@@ -297,7 +350,7 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Sauvegarder l'épreuve
+  // ✅ Sauvegarder l'épreuve avec vérifications
   const saveExam = async () => {
     if (!examTitle || selectedQuestions.length === 0) {
       toast.error('Veuillez donner un titre et sélectionner au moins une question');
@@ -314,10 +367,37 @@ const DatabaseQuizCreation = () => {
       return;
     }
 
+    // ✅ Vérification des points
+    if (totalPoints > 100) {
+      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) dépasse 100. Voulez-vous continuer quand même ?`)) {
+        return;
+      }
+    } else if (totalPoints < 10) {
+      if (!window.confirm(`⚠️ Le total des points (${totalPoints}) est inférieur à 10. Voulez-vous continuer quand même ?`)) {
+        return;
+      }
+    }
+
+    // ✅ Vérification du temps
+    if (totalDuration > 180) {
+      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) dépasse 3 heures. Voulez-vous continuer quand même ?`)) {
+        return;
+      }
+    } else if (totalDuration < 15) {
+      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`)) {
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       const formattedQuestions = selectedQuestions.map((q, idx) => {
         const validOptions = q.options.filter(opt => opt && opt.trim() !== '');
+        
+        let points = q.points || 1;
+        if (config.pointsType === 'uniform') {
+          points = config.globalPoints;
+        }
         
         return {
           nQuestion: idx + 1,
@@ -337,7 +417,7 @@ const DatabaseQuizCreation = () => {
           bonOpRep: q.bonOpRep !== null ? q.bonOpRep + 1 : null,
           tempsMin: Math.ceil((q.tempsMinParQuestion || 60) / 60),
           tempsMinParQuestion: q.tempsMinParQuestion || 60,
-          points: q.points || 1,
+          points: points,
           explanation: q.explanation || '',
           imageBase64: q.imageBase64 || '',
           imageMetadata: q.imageMetadata || {},
@@ -346,38 +426,53 @@ const DatabaseQuizCreation = () => {
         };
       });
 
-      const totalDuration = config.timerPerQuestion
+      const totalDurationCalc = config.timerPerQuestion
         ? (config.timePerQuestion * selectedQuestions.length) / 60
         : config.totalTime;
 
+      const totalPointsValue = config.pointsType === 'uniform'
+        ? config.globalPoints * selectedQuestions.length
+        : selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+
       const examData = {
-  title: examTitle,
-  description: examDescription || `Épreuve créée depuis la base de données - ${matiereNom}`,
-  
-  // ✅ CORRECTION : Utiliser les noms attendus par le backend
-  subject: matiereNom,                    // ou selectedMatiereId selon votre besoin
-  level: levelNom,                        // ou selectedLevelId
-  domain: domainNom,                      // ou selectedDomainId
-  
-  // Gardez aussi les anciens champs si nécessaire pour d'autres parties du code
-  nDomaine: parseInt(selectedDomainId),
-  nSousDomaine: parseInt(selectedSousDomaineId),
-  niveau: parseInt(selectedLevelId),
-  niveauNom: levelNom,
-  matiere: parseInt(selectedMatiereId),
-  matiereNom: matiereNom,
-  
-  questions: formattedQuestions,
-  duration: Math.ceil(totalDuration),
-  passingScore: 70,
-  createdBy: user?._id || user?.id,
-  teacherName: user?.name,
-  teacherGrade: user?.role,
-  source: 'database',
-  config: config,
-  examOption: config.examOption,
-  status: 'draft'
-};
+        title: examTitle,
+        description: examDescription || `Épreuve créée depuis la base de données - ${matiereNom}`,
+        subject: matiereNom,
+        level: levelNom,
+        domain: domainNom,
+        nDomaine: parseInt(selectedDomainId),
+        nSousDomaine: parseInt(selectedSousDomaineId),
+        niveau: parseInt(selectedLevelId),
+        niveauNom: levelNom,
+        matiere: parseInt(selectedMatiereId),
+        matiereNom: matiereNom,
+        questions: formattedQuestions,
+        duration: Math.ceil(totalDurationCalc),
+        totalPoints: totalPointsValue,
+        passingScore: 70,
+        createdBy: user?._id || user?.id,
+        teacherName: user?.name,
+        teacherGrade: user?.role,
+        source: 'database',
+        status: 'draft',
+        examOption: config.examOption,
+        config: {
+          examOption: config.examOption,
+          openRange: config.openRange,
+          requiredQuestions: config.requiredQuestions,
+          sequencing: config.sequencing,
+          allowRetry: config.allowRetry,
+          showBinaryResult: config.showBinaryResult,
+          showCorrectAnswer: config.showCorrectAnswer,
+          timerPerQuestion: config.timerPerQuestion,
+          timePerQuestion: config.timePerQuestion,
+          totalTime: config.totalTime,
+          pointsType: config.pointsType,
+          globalPoints: config.globalPoints,
+          timerDisplayMode: config.timerDisplayMode
+        }
+      };
+      
       const response = await createExam(examData);
 
       if (response.success !== false) {
@@ -394,13 +489,7 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Calcul des totaux
-  const totalPoints = selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
-  const totalDuration = config.timerPerQuestion
-    ? (config.timePerQuestion * selectedQuestions.length) / 60
-    : config.totalTime;
-
-  // Composant QuestionCard
+  // Composant QuestionCard avec affichage du chapitre
   const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) => {
     const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
     
@@ -445,6 +534,19 @@ const DatabaseQuizCreation = () => {
           )}
         </p>
         
+        {/* ✅ Affichage du chapitre */}
+        {question.libChapitre && (
+          <div style={{ marginBottom: 8 }}>
+            <span style={{
+              fontSize: '0.6rem', padding: '2px 8px',
+              background: 'rgba(139,92,246,0.15)', borderRadius: 4,
+              color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: 4
+            }}>
+              📑 {question.libChapitre}
+            </span>
+          </div>
+        )}
+        
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
           {question.options.filter(opt => opt.trim()).slice(0, 4).map((opt, i) => {
             const isCorrect = typeof question.bonOpRep === 'number' 
@@ -470,7 +572,6 @@ const DatabaseQuizCreation = () => {
         <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: '0.6rem', color: '#64748b', flexWrap: 'wrap' }}>
           <span>🎓 {question.niveau}</span>
           <span>📖 {question.matiere}</span>
-          {question.libChapitre && <span>📑 {question.libChapitre}</span>}
           <span>⭐ {question.points} pts</span>
           <span>⏱️ {question.tempsMinParQuestion}s</span>
         </div>
@@ -740,6 +841,7 @@ const DatabaseQuizCreation = () => {
 
               {advancedOpen && (
                 <div style={{ marginTop: 12 }}>
+                  {/* Option d'examen */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
                       Option d'examen
@@ -754,13 +856,14 @@ const DatabaseQuizCreation = () => {
                         color: '#f8fafc'
                       }}
                     >
-                      <option value="A">A - Collective Figée</option>
-                      <option value="B">B - Collective Souple</option>
-                      <option value="C">C - Personnalisée</option>
-                      <option value="D">D - Aléatoire</option>
+                      <option value="A">A - Collective Figée (superviseur contrôle)</option>
+                      <option value="B">B - Collective Souple (démarrage synchro)</option>
+                      <option value="C">C - Personnalisée (libre navigation)</option>
+                      <option value="D">D - Aléatoire (questions mélangées)</option>
                     </select>
                   </div>
 
+                  {/* Plage ouverte */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -768,7 +871,7 @@ const DatabaseQuizCreation = () => {
                         checked={config.openRange}
                         onChange={(e) => setConfig({...config, openRange: e.target.checked})}
                       />
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Plage ouverte</span>
+                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Plage ouverte (l'étudiant choisit les questions)</span>
                     </label>
                     {config.openRange && (
                       <input
@@ -788,6 +891,27 @@ const DatabaseQuizCreation = () => {
                     )}
                   </div>
 
+                  {/* Séquencement */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      Séquencement des questions
+                    </label>
+                    <select
+                      value={config.sequencing}
+                      onChange={(e) => setConfig({...config, sequencing: e.target.value})}
+                      style={{
+                        width: '100%', padding: 8,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                        color: '#f8fafc'
+                      }}
+                    >
+                      <option value="identical">Identique pour tous</option>
+                      <option value="randomPerStudent">Aléatoire par étudiant</option>
+                    </select>
+                  </div>
+
+                  {/* Reprise */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -795,10 +919,61 @@ const DatabaseQuizCreation = () => {
                         checked={config.allowRetry}
                         onChange={(e) => setConfig({...config, allowRetry: e.target.checked})}
                       />
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Autoriser une reprise</span>
+                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Autoriser une reprise après échec</span>
                     </label>
                   </div>
 
+                  <div style={{ marginBottom: 12 }}>
+  <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+    Feedback après chaque question
+  </label>
+  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        type="radio"
+        name="feedbackType"
+        checked={!config.showBinaryResult && !config.showCorrectAnswer}
+        onChange={() => setConfig({
+          ...config, 
+          showBinaryResult: false, 
+          showCorrectAnswer: false
+        })}
+      />
+      <span style={{ fontSize: '0.7rem' }}>Aucun résultat immédiat</span>
+    </label>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        type="radio"
+        name="feedbackType"
+        checked={config.showBinaryResult && !config.showCorrectAnswer}
+        onChange={() => setConfig({
+          ...config, 
+          showBinaryResult: true, 
+          showCorrectAnswer: false
+        })}
+      />
+      <span style={{ fontSize: '0.7rem' }}>Résultat binaire (bon/mauvais)</span>
+    </label>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        type="radio"
+        name="feedbackType"
+        checked={config.showBinaryResult && config.showCorrectAnswer}
+        onChange={() => setConfig({
+          ...config, 
+          showBinaryResult: true, 
+          showCorrectAnswer: true
+        })}
+      />
+      <span style={{ fontSize: '0.7rem' }}>Résultat binaire + Bonne réponse</span>
+    </label>
+  </div>
+  <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: 6 }}>
+    💡 L'explication détaillée sera disponible dans la version Didacticiel
+  </p>
+</div>
+
+                  {/* Chronomètre */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -840,9 +1015,121 @@ const DatabaseQuizCreation = () => {
                       />
                     )}
                   </div>
+
+                  {/* Type de points */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      <Award size={12} style={{ display: 'inline', marginRight: 4 }} />
+                      Attribution des points
+                    </label>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="pointsType"
+                          checked={config.pointsType === 'uniform'}
+                          onChange={() => setConfig({...config, pointsType: 'uniform'})}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Uniforme (même points pour toutes les questions)</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="pointsType"
+                          checked={config.pointsType === 'variable'}
+                          onChange={() => setConfig({...config, pointsType: 'variable'})}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Variable (points individuels par question)</span>
+                      </label>
+                    </div>
+                    {config.pointsType === 'uniform' && (
+                      <input
+                        type="number"
+                        min="0.5"
+                        max="10"
+                        step="0.5"
+                        value={config.globalPoints}
+                        onChange={(e) => setConfig({...config, globalPoints: parseFloat(e.target.value) || 1})}
+                        placeholder="Points par question"
+                        style={{
+                          width: '100%', padding: 8,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                          color: '#f8fafc'
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Mode d'affichage du chronomètre */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      <Timer size={12} style={{ display: 'inline', marginRight: 4 }} />
+                      Affichage du chronomètre
+                    </label>
+                    <select
+                      value={config.timerDisplayMode}
+                      onChange={(e) => setConfig({...config, timerDisplayMode: e.target.value})}
+                      style={{
+                        width: '100%', padding: 8,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                        color: '#f8fafc'
+                      }}
+                    >
+                      <option value="once">1 fois (début de l'épreuve)</option>
+                      <option value="twice">2 fois (début et fin)</option>
+                      <option value="fourTimes">4 fois (début, 1/4, mi, 3/4)</option>
+                      <option value="permanent">Permanent (toujours visible)</option>
+                    </select>
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* Résumé de la configuration avec avertissements */}
+            <div style={{ marginTop: 16, padding: 12, background: 'rgba(99,102,241,0.05)', borderRadius: 8 }}>
+              <p style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: 4 }}>
+                📋 Résumé de la configuration
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: '0.6rem' }}>
+                <span style={{ color: '#a5b4fc' }}>Option {config.examOption}</span>
+                {config.openRange && <span style={{ color: '#f59e0b' }}>Plage ouverte ({config.requiredQuestions} req.)</span>}
+                <span style={{ color: '#10b981' }}>{config.pointsType === 'uniform' ? `Points: ${config.globalPoints}` : 'Points variables'}</span>
+                <span style={{ color: '#8b5cf6' }}>Chrono: {config.timerDisplayMode === 'permanent' ? 'permanent' : config.timerDisplayMode === 'once' ? '1x' : config.timerDisplayMode === 'twice' ? '2x' : '4x'}</span>
+              </div>
+            </div>
+
+            {/* ✅ Avertissements points et temps */}
+            {totalPointsWarning && (
+              <div style={{ marginTop: 12, padding: 10, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
+                <p style={{ color: '#f59e0b', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <AlertCircle size={12} />
+                  ⚠️ Total points: {totalPoints} pts {totalPoints > 100 ? '(>100 recommandé)' : totalPoints < 10 ? '(<10 recommandé)' : ''}
+                  <button 
+                    onClick={() => adjustPointsToTarget(totalPoints > 100 ? 100 : 50)}
+                    style={{ marginLeft: 'auto', padding: '2px 10px', background: '#f59e0b', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.6rem', cursor: 'pointer' }}
+                  >
+                    Ajuster à {totalPoints > 100 ? '100' : '50'} pts
+                  </button>
+                </p>
+              </div>
+            )}
+
+            {totalTimeWarning && (
+              <div style={{ marginTop: 8, padding: 10, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
+                <p style={{ color: '#f59e0b', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Clock size={12} />
+                  ⚠️ Durée totale: {totalDuration.toFixed(1)} min {totalDuration > 180 ? '(>180 min recommandé)' : totalDuration < 15 ? '(<15 min recommandé)' : ''}
+                  <button 
+                    onClick={() => adjustTimeToTarget(totalDuration > 180 ? 120 : 60)}
+                    style={{ marginLeft: 'auto', padding: '2px 10px', background: '#f59e0b', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.6rem', cursor: 'pointer' }}
+                  >
+                    Ajuster à {totalDuration > 180 ? '120' : '60'} min
+                  </button>
+                </p>
+              </div>
+            )}
 
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -885,7 +1172,7 @@ const DatabaseQuizCreation = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Rechercher par mot-clé..."
+                placeholder="Rechercher par mot-clé ou chapitre..."
                 style={{
                   width: '100%', padding: '10px 12px 10px 40px',
                   background: 'rgba(255,255,255,0.05)',
@@ -1006,8 +1293,15 @@ const DatabaseQuizCreation = () => {
                             <strong style={{ color: '#f59e0b' }}>{idx + 1}.</strong> {q.libQuestion.length > 60 ? q.libQuestion.substring(0, 60) + '...' : q.libQuestion}
                             {q.typeQuestion === 2 && <span style={{ color: '#f59e0b' }}> (Multiple)</span>}
                           </p>
+                          {q.libChapitre && (
+                            <div style={{ marginTop: 4 }}>
+                              <span style={{ fontSize: '0.6rem', padding: '2px 8px', background: 'rgba(139,92,246,0.15)', borderRadius: 4, color: '#a78bfa' }}>
+                                📑 {q.libChapitre}
+                              </span>
+                            </div>
+                          )}
                           <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: '0.6rem', color: '#64748b' }}>
-                            <span>⭐ {q.points} pts</span>
+                            <span>⭐ {config.pointsType === 'uniform' ? config.globalPoints : q.points} pts</span>
                             <span>⏱️ {q.tempsMinParQuestion}s</span>
                           </div>
                         </div>
@@ -1036,18 +1330,18 @@ const DatabaseQuizCreation = () => {
                   );
                 })}
                 
-                {/* Résumé */}
+                {/* Résumé avec points variables/uniformes et avertissements */}
                 <div style={{
                   marginTop: 16, padding: 12, background: 'rgba(255,255,255,0.02)',
                   borderRadius: 12, border: '1px solid rgba(99,102,241,0.1)'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ color: '#94a3b8' }}>Total points</span>
-                    <span style={{ color: '#f59e0b', fontWeight: 600 }}>{totalPoints}</span>
+                    <span style={{ color: totalPointsWarning ? '#f59e0b' : '#f59e0b', fontWeight: 600 }}>{totalPoints}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ color: '#94a3b8' }}>Durée totale</span>
-                    <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{totalDuration.toFixed(1)} min</span>
+                    <span style={{ color: totalTimeWarning ? '#f59e0b' : '#8b5cf6', fontWeight: 600 }}>{totalDuration.toFixed(1)} min</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: '#94a3b8' }}>Questions</span>
@@ -1057,6 +1351,16 @@ const DatabaseQuizCreation = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)' }}>
                       <span style={{ color: '#f59e0b' }}>À traiter</span>
                       <span style={{ color: '#f59e0b', fontWeight: 600 }}>{config.requiredQuestions}</span>
+                    </div>
+                  )}
+                  {config.pointsType === 'variable' && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)', fontSize: '0.65rem', color: '#64748b' }}>
+                      ℹ️ Points variables : chaque question a son propre coefficient
+                    </div>
+                  )}
+                  {(totalPointsWarning || totalTimeWarning) && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)', fontSize: '0.6rem', color: '#f59e0b' }}>
+                      ⚠️ Des ajustements sont recommandés (voir panneau de configuration)
                     </div>
                   )}
                 </div>

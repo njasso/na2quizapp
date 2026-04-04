@@ -69,7 +69,7 @@ const HomePage = () => {
       id: 1,
       icon: <FiBook size={28} />,
       lucideIcon: <BookOpen size={28} />,
-      title: "Création Manuelle",
+      title: "Création Digitale",
       description: "Rédigez vos questions une par une avec un contrôle total sur chaque détail",
       longDescription: "Interface intuitive pour créer des épreuves personnalisées. Ajoutez, modifiez et organisez vos questions avec précision.",
       color: "#3b82f6",

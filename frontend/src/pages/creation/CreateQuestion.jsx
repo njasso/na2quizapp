@@ -1,9 +1,13 @@
 // src/pages/creation/CreateQuestion.jsx
-// Création de question individuelle avec validation pédagogique
+// Création de question individuelle avec validation pédagogique - VERSION COMPLÈTE AVEC CHAPITRE OBLIGATOIRE
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Save, ArrowLeft, BookOpen, Layers, Tag, Clock, Award, HelpCircle, PlusCircle, Trash2, AlertCircle, Loader, XCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Save, ArrowLeft, BookOpen, Layers, Tag, Clock, Award, 
+  HelpCircle, PlusCircle, Trash2, AlertCircle, Loader, 
+  XCircle, Eye, CheckCircle 
+} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { saveQuestions } from '../../services/api';
 import ImageUploader from '../../components/ImageUploader';
@@ -24,6 +28,136 @@ const QUESTION_TYPES = [
   { id: 2, nom: "Intelligence Pratique (Savoir-Faire)", description: "Évaluation des compétences pratiques" },
   { id: 3, nom: "Savoir-être", description: "Évaluation du potentiel psychologique" }
 ];
+
+// Composant d'aperçu de la question
+// Composant d'aperçu de la question (à placer avant le composant principal)
+const QuestionPreviewModal = ({ question, onClose }) => {
+  if (!question) return null;
+  
+  const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
+  const filledOptions = question.options?.filter(opt => opt && opt.trim() !== '') || [];
+  const isMultipleChoice = question.typeQuestion === 2;
+  const correctAnswers = isMultipleChoice ? question.correctAnswers || [] : [question.correctAnswer];
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '20px'
+      }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        style={{
+          background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)',
+          borderRadius: 20, padding: 24, width: '100%', maxWidth: 600,
+          maxHeight: '80vh', overflowY: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>
+            Aperçu de la question
+            {isMultipleChoice && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: '0.7rem' }}>(Choix multiples)</span>}
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+            <XCircle size={20} />
+          </button>
+        </div>
+        
+        {imageSrc && (
+          <div style={{ marginBottom: 16, textAlign: 'center' }}>
+            <img 
+              src={imageSrc} 
+              alt="Illustration" 
+              style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 8, objectFit: 'contain' }} 
+            />
+          </div>
+        )}
+        
+        <p style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, lineHeight: 1.5 }}>
+          {question.libQuestion}
+        </p>
+        
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>Options :</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {filledOptions.map((opt, i) => {
+              const isCorrect = isMultipleChoice 
+                ? correctAnswers.includes(opt)
+                : opt === question.correctAnswer;
+              return (
+                <div key={i} style={{
+                  padding: '10px 12px',
+                  background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}>
+                  <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
+                    {String.fromCharCode(65 + i)}.
+                  </span>
+                  <span style={{ color: '#94a3b8', flex: 1 }}>{opt}</span>
+                  {isCorrect && <CheckCircle size={14} color="#10b981" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        {question.explanation && (
+          <div style={{ marginBottom: 16, padding: 10, background: 'rgba(59,130,246,0.05)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.75rem' }}>💡 Explication : {question.explanation}</p>
+          </div>
+        )}
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Points</p>
+            <p style={{ color: '#f59e0b', fontWeight: 600 }}>{question.points} pt{question.points > 1 ? 's' : ''}</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Temps</p>
+            <p style={{ color: '#60a5fa', fontWeight: 600 }}>{question.tempsMin} min</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Niveau</p>
+            <p style={{ color: '#a78bfa', fontWeight: 600 }}>{question.niveau}</p>
+          </div>
+          <div style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            <p style={{ color: '#64748b', fontSize: '0.6rem' }}>Matière</p>
+            <p style={{ color: '#34d399', fontWeight: 600 }}>{question.matiere}</p>
+          </div>
+        </div>
+
+        {/* ✅ Affichage du chapitre dans l'aperçu */}
+        {question.libChapitre && (
+          <div style={{ marginBottom: 16, padding: 8, background: 'rgba(139,92,246,0.1)', borderRadius: 8 }}>
+            <p style={{ color: '#a78bfa', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BookOpen size={12} /> Chapitre : {question.libChapitre}
+            </p>
+          </div>
+        )}
+        
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 20px', background: '#475569', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+            Fermer
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
 
 const CreateQuestion = () => {
   const navigate = useNavigate();
@@ -57,7 +191,9 @@ const CreateQuestion = () => {
   const [imageBase64, setImageBase64] = useState('');
   const [imageMetadata, setImageMetadata] = useState({});
   
+  // États UI
   const [isLoading, setIsLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [validationErrors, setValidationErrors] = useState({
     libQuestion: false,
     options: false,
@@ -65,6 +201,7 @@ const CreateQuestion = () => {
     domaine: false,
     niveau: false,
     matiere: false,
+    libChapitre: false, // ✅ NOUVEAU
   });
 
   // Mise à jour des noms
@@ -133,12 +270,13 @@ const CreateQuestion = () => {
   };
 
   const handleImageChange = (url, base64, metadata) => {
-  console.log('Image change:', { url, base64: !!base64, metadata });
-  setImageQuestion(url || '');
-  setImageBase64(base64 || '');
-  setImageMetadata(metadata || {});
-};
+    console.log('Image change:', { url, base64: !!base64, metadata });
+    setImageQuestion(url || '');
+    setImageBase64(base64 || '');
+    setImageMetadata(metadata || {});
+  };
 
+  // ✅ Validation du formulaire avec chapitre obligatoire
   const validateForm = () => {
     const filledOptions = options.filter(opt => opt.trim() !== '');
     const hasCorrectAnswer = typeQuestion === 1 
@@ -152,9 +290,32 @@ const CreateQuestion = () => {
       domaine: !selectedDomainId,
       niveau: !selectedLevelId,
       matiere: !selectedMatiereId,
+      libChapitre: !libChapitre.trim(), // ✅ Chapitre obligatoire
     };
     setValidationErrors(errors);
-    return !errors.libQuestion && !errors.options && !errors.correctAnswer && !errors.domaine && !errors.niveau && !errors.matiere;
+    return !errors.libQuestion && !errors.options && !errors.correctAnswer && 
+           !errors.domaine && !errors.niveau && !errors.matiere && !errors.libChapitre;
+  };
+
+  // Construction de l'objet question pour l'aperçu
+  const buildPreviewQuestion = () => {
+    const filledOptions = options.filter(opt => opt.trim() !== '');
+    return {
+      libQuestion,
+      options: filledOptions,
+      correctAnswer,
+      correctAnswers,
+      typeQuestion,
+      points,
+      tempsMin,
+      explanation,
+      domaine: domainNom,
+      niveau: levelNom,
+      matiere: matiereNom,
+      libChapitre,
+      imageQuestion,
+      imageBase64,
+    };
   };
 
   const handleSave = async () => {
@@ -173,7 +334,12 @@ const CreateQuestion = () => {
     
     if (!resolvedDomainNom || !resolvedLevelNom || !resolvedMatiereNom) {
       toast.error('Veuillez sélectionner un domaine, un niveau et une matière valides');
-      setIsLoading(false);
+      return;
+    }
+    
+    // Vérifier que le chapitre est renseigné
+    if (!libChapitre.trim()) {
+      toast.error('Veuillez renseigner le chapitre');
       return;
     }
     
@@ -193,7 +359,6 @@ const CreateQuestion = () => {
     
     setIsLoading(true);
     try {
-      // Formatage des données pour l'API /api/questions/save
       const questionData = {
         libQuestion: libQuestion,
         options: filledOptions,
@@ -203,17 +368,14 @@ const CreateQuestion = () => {
         points: points,
         tempsMin: tempsMin,
         explanation: explanation,
-        // Champs requis par le backend - utiliser les valeurs résolues
         domaine: resolvedDomainNom,
         niveau: resolvedLevelNom,
         matiere: resolvedMatiereNom,
         sousDomaine: resolvedSousDomaineNom,
-        libChapitre: libChapitre,
-        // Image
+        libChapitre: libChapitre, // ✅ Chapitre inclus
         imageQuestion: imageQuestion,
         imageBase64: imageBase64,
         imageMetadata: imageMetadata,
-        // Auteur
         matriculeAuteur: user?.matricule || user?.email || '',
         status: 'pending'
       };
@@ -235,6 +397,19 @@ const CreateQuestion = () => {
       setIsLoading(false);
     }
   };
+
+  const handleCancel = () => {
+    const hasData = libQuestion.trim() || options.some(opt => opt.trim()) || imageQuestion || imageBase64;
+    if (hasData) {
+      if (window.confirm('Voulez-vous vraiment annuler ? Les données non enregistrées seront perdues.')) {
+        navigate('/evaluate');
+      }
+    } else {
+      navigate('/evaluate');
+    }
+  };
+
+  const previewQuestion = buildPreviewQuestion();
 
   return (
     <div style={{
@@ -363,11 +538,12 @@ const CreateQuestion = () => {
           </div>
 
           {/* Image */}
-           <ImageUploader 
-  value={imageQuestion || imageBase64} 
-  onChange={handleImageChange} // Changé de onImageChange à onChange
-  label="Image (optionnel)" 
-/> 
+          <ImageUploader 
+            value={imageQuestion || imageBase64} 
+            onChange={handleImageChange}
+            label="Image (optionnel)" 
+          /> 
+          
           {/* Options */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.7rem', marginBottom: 8, display: 'block' }}>
@@ -392,7 +568,6 @@ const CreateQuestion = () => {
             )}
             {validationErrors.options && <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 8 }}><AlertCircle size={12} /> Entre 3 et 5 options sont requises</p>}
           </div>
-
           {/* Points et temps */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
@@ -407,11 +582,28 @@ const CreateQuestion = () => {
             </div>
           </div>
 
-          {/* Chapitre */}
+          {/* ✅ Chapitre - DEVENU OBLIGATOIRE (correctement positionné) */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Chapitre (optionnel)</label>
-            <input type="text" value={libChapitre} onChange={(e) => setLibChapitre(e.target.value)}
-              style={{ width: '100%', padding: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }} />
+            <label style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+              Chapitre <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input 
+              type="text" 
+              value={libChapitre} 
+              onChange={(e) => setLibChapitre(e.target.value)}
+              placeholder="Ex: Chapitre 3 - Les fonctions dérivées"
+              style={{ 
+                width: '100%', padding: 10, 
+                background: 'rgba(255,255,255,0.05)', 
+                border: `1px solid ${validationErrors.libChapitre ? '#ef4444' : 'rgba(99,102,241,0.2)'}`, 
+                borderRadius: 8, color: '#f8fafc' 
+              }}
+            />
+            {validationErrors.libChapitre && (
+              <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 4 }}>
+                <AlertCircle size={12} /> Le chapitre est obligatoire
+              </p>
+            )}
           </div>
 
           {/* Réponse correcte */}
@@ -442,13 +634,64 @@ const CreateQuestion = () => {
             style={{ width: '100%', padding: 12, marginBottom: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, color: '#f8fafc' }} />
 
           {/* Boutons */}
-          <div style={{ display: 'flex', gap: 12 }}>
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleSave} disabled={isLoading}
-              style={{ flex: 1, padding: 14, background: isLoading ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: isLoading ? 'not-allowed' : 'pointer' }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <motion.button 
+              whileHover={{ scale: 1.02 }} 
+              whileTap={{ scale: 0.98 }} 
+              onClick={() => setShowPreview(true)}
+              disabled={!libQuestion.trim() || options.filter(opt => opt.trim()).length < 3}
+              style={{ 
+                padding: '12px 20px', 
+                background: 'rgba(59,130,246,0.15)', 
+                border: '1px solid rgba(59,130,246,0.3)', 
+                borderRadius: 10, 
+                color: '#60a5fa', 
+                cursor: (!libQuestion.trim() || options.filter(opt => opt.trim()).length < 3) ? 'not-allowed' : 'pointer',
+                opacity: (!libQuestion.trim() || options.filter(opt => opt.trim()).length < 3) ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              <Eye size={16} /> Aperçu
+            </motion.button>
+            
+            <motion.button 
+              whileHover={{ scale: 1.02 }} 
+              whileTap={{ scale: 0.98 }} 
+              onClick={handleSave} 
+              disabled={isLoading}
+              style={{ 
+                flex: 1, 
+                padding: 14, 
+                background: isLoading ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', 
+                border: 'none', 
+                borderRadius: 12, 
+                color: 'white', 
+                fontWeight: 600, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                gap: 8, 
+                cursor: isLoading ? 'not-allowed' : 'pointer' 
+              }}
+            >
               {isLoading ? <><Loader size={16} className="animate-spin" /> Enregistrement...</> : <><Save size={16} /> Envoyer en validation</>}
             </motion.button>
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => navigate('/evaluate')}
-              style={{ padding: '12px 24px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10, color: '#94a3b8', cursor: 'pointer' }}>
+            
+            <motion.button 
+              whileHover={{ scale: 1.02 }} 
+              whileTap={{ scale: 0.98 }} 
+              onClick={handleCancel}
+              style={{ 
+                padding: '12px 24px', 
+                background: 'rgba(255,255,255,0.1)', 
+                border: '1px solid rgba(255,255,255,0.2)', 
+                borderRadius: 10, 
+                color: '#94a3b8', 
+                cursor: 'pointer' 
+              }}
+            >
               Annuler
             </motion.button>
           </div>
@@ -461,6 +704,16 @@ const CreateQuestion = () => {
           </div>
         </div>
       </main>
+
+      {/* Modal d'aperçu avec affichage du chapitre */}
+      <AnimatePresence>
+        {showPreview && previewQuestion.libQuestion && (
+          <QuestionPreviewModal 
+            question={previewQuestion} 
+            onClose={() => setShowPreview(false)} 
+          />
+        )}
+      </AnimatePresence>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; }`}</style>
     </div>

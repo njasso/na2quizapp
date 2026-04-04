@@ -1,4 +1,4 @@
-// src/pages/UserManagementPage.jsx - Version corrigée avec support complet de l'authentification
+// src/pages/UserManagementPage.jsx - Version corrigée avec support SAISISEUR
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
@@ -7,7 +7,7 @@ import {
   Users, Plus, Trash2, Edit, Save, X, Search, 
   ChevronLeft, ChevronRight, Download, RefreshCw,
   Filter, Mail, User, Key, Shield, AlertCircle,
-  CheckCircle, XCircle, Eye, EyeOff, ArrowLeft, Home
+  CheckCircle, XCircle, Eye, EyeOff, ArrowLeft, Home, PenTool
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -26,11 +26,12 @@ const getAuthHeaders = (token) => {
   return { headers: { Authorization: `Bearer ${token}` } };
 };
 
-// Composant de badge de rôle avec icônes améliorées
+// Composant de badge de rôle avec icônes améliorées (AJOUT SAISISEUR)
 const RoleBadge = ({ role }) => {
   const colors = {
     APPRENANT: { bg: 'rgba(59,130,246,0.15)', color: '#60a5fa', icon: '👨‍🎓', label: 'Apprenant' },
     ENSEIGNANT: { bg: 'rgba(16,185,129,0.15)', color: '#10b981', icon: '👨‍🏫', label: 'Enseignant' },
+    SAISISEUR: { bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc', icon: '✏️', label: 'Saisisseur' },
     OPERATEUR_EVALUATION: { bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', icon: '🎮', label: 'Opérateur' },
     ADMIN_DELEGUE: { bg: 'rgba(139,92,246,0.15)', color: '#a78bfa', icon: '👑', label: 'Admin délégué' },
     ADMIN_SYSTEME: { bg: 'rgba(239,68,68,0.15)', color: '#ef4444', icon: '⚡', label: 'Admin système' }
@@ -87,7 +88,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loading }) =
   );
 };
 
-// Modal de création d'utilisateur
+// Modal de création d'utilisateur (AJOUT SAISISEUR)
 const CreateUserModal = ({ isOpen, onClose, onCreate, loading }) => {
   const [formData, setFormData] = useState({
     name: '', email: '', username: '', password: '', role: 'APPRENANT', confirmPassword: ''
@@ -255,11 +256,12 @@ const CreateUserModal = ({ isOpen, onClose, onCreate, loading }) => {
               borderRadius: 8, color: '#f8fafc'
             }}
           >
-            <option value="APPRENANT">Apprenant</option>
-            <option value="ENSEIGNANT">Enseignant</option>
-            <option value="OPERATEUR_EVALUATION">Opérateur d'évaluation</option>
-            <option value="ADMIN_DELEGUE">Admin délégué</option>
-            <option value="ADMIN_SYSTEME">Admin système</option>
+            <option value="APPRENANT">👨‍🎓 Apprenant</option>
+            <option value="ENSEIGNANT">👨‍🏫 Enseignant</option>
+            <option value="SAISISEUR">✏️ Saisisseur</option>
+            <option value="OPERATEUR_EVALUATION">🎮 Opérateur d'évaluation</option>
+            <option value="ADMIN_DELEGUE">👑 Admin délégué</option>
+            <option value="ADMIN_SYSTEME">⚡ Admin système</option>
           </select>
         </div>
 
@@ -420,7 +422,12 @@ const UserManagementPage = () => {
       u.name,
       u.email,
       u.username,
-      u.role,
+      u.role === 'SAISISEUR' ? 'Saisisseur' : 
+      u.role === 'APPRENANT' ? 'Apprenant' :
+      u.role === 'ENSEIGNANT' ? 'Enseignant' :
+      u.role === 'OPERATEUR_EVALUATION' ? 'Opérateur' :
+      u.role === 'ADMIN_DELEGUE' ? 'Admin délégué' :
+      u.role === 'ADMIN_SYSTEME' ? 'Admin système' : u.role,
       new Date(u.createdAt).toLocaleDateString('fr-FR')
     ]);
     const csvContent = [headers, ...rows].map(row => row.join(';')).join('\n');
@@ -476,6 +483,7 @@ const UserManagementPage = () => {
     { value: 'all', label: 'Tous', icon: '👥' },
     { value: 'APPRENANT', label: 'Apprenants', icon: '👨‍🎓' },
     { value: 'ENSEIGNANT', label: 'Enseignants', icon: '👨‍🏫' },
+    { value: 'SAISISEUR', label: 'Saisisseurs', icon: '✏️' },
     { value: 'OPERATEUR_EVALUATION', label: 'Opérateurs', icon: '🎮' },
     { value: 'ADMIN_DELEGUE', label: 'Admin délégués', icon: '👑' },
     { value: 'ADMIN_SYSTEME', label: 'Admin système', icon: '⚡' }
@@ -697,7 +705,7 @@ const UserManagementPage = () => {
                       justifyContent: 'space-between',
                       flexWrap: 'wrap',
                       gap: 12,
-                      border: `1px solid ${u.role === 'ADMIN_SYSTEME' ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.2)'}`
+                      border: `1px solid ${u.role === 'ADMIN_SYSTEME' ? 'rgba(239,68,68,0.3)' : u.role === 'SAISISEUR' ? 'rgba(99,102,241,0.3)' : 'rgba(59,130,246,0.2)'}`
                     }}
                   >
                     <div style={{ flex: 1 }}>
@@ -711,7 +719,7 @@ const UserManagementPage = () => {
                         <User size={12} /> @{u.username}
                       </p>
                       <p style={{ color: '#475569', fontSize: '0.7rem', marginTop: 4 }}>
-                        Créé le {new Date(u.createdAt).toLocaleDateString('fr-FR')}
+                        Créé le {u.createdAt ? new Date(u.createdAt).toLocaleDateString('fr-FR') : 'Date inconnue'}
                       </p>
                     </div>
                     
@@ -729,11 +737,12 @@ const UserManagementPage = () => {
                               color: '#f8fafc'
                             }}
                           >
-                            <option value="APPRENANT">Apprenant</option>
-                            <option value="ENSEIGNANT">Enseignant</option>
-                            <option value="OPERATEUR_EVALUATION">Opérateur</option>
-                            <option value="ADMIN_DELEGUE">Admin délégué</option>
-                            <option value="ADMIN_SYSTEME">Admin système</option>
+                            <option value="APPRENANT">👨‍🎓 Apprenant</option>
+                            <option value="ENSEIGNANT">👨‍🏫 Enseignant</option>
+                            <option value="SAISISEUR">✏️ Saisisseur</option>
+                            <option value="OPERATEUR_EVALUATION">🎮 Opérateur</option>
+                            <option value="ADMIN_DELEGUE">👑 Admin délégué</option>
+                            <option value="ADMIN_SYSTEME">⚡ Admin système</option>
                           </select>
                           <button
                             onClick={() => setEditing(null)}

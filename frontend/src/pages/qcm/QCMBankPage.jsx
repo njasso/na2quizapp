@@ -1,6 +1,4 @@
-// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION PRO
-// Données réelles, statistiques pertinentes, recommandations IA dynamiques
-
+// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION CORRIGÉE
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -102,7 +100,6 @@ const QCMBankPage = () => {
     monthlyGrowth: [],
     validationRate: 0,
     avgValidationDays: 0,
-    // Statistiques auteurs
     topAuthors: [],
     authorStats: {},
     totalAuthors: 0
@@ -202,28 +199,16 @@ const QCMBankPage = () => {
     const authorMap = new Map();
 
     normalized.forEach(q => {
-      // Par type
       if (q.typeQuestion && statsCalc.byType[q.typeQuestion] !== undefined) {
         statsCalc.byType[q.typeQuestion]++;
       }
-      
-      // Par statut
       if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
-      
-      // Par niveau
-      if (q.niveau) {
-        statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
-      }
-      
-      // Par matière
-      if (q.matiere) {
-        statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
-      }
+      if (q.niveau) statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
+      if (q.matiere) statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
       
       totalPoints += q.points || 1;
       totalTime += q.tempsMin || 1;
       
-      // Temps de validation
       if (q.status === 'approved' && q.createdAtDate && q.approvedAtDate) {
         const days = (q.approvedAtDate - q.createdAtDate) / (1000 * 60 * 60 * 24);
         totalValidationDays += days;
@@ -231,13 +216,11 @@ const QCMBankPage = () => {
       }
       if (q.status === 'rejected') rejectedCount++;
       
-      // Croissance mensuelle
       if (q.createdAtDate) {
         const monthKey = `${q.createdAtDate.getFullYear()}-${q.createdAtDate.getMonth() + 1}`;
         monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
       }
       
-      // Statistiques auteurs
       const authorId = q.authorId;
       const authorName = q.authorName;
       if (!authorMap.has(authorId)) {
@@ -268,7 +251,6 @@ const QCMBankPage = () => {
       .slice(-12)
       .map(([month, count]) => ({ month, count }));
     
-    // Top auteurs
     statsCalc.topAuthors = Array.from(authorMap.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
@@ -279,7 +261,7 @@ const QCMBankPage = () => {
     generateAIInsights(normalized, statsCalc);
   };
 
-  // IA : Génération des insights basée sur les données RÉELLES
+  // IA : Génération des insights
   const generateAIInsights = (questionsData, statsCalc) => {
     const insights = {
       strengths: [],
@@ -301,7 +283,6 @@ const QCMBankPage = () => {
       return;
     }
     
-    // Forces : matières les plus représentées
     const topMatieres = Object.entries(statsCalc.byMatiere)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3);
@@ -310,7 +291,6 @@ const QCMBankPage = () => {
       insights.strengths.push(`${matiere} (${count} questions, ${percentage}% du total)`);
     });
     
-    // Faiblesses : matières sous-représentées
     const weakMatieres = Object.entries(statsCalc.byMatiere)
       .filter(([_, count]) => count < 5)
       .sort((a, b) => a[1] - b[1])
@@ -319,15 +299,12 @@ const QCMBankPage = () => {
       insights.weaknesses.push(`${matiere} (seulement ${count} question${count > 1 ? 's' : ''})`);
     });
     
-    // Équilibre des types (basé sur données réelles)
     const type1Percent = (statsCalc.byType[1] / total) * 100;
     const type2Percent = (statsCalc.byType[2] / total) * 100;
     const type3Percent = (statsCalc.byType[3] / total) * 100;
     
-    // Score d'équilibre (plus il est proche de 100, plus la répartition est équilibrée)
     insights.balanceScore = Math.round(100 - (Math.abs(type1Percent - 33) + Math.abs(type2Percent - 33) + Math.abs(type3Percent - 34)) / 2);
     
-    // Recommandations basées sur l'équilibre réel
     if (type1Percent > 50) {
       insights.recommendations.push(`📚 Trop de questions "Savoir" (${Math.round(type1Percent)}%). Ajoutez plus de "Savoir-Faire" et "Savoir-être".`);
     }
@@ -341,22 +318,17 @@ const QCMBankPage = () => {
       insights.recommendations.push("⚠️ Seulement des questions théoriques. Diversifiez avec du pratique et du comportemental.");
     }
     
-    // Score de qualité (basé sur explications et images réelles)
     const explanationRate = questionsData.filter(q => q.explanation && q.explanation.length > 10).length / total * 100;
     const imageRate = questionsData.filter(q => q.imageQuestion || q.imageBase64).length / total * 100;
     insights.qualityScore = Math.round((explanationRate * 0.6 + imageRate * 0.4));
     
     if (explanationRate < 30) {
       insights.recommendations.push(`📝 Peu d'explications (${Math.round(explanationRate)}%). Ajoutez des explications pédagogiques.`);
-    } else if (explanationRate < 60) {
-      insights.recommendations.push(`📖 Améliorez les explications (${Math.round(explanationRate)}% des questions en ont).`);
     }
-    
     if (imageRate < 10 && total > 5) {
       insights.recommendations.push(`🖼️ Très peu d'illustrations (${Math.round(imageRate)}%). Ajoutez des images pour enrichir les questions.`);
     }
     
-    // Score de couverture des niveaux
     const uniqueLevels = new Set(questionsData.map(q => q.niveau).filter(Boolean)).size;
     const targetLevels = Math.min(20, Math.max(5, uniqueLevels + 5));
     insights.coverageScore = Math.min(100, Math.round((uniqueLevels / targetLevels) * 100));
@@ -365,7 +337,6 @@ const QCMBankPage = () => {
       insights.recommendations.push(`🎓 Faible diversité des niveaux (${uniqueLevels} niveaux seulement). Élargissez votre cible pédagogique.`);
     }
     
-    // Prédiction de croissance (basée sur les 3 derniers mois réels)
     const monthlyData = statsCalc.monthlyGrowth;
     const growthRates = [];
     for (let i = 1; i < monthlyData.length; i++) {
@@ -384,11 +355,8 @@ const QCMBankPage = () => {
       insights.recommendations.push(`📉 Baisse d'activité détectée. Relancez la création de questions.`);
     }
     
-    // Recommandations sur la validation
     if (statsCalc.avgValidationDays > 10) {
       insights.recommendations.push(`⏳ Validation lente (${statsCalc.avgValidationDays} jours en moyenne). Accélérez le circuit de validation.`);
-    } else if (statsCalc.avgValidationDays > 5) {
-      insights.recommendations.push(`⌛ Délai de validation moyen : ${statsCalc.avgValidationDays} jours. Optimisez le processus.`);
     }
     
     if (statsCalc.validationRate < 60 && statsCalc.validationRate > 0) {
@@ -397,7 +365,6 @@ const QCMBankPage = () => {
       insights.recommendations.push(`✅ Excellent taux de validation (${statsCalc.validationRate}%). La qualité est au rendez-vous !`);
     }
     
-    // Recommandations sur les auteurs
     const topAuthor = statsCalc.topAuthors[0];
     if (topAuthor && topAuthor.total > 20) {
       insights.recommendations.push(`🏆 Félicitations à ${topAuthor.name} pour ses ${topAuthor.total} contributions !`);
@@ -440,7 +407,7 @@ const QCMBankPage = () => {
 
   const hasActiveFilters = searchTerm || selectedDomainId || selectedSousDomaineId || selectedLevelId || selectedMatiereId || selectedType || selectedStatus !== 'approved';
 
-  // Export CSV enrichi
+  // Export CSV
   const exportToCSV = () => {
     const headers = ['N°Question', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
     const rows = filteredQuestions.map((q, idx) => [
@@ -513,11 +480,36 @@ const QCMBankPage = () => {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 
-  // Composant de carte de question
+  // ========== COMPOSANT CARTE DE QUESTION AVEC FILIGRANE ==========
   const QuestionCard = ({ question, index }) => {
     const isExpanded = expandedQuestion === question._id;
     const typeInfo = question.typeInfo;
     const imageUrl = question.imageUrl;
+
+    // Fonction pour obtenir le filigrane selon le statut
+    const getWatermark = () => {
+      if (question.status === 'pending') {
+        return {
+          text: "⏳ En attente de validation - Non éligible à l'insertion dans une épreuve",
+          color: '#f59e0b'
+        };
+      }
+      if (question.status === 'approved') {
+        return {
+          text: "✅ Validée - Éligible à l'insertion dans une épreuve",
+          color: '#10b981'
+        };
+      }
+      if (question.status === 'rejected') {
+        return {
+          text: "❌ Rejetée - Veuillez modifier et renvoyer",
+          color: '#ef4444'
+        };
+      }
+      return null;
+    };
+
+    const watermark = getWatermark();
 
     return (
       <motion.div
@@ -647,6 +639,23 @@ const QCMBankPage = () => {
                   <span>📅 Créée: {new Date(question.createdAt).toLocaleDateString('fr-FR')}</span>
                   {question.approvedAt && <span>✅ Validée: {new Date(question.approvedAt).toLocaleDateString('fr-FR')}</span>}
                 </div>
+
+                {/* ✅ FILIGRANE DE STATUT - CORRECTEMENT PLACÉ ICI */}
+                <div style={{
+                  marginTop: 12,
+                  paddingTop: 8,
+                  borderTop: '1px solid rgba(255,255,255,0.05)',
+                  textAlign: 'center'
+                }}>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    color: watermark?.color || '#64748b',
+                    opacity: 0.7,
+                    fontStyle: 'italic'
+                  }}>
+                    {watermark?.text}
+                  </span>
+                </div>
               </div>
             </motion.div>
           )}
@@ -704,55 +713,13 @@ const QCMBankPage = () => {
 
         {/* Vue Dashboard / Liste */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12 }}>
-          <button
-            onClick={() => setDashboardView('analytics')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'analytics' ? '#3b82f6' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'analytics' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
+          <button onClick={() => setDashboardView('analytics')} style={{ padding: '8px 20px', borderRadius: 20, background: dashboardView === 'analytics' ? '#3b82f6' : 'rgba(255,255,255,0.05)', border: 'none', color: dashboardView === 'analytics' ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
             <BarChart3 size={16} /> Tableau de bord
           </button>
-          <button
-            onClick={() => setDashboardView('insights')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'insights' ? '#8b5cf6' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'insights' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
+          <button onClick={() => setDashboardView('insights')} style={{ padding: '8px 20px', borderRadius: 20, background: dashboardView === 'insights' ? '#8b5cf6' : 'rgba(255,255,255,0.05)', border: 'none', color: dashboardView === 'insights' ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Brain size={16} /> Insights IA
           </button>
-          <button
-            onClick={() => setDashboardView('recommendations')}
-            style={{
-              padding: '8px 20px',
-              borderRadius: 20,
-              background: dashboardView === 'recommendations' ? '#10b981' : 'rgba(255,255,255,0.05)',
-              border: 'none',
-              color: dashboardView === 'recommendations' ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
+          <button onClick={() => setDashboardView('recommendations')} style={{ padding: '8px 20px', borderRadius: 20, background: dashboardView === 'recommendations' ? '#10b981' : 'rgba(255,255,255,0.05)', border: 'none', color: dashboardView === 'recommendations' ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Lightbulb size={16} /> Recommandations
           </button>
         </div>
@@ -760,7 +727,6 @@ const QCMBankPage = () => {
         {/* DASHBOARD ANALYTIQUE */}
         {dashboardView === 'analytics' && !loading && questions.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 24 }}>
-            {/* KPIs avancés */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
               <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 12 }}>
                 <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6' }}>{stats.total}</div>
@@ -784,7 +750,6 @@ const QCMBankPage = () => {
               </div>
             </div>
 
-            {/* Graphiques */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -813,22 +778,13 @@ const QCMBankPage = () => {
               </div>
             </div>
 
-            {/* Top matières */}
             <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20, marginBottom: 24 }}>
               <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TrendingUp size={16} color="#10b981" /> Top matières
               </h3>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 {topMatieres.map(([matiere, count]) => (
-                  <div key={matiere} style={{
-                    background: 'rgba(16,185,129,0.1)',
-                    border: '1px solid rgba(16,185,129,0.2)',
-                    borderRadius: 8,
-                    padding: '8px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                  }}>
+                  <div key={matiere} style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 8, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ color: '#10b981', fontWeight: 600 }}>{count}</span>
                     <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{matiere}</span>
                   </div>
@@ -841,7 +797,6 @@ const QCMBankPage = () => {
         {/* INSIGHTS IA */}
         {dashboardView === 'insights' && !loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {/* Scores de qualité */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -878,7 +833,6 @@ const QCMBankPage = () => {
                 </div>
               </div>
 
-              {/* Analyse SWOT */}
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Target size={16} color="#10b981" /> Analyse SWOT
@@ -891,9 +845,7 @@ const QCMBankPage = () => {
                         <CheckCircle size={10} color="#10b981" /> {s}
                       </div>
                     ))}
-                    {aiInsights.strengths.length === 0 && (
-                      <p style={{ color: '#64748b', fontSize: '0.7rem' }}>Aucune force identifiée</p>
-                    )}
+                    {aiInsights.strengths.length === 0 && <p style={{ color: '#64748b', fontSize: '0.7rem' }}>Aucune force identifiée</p>}
                   </div>
                   <div>
                     <p style={{ color: '#ef4444', fontSize: '0.75rem', marginBottom: 8 }}>📉 Faiblesses</p>
@@ -902,15 +854,12 @@ const QCMBankPage = () => {
                         <AlertTriangle size={10} color="#ef4444" /> {w}
                       </div>
                     ))}
-                    {aiInsights.weaknesses.length === 0 && (
-                      <p style={{ color: '#10b981', fontSize: '0.7rem' }}>✅ Bonne couverture</p>
-                    )}
+                    {aiInsights.weaknesses.length === 0 && <p style={{ color: '#10b981', fontSize: '0.7rem' }}>✅ Bonne couverture</p>}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Top contributeurs */}
             {stats.topAuthors.length > 0 && (
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20, marginBottom: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -921,32 +870,18 @@ const QCMBankPage = () => {
                     const approvalRate = author.total ? Math.round((author.approved / author.total) * 100) : 0;
                     return (
                       <div key={author.id} style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '10px 14px',
-                        background: 'rgba(236,72,153,0.05)',
-                        border: '1px solid rgba(236,72,153,0.15)',
-                        borderRadius: 10,
-                        flexWrap: 'wrap',
-                        gap: 8
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '10px 14px', background: 'rgba(236,72,153,0.05)',
+                        border: '1px solid rgba(236,72,153,0.15)', borderRadius: 10,
+                        flexWrap: 'wrap', gap: 8
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{
-                            width: 32, height: 32, borderRadius: 8,
-                            background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(236,72,153,0.2)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontWeight: 700, color: idx < 3 ? '#000' : '#ec4899'
-                          }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(236,72,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: idx < 3 ? '#000' : '#ec4899' }}>
                             {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                           </div>
                           <div>
-                            <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.85rem' }}>
-                              {author.name}
-                            </div>
-                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
-                              ID: {author.id.substring(0, 12)}...
-                            </div>
+                            <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.85rem' }}>{author.name}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>ID: {author.id.substring(0, 12)}...</div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -966,14 +901,7 @@ const QCMBankPage = () => {
                             <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ef4444' }}>{author.rejected}</div>
                             <div style={{ fontSize: '0.6rem', color: '#64748b' }}>Rejetées</div>
                           </div>
-                          <div style={{
-                            padding: '4px 10px',
-                            borderRadius: 20,
-                            background: approvalRate >= 80 ? 'rgba(16,185,129,0.15)' : approvalRate >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                            color: approvalRate >= 80 ? '#10b981' : approvalRate >= 50 ? '#f59e0b' : '#ef4444',
-                            fontSize: '0.7rem',
-                            fontWeight: 600
-                          }}>
+                          <div style={{ padding: '4px 10px', borderRadius: 20, background: approvalRate >= 80 ? 'rgba(16,185,129,0.15)' : approvalRate >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)', color: approvalRate >= 80 ? '#10b981' : approvalRate >= 50 ? '#f59e0b' : '#ef4444', fontSize: '0.7rem', fontWeight: 600 }}>
                             {approvalRate}% validé
                           </div>
                         </div>
@@ -994,15 +922,7 @@ const QCMBankPage = () => {
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {aiInsights.recommendations.map((rec, i) => (
-                <div key={i} style={{
-                  padding: '12px 16px',
-                  background: 'rgba(245,158,11,0.05)',
-                  border: '1px solid rgba(245,158,11,0.2)',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12
-                }}>
+                <div key={i} style={{ padding: '12px 16px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
                   <Lightbulb size={18} color="#f59e0b" />
                   <span style={{ color: '#e2e8f0', fontSize: '0.85rem' }}>{rec}</span>
                 </div>
@@ -1011,14 +931,10 @@ const QCMBankPage = () => {
                 <div style={{ textAlign: 'center', padding: 40 }}>
                   <CheckCircle size={40} color="#10b981" />
                   <p style={{ color: '#10b981', marginTop: 12 }}>✅ Tout est optimal !</p>
-                  <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: 8 }}>
-                    La banque de QCM est bien équilibrée et de bonne qualité.
-                  </p>
+                  <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: 8 }}>La banque de QCM est bien équilibrée et de bonne qualité.</p>
                 </div>
               )}
             </div>
-
-            {/* Prédiction */}
             <div style={{ marginTop: 20, padding: 12, background: 'rgba(99,102,241,0.1)', borderRadius: 10 }}>
               <p style={{ color: '#a5b4fc', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Brain size={14} />
@@ -1034,55 +950,19 @@ const QCMBankPage = () => {
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Rechercher par question, matière, niveau, auteur..."
-                style={{
-                  width: '100%', padding: '10px 12px 10px 38px',
-                  background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)',
-                  borderRadius: 10, color: '#f8fafc', outline: 'none'
-                }}
-              />
+              <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Rechercher par question, matière, niveau, auteur..." style={{ width: '100%', padding: '10px 12px 10px 38px', background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, color: '#f8fafc', outline: 'none' }} />
             </div>
 
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 16px', background: 'rgba(99,102,241,0.1)',
-                border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10,
-                color: '#a5b4fc', cursor: 'pointer'
-              }}
-            >
+            <button onClick={() => setShowFilters(!showFilters)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10, color: '#a5b4fc', cursor: 'pointer' }}>
               <Filter size={14} /> Filtres {showFilters ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
 
-            <button
-              onClick={exportToCSV}
-              disabled={filteredQuestions.length === 0}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 16px', background: 'rgba(16,185,129,0.1)',
-                border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10,
-                color: '#10b981', cursor: filteredQuestions.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: filteredQuestions.length === 0 ? 0.5 : 1
-              }}
-            >
+            <button onClick={exportToCSV} disabled={filteredQuestions.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: '#10b981', cursor: filteredQuestions.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredQuestions.length === 0 ? 0.5 : 1 }}>
               <Download size={14} /> Exporter CSV
             </button>
 
             {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '10px 16px', background: 'rgba(239,68,68,0.1)',
-                  border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10,
-                  color: '#ef4444', cursor: 'pointer'
-                }}
-              >
+              <button onClick={resetFilters} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: '#ef4444', cursor: 'pointer' }}>
                 <FilterX size={14} /> Réinitialiser
               </button>
             )}
@@ -1090,61 +970,14 @@ const QCMBankPage = () => {
 
           <AnimatePresence>
             {showFilters && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                style={{ overflow: 'hidden' }}
-              >
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 12, marginTop: 12, padding: 16,
-                  background: 'rgba(15,23,42,0.5)', borderRadius: 12,
-                  border: '1px solid rgba(99,102,241,0.15)'
-                }}>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label>
-                    <select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="">Tous</option>
-                      {getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Sous-domaine</label>
-                    <select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedDomainId ? 0.5 : 1 }}>
-                      <option value="">Tous</option>
-                      {getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Niveau</label>
-                    <select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
-                      <option value="">Tous</option>
-                      {getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Matière</label>
-                    <select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
-                      <option value="">Toutes</option>
-                      {getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Type</label>
-                    <select value={selectedType} onChange={e => setSelectedType(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="">Tous</option>
-                      {QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label>
-                    <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="approved">Validées</option>
-                      <option value="pending">En attente</option>
-                      <option value="all">Toutes</option>
-                    </select>
-                  </div>
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12, padding: 16, background: 'rgba(15,23,42,0.5)', borderRadius: 12, border: '1px solid rgba(99,102,241,0.15)' }}>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label><select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="">Tous</option>{getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}</select></div>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Sous-domaine</label><select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedDomainId ? 0.5 : 1 }}><option value="">Tous</option>{getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}</select></div>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Niveau</label><select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}><option value="">Tous</option>{getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}</select></div>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Matière</label><select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}><option value="">Toutes</option>{getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}</select></div>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Type</label><select value={selectedType} onChange={e => setSelectedType(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="">Tous</option>{QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
+                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label><select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="approved">Validées</option><option value="pending">En attente</option><option value="all">Toutes</option></select></div>
                 </div>
               </motion.div>
             )}

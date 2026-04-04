@@ -1,4 +1,4 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION CORRIGÉE FINALE
+// src/pages/composition/QuizCompositionPage.jsx - VERSION FINALE COMPLÈTE AVEC NAVIGATION CORRIGÉE
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,13 +20,15 @@ const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
 console.log('[QuizCompositionPage] Backend URL:', NODE_BACKEND_URL);
 console.log('[QuizCompositionPage] Socket URL:', SOCKET_URL);
 
-// Timer component
-const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick }) => {
+// Timer component avec support des modes d'affichage
+const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick, displayMode = 'permanent', onDisplayShown }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
+  const [hasShown, setHasShown] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
     setTimeLeft(initialTime);
+    setHasShown(false);
   }, [initialTime, resetTrigger]);
 
   useEffect(() => {
@@ -50,12 +52,22 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
     };
   }, [isActive, onTimeEnd, onTick]);
 
+  // Notification d'affichage pour les modes once/twice/fourTimes
+  useEffect(() => {
+    if (isActive && !hasShown && onDisplayShown) {
+      setHasShown(true);
+      onDisplayShown();
+    }
+  }, [isActive, hasShown, onDisplayShown]);
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Ne pas afficher si le mode est 'once' et déjà affiché
+  if (displayMode === 'once' && hasShown) return null;
   if (!isActive) return null;
 
   return (
@@ -99,6 +111,10 @@ const QuizCompositionPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showConfetti, setShowConfetti] = useState(false);
   const [lastSaveTime, setLastSaveTime] = useState(Date.now());
+  
+  // États pour les modes d'affichage du timer
+  const [timerDisplayStep, setTimerDisplayStep] = useState(0);
+  const [timerHasShown, setTimerHasShown] = useState(false);
 
   // Refs
   const socketRef = useRef(null);
@@ -116,7 +132,7 @@ const QuizCompositionPage = () => {
   const stableSessionIdRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
 
-  // ✅ Fonction pour récupérer le token JWT
+  // Fonction pour récupérer le token JWT
   const getAuthToken = () => {
     return localStorage.getItem('userToken') || localStorage.getItem('token');
   };
@@ -130,6 +146,42 @@ const QuizCompositionPage = () => {
   useEffect(() => { examRef.current = exam; }, [exam]);
   useEffect(() => { studentInfoRef.current = studentInfo; }, [studentInfo]);
 
+  // Fonction pour déterminer si le timer doit être affiché selon timerDisplayMode
+  const shouldShowTimer = useCallback(() => {
+    const mode = config?.timerDisplayMode || 'permanent';
+    const progress = (currentQuestionIndex + 1) / (questions.length || 1);
+    
+    switch(mode) {
+      case 'once':
+        return !timerHasShown;
+      case 'twice':
+        return !timerHasShown || (quizFinished && !timerHasShown);
+      case 'fourTimes':
+        if (!timerHasShown) return true;
+        if (progress >= 0.25 && timerDisplayStep < 1) return true;
+        if (progress >= 0.5 && timerDisplayStep < 2) return true;
+        if (progress >= 0.75 && timerDisplayStep < 3) return true;
+        return false;
+      case 'permanent':
+      default:
+        return true;
+    }
+  }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, quizFinished, timerHasShown, timerDisplayStep]);
+
+  // Callback quand le timer est affiché
+  const onTimerDisplayShown = useCallback(() => {
+    if (!timerHasShown) {
+      setTimerHasShown(true);
+    }
+    const mode = config?.timerDisplayMode;
+    if (mode === 'fourTimes') {
+      const progress = (currentQuestionIndex + 1) / (questions.length || 1);
+      if (progress >= 0.75 && timerDisplayStep < 3) setTimerDisplayStep(3);
+      else if (progress >= 0.5 && timerDisplayStep < 2) setTimerDisplayStep(2);
+      else if (progress >= 0.25 && timerDisplayStep < 1) setTimerDisplayStep(1);
+    }
+  }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, timerDisplayStep, timerHasShown]);
+
   // Fonction de mélange
   const shuffleArray = (array) => {
     for (let i = array.length - 1; i > 0; i--) {
@@ -139,7 +191,7 @@ const QuizCompositionPage = () => {
     return array;
   };
 
-  // ✅ Normaliser une question
+  // Normaliser une question
   const normalizeQuestion = (q) => {
     let options = [];
     if (q.options && q.options.length > 0) {
@@ -196,6 +248,14 @@ const QuizCompositionPage = () => {
     if (question.imageBase64 && question.imageBase64.startsWith('data:')) return question.imageBase64;
     return null;
   };
+
+  // Obtenir les points à afficher (selon pointsType)
+  const getDisplayPoints = useCallback((question) => {
+    if (config?.pointsType === 'uniform') {
+      return config?.globalPoints || 1;
+    }
+    return question.points || 1;
+  }, [config?.pointsType, config?.globalPoints]);
 
   // ═══════════════════════════════════════════════════════════════
   // SAUVEGARDE AUTOMATIQUE
@@ -282,24 +342,84 @@ const QuizCompositionPage = () => {
   }, []);
 
   const sendProgressUpdate = useCallback((index) => {
-    if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
-    const total = examRef.current.questions.length;
-    const progress = Math.round(((index + 1) / total) * 100);
-    const answeredCount = Object.keys(answersRef.current).length;
-    const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+  if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
+  const total = examRef.current.questions.length;
+  const progress = Math.round(((index + 1) / total) * 100);
+  const answeredCount = Object.keys(answersRef.current).length;
+  const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+  
+  socketRef.current.emit('updateStudentProgress', {
+    examId: examRef.current._id,
+    progress,
+    currentQuestion: index + 1,
+    totalQuestions: total,
+    score: answeredCount,
+    percentage: percentage
+  });
+}, []);
+
+  // ✅ Anti-triche : Détection changement de fenêtre/onglet
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && !quizFinished && !submittingRef.current && !waitingForStartRef.current) {
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('studentWindowChanged', {
+            examId: examRef.current?._id,
+            studentId: socketRef.current.id,
+            studentName: `${studentInfo?.firstName} ${studentInfo?.lastName}`,
+            studentMatricule: studentInfo?.matricule,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        toast.error("⚠️ Changement de fenêtre détecté ! Restez sur l'examen.", {
+          duration: 5000,
+          icon: '🔴',
+          style: { background: '#ef4444', color: '#fff' }
+        });
+        
+        console.warn('[Security] Changement de fenêtre détecté');
+      }
+    };
     
-    socketRef.current.emit('updateStudentProgress', {
-      examId: examRef.current._id,
-      progress,
-      currentQuestion: index + 1,
-      totalQuestions: total,
-      score: answeredCount,
-      percentage: percentage
-    });
-  }, []);
+    // ✅ Blocage des raccourcis clavier sensibles
+    const blockShortcuts = (e) => {
+      if (e.key === 'PrintScreen') {
+        e.preventDefault();
+        toast.error("Capture d'écran désactivée pendant l'examen", { duration: 2000 });
+        return false;
+      }
+      
+      if (e.key === 'F12' || 
+          (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+          (e.ctrlKey && e.shiftKey && e.key === 'C') ||
+          (e.ctrlKey && e.key === 'U') ||
+          (e.ctrlKey && e.key === 'S') ||
+          (e.ctrlKey && e.key === 'P')) {
+        e.preventDefault();
+        toast.error("Action non autorisée pendant l'examen", { duration: 2000 });
+        return false;
+      }
+      
+      if ((e.ctrlKey && (e.key === 'c' || e.key === 'v' || e.key === 'x')) ||
+          (e.metaKey && (e.key === 'c' || e.key === 'v' || e.key === 'x'))) {
+        e.preventDefault();
+        toast.error("Copier/Coller désactivé pendant l'examen", { duration: 1500 });
+        return false;
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('keydown', blockShortcuts);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('keydown', blockShortcuts);
+    };
+  }, [quizFinished, studentInfo]);
 
   // ═══════════════════════════════════════════════════════════════
-  // ✅ SOUMISSION CORRIGÉE - Utilisation de l'INDEX pour le backend
+  // SOUMISSION
   // ═══════════════════════════════════════════════════════════════
   const handleSubmitExam = useCallback(async (isManual = false) => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -345,22 +465,17 @@ const QuizCompositionPage = () => {
         level: studentInfoRef.current?.level || ''
       };
 
-      // ✅ CORRECTION CRITIQUE: Utiliser l'INDEX comme clé pour le backend
-      // Le backend compare answers[idx] avec questions[idx].bonOpRep
       const currentQuestionsList = examRef.current.questions || [];
       const formattedAnswers = {};
 
       currentQuestionsList.forEach((question, idx) => {
-        // Chercher la réponse d'abord par UUID, puis par index
         let answer = answersRef.current[question._id];
         if (answer === undefined && answersRef.current[idx] !== undefined) {
           answer = answersRef.current[idx];
-          // Synchroniser pour la prochaine fois
           answersRef.current[question._id] = answer;
           setAnswers(prev => ({ ...prev, [question._id]: answer }));
         }
         
-        // ✅ TOUJOURS utiliser l'index comme clé pour le backend
         formattedAnswers[idx] = answer || null;
       });
 
@@ -488,22 +603,14 @@ const QuizCompositionPage = () => {
     }
   }, [handleSubmitExam, sendProgressUpdate]);
 
-  const handleNextQuestion = useCallback(() => {
-    const idx = currentQuestionIndexRef.current;
-    if (examRef.current && idx < examRef.current.questions.length - 1) {
-      const nextIndex = idx + 1;
-      currentQuestionIndexRef.current = nextIndex;
-      setCurrentQuestionIndex(nextIndex);
-      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
-      setRemainingTime(timeForNextQuestion);
-      setTimerResetTrigger(prev => prev + 1);
-      setTimeout(() => sendProgressUpdate(nextIndex), 50);
-    }
-  }, [sendProgressUpdate]);
-
+  // ✅ Navigation - Précédent
   const handlePrevQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
     if (examRef.current && idx > 0) {
+      // Sauvegarder avant de changer
+      localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
+      localStorage.setItem(`exam_${examId}_index`, idx - 1);
+      
       const prevIndex = idx - 1;
       currentQuestionIndexRef.current = prevIndex;
       setCurrentQuestionIndex(prevIndex);
@@ -512,7 +619,25 @@ const QuizCompositionPage = () => {
       setTimerResetTrigger(prev => prev + 1);
       setTimeout(() => sendProgressUpdate(prevIndex), 50);
     }
-  }, [sendProgressUpdate]);
+  }, [examId, sendProgressUpdate]);
+
+  // ✅ Navigation - Suivant
+  const handleNextQuestion = useCallback(() => {
+    const idx = currentQuestionIndexRef.current;
+    if (examRef.current && idx < examRef.current.questions.length - 1) {
+      // Sauvegarder avant de changer
+      localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
+      localStorage.setItem(`exam_${examId}_index`, idx + 1);
+      
+      const nextIndex = idx + 1;
+      currentQuestionIndexRef.current = nextIndex;
+      setCurrentQuestionIndex(nextIndex);
+      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+      setRemainingTime(timeForNextQuestion);
+      setTimerResetTrigger(prev => prev + 1);
+      setTimeout(() => sendProgressUpdate(nextIndex), 50);
+    }
+  }, [examId, sendProgressUpdate]);
 
   const handleManualSubmit = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -523,70 +648,113 @@ const QuizCompositionPage = () => {
     handleSubmitExam(true);
   }, [handleSubmitExam]);
 
-  // ✅ CORRECTION: Stocker la réponse avec UUID ET index
-  const handleOptionChange = (questionId, selectedOption, questionIndex) => {
-    if (quizFinishedRef.current || submittingRef.current) return;
+   // ✅ Feedback selon la configuration (3 types seulement)
+const handleOptionChange = (questionId, selectedOption, questionIndex) => {
+  if (quizFinishedRef.current || submittingRef.current) return;
 
-    const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
-    if (!currentQ) return;
+  const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
+  if (!currentQ) return;
 
-    const currentAttempts = attemptsRef.current[questionId] || 0;
+  const currentAttempts = attemptsRef.current[questionId] || 0;
 
-    if (configRef.current?.allowRetry && currentAttempts >= 1) {
-      toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
-      return;
-    }
+  // Vérifier la limite de tentatives si reprise autorisée
+  if (configRef.current?.allowRetry && currentAttempts >= 1) {
+    toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
+    return;
+  }
 
-    let isCorrect = false;
-    if (typeof currentQ.bonOpRep === 'number') {
-      const selectedIndex = currentQ.options.findIndex(opt => opt === selectedOption);
-      isCorrect = selectedIndex === currentQ.bonOpRep;
-    } else {
-      isCorrect = selectedOption === currentQ.correctAnswer;
-    }
+  // Vérifier si la réponse est correcte
+  let isCorrect = false;
+  if (typeof currentQ.bonOpRep === 'number') {
+    const selectedIndex = currentQ.options.findIndex(opt => opt === selectedOption);
+    isCorrect = selectedIndex === currentQ.bonOpRep;
+  } else {
+    isCorrect = selectedOption === currentQ.correctAnswer;
+  }
 
-    // ✅ Stocker avec UUID ET index pour compatibilité
-    const newAnswers = {
-      ...answersRef.current,
-      [questionId]: selectedOption,
-      [questionIndex]: selectedOption
-    };
-    answersRef.current = newAnswers;
-    setAnswers(newAnswers);
+  // Stocker la réponse (avec UUID ET index pour compatibilité)
+  const newAnswers = {
+    ...answersRef.current,
+    [questionId]: selectedOption,
+    [questionIndex]: selectedOption
+  };
+  answersRef.current = newAnswers;
+  setAnswers(newAnswers);
 
-    const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
-    attemptsRef.current = newAttempts;
-    setAttempts(newAttempts);
+  // Mettre à jour les tentatives
+  const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
+  attemptsRef.current = newAttempts;
+  setAttempts(newAttempts);
 
-    if (configRef.current?.showBinaryResult) {
-      toast[isCorrect ? 'success' : 'error'](isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse');
-      setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
-    }
-
+  // ═══════════════════════════════════════════════════════════════
+  // FEEDBACK SELON LA CONFIGURATION (3 TYPES SEULEMENT)
+  // ═══════════════════════════════════════════════════════════════
+  
+  if (configRef.current?.showBinaryResult) {
+    // Type 2 ou 3 : Afficher le résultat binaire
+    toast[isCorrect ? 'success' : 'error'](
+      isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
+      { duration: 2000 }
+    );
+    setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
+    
+    // Type 3 : Afficher également la bonne réponse (uniquement si erreur)
     if (configRef.current?.showCorrectAnswer && !isCorrect) {
       const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
       toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
     }
+  } else {
+    // Type 1 : Aucun résultat immédiat
+    setShowResult(prev => ({ ...prev, [questionId]: null }));
+    // Pas de toast, pas de feedback visuel
+  }
 
-    if (!isCorrect && configRef.current?.allowRetry && newAttempts[questionId] === 1) {
-      return;
-    }
+  // ═══════════════════════════════════════════════════════════════
+  // AVANCEMENT AUTOMATIQUE POUR OPTION A ET D
+  // ═══════════════════════════════════════════════════════════════
+  
+  const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
+  
+  // Ne pas avancer si la réponse est incorrecte ET qu'une reprise est possible
+  const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1;
+  if (!isCorrect && hasRetryLeft) {
+    // L'utilisateur a droit à une seconde chance, ne pas avancer
+    return;
+  }
 
-    if (configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D') {
-      const idx = currentQuestionIndexRef.current;
-      if (examRef.current && idx < examRef.current.questions.length - 1) {
-        const nextIndex = idx + 1;
-        currentQuestionIndexRef.current = nextIndex;
-        setCurrentQuestionIndex(nextIndex);
-        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
-        setRemainingTime(timeForNextQuestion);
-        setTimerResetTrigger(prev => prev + 1);
-        setTimeout(() => sendProgressUpdate(nextIndex), 500);
-      } else {
-        handleSubmitExam(false);
+  if (shouldAutoAdvance) {
+    const currentIdx = currentQuestionIndexRef.current;
+    const totalQuestions = examRef.current?.questions?.length || 0;
+    const isLastQuestion = currentIdx >= totalQuestions - 1;
+    
+    if (!isLastQuestion) {
+      // Avancer à la question suivante
+      const nextIndex = currentIdx + 1;
+      currentQuestionIndexRef.current = nextIndex;
+      setCurrentQuestionIndex(nextIndex);
+      
+      // Mettre à jour le timer pour la nouvelle question
+      const timeForNextQuestion = examRef.current?.questions[nextIndex]?.tempsMinParQuestion 
+        || (configRef.current?.timePerQuestion || 60) * 60;
+      setRemainingTime(timeForNextQuestion);
+      setTimerResetTrigger(prev => prev + 1);
+      
+      // Notifier le superviseur de la progression
+      setTimeout(() => sendProgressUpdate(nextIndex), 500);
+      
+      // Message optionnel pour l'utilisateur
+      if (configRef.current?.examOption === 'D') {
+        toast.info(`Question suivante (${nextIndex + 1}/${totalQuestions})`, { 
+          duration: 1500,
+          icon: '⏩'
+        });
       }
+    } else {
+      // Dernière question → soumettre l'examen automatiquement
+      handleSubmitExam(false);
     }
-  };
+  }
+};
 
   // Chargement de l'examen
   useEffect(() => {
@@ -814,6 +982,12 @@ const QuizCompositionPage = () => {
     return () => clearInterval(interval);
   }, [quizStarted, quizFinished, waitingForStart, remainingTime, handleTimeEnd]);
 
+  // Réinitialisation du timerHasShown quand la question change
+  useEffect(() => {
+    setTimerHasShown(false);
+    setTimerDisplayStep(0);
+  }, [currentQuestionIndex]);
+
   // Affichage conditionnel
   if (isLoading || !exam || !studentInfo) {
     return (
@@ -861,8 +1035,16 @@ const QuizCompositionPage = () => {
   const currentQuestion = questions[currentQuestionIndex];
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = (answeredCount / questions.length) * 100;
-  const disablePrev = quizFinished || currentQuestionIndex === 0 || config?.examOption === 'A' || config?.examOption === 'D';
-  const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || config?.examOption === 'A' || config?.examOption === 'D' || (config?.examOption === 'B' && !answers[currentQuestion?._id]);
+  const displayPoints = getDisplayPoints(currentQuestion);
+  
+  const isOptionA = config?.examOption === 'A';
+  const isOptionB = config?.examOption === 'B';
+  const isOptionD = config?.examOption === 'D';
+  
+  const disablePrev = quizFinished || currentQuestionIndex === 0 || isOptionA || isOptionD;
+  const hasCurrentAnswer = answers[currentQuestion?._id] || answers[currentQuestionIndex];
+  const optionBNextDisabled = isOptionB && (!hasCurrentAnswer || currentQuestionIndex === questions.length - 1);
+  const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || isOptionA || isOptionD || optionBNextDisabled;
 
   if (!currentQuestion) {
     return (
@@ -900,13 +1082,15 @@ const QuizCompositionPage = () => {
                   <span>Sauvegarde auto</span>
                 </div>
               )}
-              {quizStarted && !quizFinished && config?.examOption !== 'B' && (
+              {quizStarted && !quizFinished && config?.examOption !== 'B' && shouldShowTimer() && (
                 <Timer
                   initialTime={remainingTime}
                   onTimeEnd={handleTimeEnd}
                   isActive={!quizFinished && remainingTime > 0}
                   resetTrigger={timerResetTrigger}
                   timerConfig={config?.timerConfig || 'permanent'}
+                  displayMode={config?.timerDisplayMode || 'permanent'}
+                  onDisplayShown={onTimerDisplayShown}
                 />
               )}
               {config?.examOption === 'C' && quizStarted && !quizFinished && (
@@ -914,6 +1098,14 @@ const QuizCompositionPage = () => {
               )}
             </div>
           </div>
+
+          {/* Indicateur pour Option A */}
+          {isOptionA && !quizFinished && (
+            <div style={styles.currentQuestionIndicator}>
+              <span>Question {currentQuestionIndex + 1} / {questions.length}</span>
+              <span style={{ color: '#ef4444' }}>(Navigation contrôlée par le superviseur)</span>
+            </div>
+          )}
 
           <div style={styles.progressArea}>
             <div style={styles.progressLabels}>
@@ -925,6 +1117,7 @@ const QuizCompositionPage = () => {
             </div>
           </div>
 
+          {/* Navigation grille pour Option C */}
           {config?.examOption === 'C' && (
             <div style={styles.navGrid}>
               <h3>Navigation des questions</h3>
@@ -955,10 +1148,13 @@ const QuizCompositionPage = () => {
               <div style={styles.questionCard}>
                 <div style={styles.questionHeader}>
                   <span style={styles.questionNumber}>Question {currentQuestionIndex + 1}</span>
+                  <span style={styles.pointsBadge}>
+                    ⭐ {displayPoints} pt{displayPoints > 1 ? 's' : ''}
+                  </span>
                   {(answers[currentQuestion._id] || answers[currentQuestionIndex]) && (
                     <span style={styles.answeredBadge}>Répondue</span>
                   )}
-                  {showResult[currentQuestion._id] !== undefined && (
+                  {showResult[currentQuestion._id] !== undefined && showResult[currentQuestion._id] !== null && (
                     <span style={{ ...styles.resultBadge, background: showResult[currentQuestion._id] ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: showResult[currentQuestion._id] ? '#10b981' : '#ef4444' }}>
                       {showResult[currentQuestion._id] ? '✓ Bonne réponse' : '✗ Mauvaise réponse'}
                     </span>
@@ -1026,12 +1222,13 @@ const QuizCompositionPage = () => {
             </motion.div>
           </AnimatePresence>
 
+          {/* ✅ ACTIONS - Navigation corrigée pour toutes les options */}
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
-              {config?.examOption === 'B' ? (
+              {config?.examOption === 'A' ? (
                 <div style={styles.waitingIndicator}>
                   <div style={styles.pulseDotSmall} />
-                  En attente du superviseur…
+                  Navigation contrôlée par le superviseur
                 </div>
               ) : (
                 <>
@@ -1108,6 +1305,7 @@ const styles = {
   }),
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
   globalTimerHint: { display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.1em', color: '#475569', marginTop: 4, textAlign: 'center' },
+  currentQuestionIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', fontSize: '0.8rem', color: '#f8fafc' },
   progressArea: { marginBottom: '16px' },
   progressLabels: { display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '8px' },
   progressBar: { width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' },
@@ -1124,6 +1322,7 @@ const styles = {
   questionCard: { padding: '24px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', marginBottom: '20px' },
   questionHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' },
   questionNumber: { background: '#3b82f6', color: '#fff', fontSize: '0.875rem', fontWeight: 600, padding: '4px 10px', borderRadius: '999px' },
+  pointsBadge: { background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 8px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 600 },
   answeredBadge: { background: 'rgba(16,185,129,0.2)', color: '#10b981', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px' },
   resultBadge: { background: 'rgba(16,185,129,0.2)', color: '#10b981', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px' },
   questionText: { fontSize: '1.125rem', color: '#f8fafc', lineHeight: 1.6, marginBottom: '24px' },
@@ -1144,6 +1343,7 @@ const styles = {
   connectedBadge: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px 20px', borderRadius: '12px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' },
   pulseDot: { width: 10, height: 10, borderRadius: '50%', background: '#10b981', animation: 'pulse 1.5s infinite' },
   pulseDotSmall: { width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', display: 'inline-block', animation: 'pulse 1.5s infinite', marginRight: 6 },
+  waitingIndicator: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#94a3b8', fontSize: '0.875rem' },
   waitingNote: { color: '#475569', fontSize: '0.78rem', marginTop: '8px' }
 };
 

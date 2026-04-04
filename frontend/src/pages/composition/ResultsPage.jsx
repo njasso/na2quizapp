@@ -1,4 +1,4 @@
-// src/pages/composition/ResultsPage.jsx — Version complète corrigée
+// src/pages/composition/ResultsPage.jsx — Version complète avec export CSV
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -301,6 +301,62 @@ const ResultsPage = () => {
         };
         return labels[opt] || `Option ${opt}`;
     };
+
+    // ✅ NOUVELLE FONCTION: Export CSV
+    const exportToCSV = useCallback(() => {
+        if (!questionDetailsRef.current.length) {
+            toast.error('Aucune donnée à exporter');
+            return;
+        }
+        
+        const headers = [
+            'Question', 'Votre réponse', 'Bonne réponse', 
+            'Résultat', 'Points', 'Matière', 'Niveau', 'Domaine', 'Explication'
+        ];
+        
+        const rows = questionDetailsRef.current.map((q, idx) => [
+            `Q${idx + 1}: ${q.questionText.replace(/"/g, '""')}`,
+            q.studentAnswer.replace(/"/g, '""'),
+            q.correctAnswer.replace(/"/g, '""'),
+            q.isCorrect ? 'Correct' : 'Incorrect',
+            q.points,
+            q.matiere || 'N/A',
+            q.niveau || 'N/A',
+            q.domaine || 'N/A',
+            (q.explanation || '').replace(/"/g, '""')
+        ]);
+        
+        // Ajouter les informations de l'étudiant et du score en en-tête
+        const infoRows = [
+            [`"=== INFORMATIONS ÉTUDIANT ==="`, "", "", "", "", "", "", "", ""],
+            [`"Nom: ${studentInfo?.lastName || 'N/A'}"`, "", "", "", "", "", "", "", ""],
+            [`"Prénom: ${studentInfo?.firstName || 'N/A'}"`, "", "", "", "", "", "", "", ""],
+            [`"Matricule: ${studentInfo?.matricule || 'N/A'}"`, "", "", "", "", "", "", "", ""],
+            [`"Niveau: ${studentInfo?.level || 'N/A'}"`, "", "", "", "", "", "", "", ""],
+            [`"==="`, "", "", "", "", "", "", "", ""],
+            [`"Score: ${submittedScore} / ${getTotalQuestionsCount()}"`, "", "", "", "", "", "", "", ""],
+            [`"Pourcentage: ${submittedPercentage.toFixed(2)}%"`, "", "", "", "", "", "", "", ""],
+            [`"Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}"`, "", "", "", "", "", "", "", ""],
+            [`"==="`, "", "", "", "", "", "", "", ""],
+            [`"Date: ${new Date().toLocaleString('fr-FR')}"`, "", "", "", "", "", "", "", ""],
+            [``, "", "", "", "", "", "", "", ""] // Ligne vide
+        ];
+        
+        const csvContent = [...infoRows, headers, ...rows].map(row => 
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+        
+        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `resultats_${studentInfo?.matricule || studentInfo?.lastName || 'candidat'}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success('Export CSV réussi');
+    }, [questionDetailsRef, studentInfo, submittedScore, submittedPercentage, exam, passedPassingScore, getTotalQuestionsCount]);
 
     const printBulletin = useCallback(() => {
         const noteInfo = getNote();
@@ -709,9 +765,31 @@ const ResultsPage = () => {
                     )}
 
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} style={{ marginBottom: '32px' }}>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#f8fafc', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <FileText size={20} color="#3b82f6" /> Détails des Réponses
-                        </h2>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <FileText size={20} color="#3b82f6" /> Détails des Réponses
+                            </h2>
+                            
+                            {/* ✅ NOUVEAU BOUTON EXPORT CSV */}
+                            <button
+                                onClick={exportToCSV}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: 'rgba(16,185,129,0.1)',
+                                    border: '1px solid rgba(16,185,129,0.3)',
+                                    borderRadius: 8,
+                                    color: '#10b981',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: '0.8rem',
+                                    fontWeight: 500
+                                }}
+                            >
+                                <Download size={14} /> Exporter CSV
+                            </button>
+                        </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {questionDetailsRef.current.map((qDetail, index) => (
                                 <div key={qDetail._id || `q-${index}`}

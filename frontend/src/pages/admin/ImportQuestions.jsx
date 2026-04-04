@@ -1,11 +1,11 @@
-// src/pages/admin/ImportQuestions.jsx - Version avec support de la nouvelle structure QCM
+// src/pages/admin/ImportQuestions.jsx - Version avec validation des chapitres
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Upload, FileText, Download, X, CheckCircle, AlertCircle,
   Loader, Database, Trash2, FileSpreadsheet, FileJson, Eye,
-  ArrowLeft, Home, Tag, Layers, BookOpen, Clock
+  ArrowLeft, Home, Tag, Layers, BookOpen, Clock, Bookmark
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { saveQuestions } from '../../services/api';
@@ -19,6 +19,7 @@ const ImportQuestions = () => {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
+  const [invalidQuestions, setInvalidQuestions] = useState([]);
 
   // Vérifier les droits
   if (!hasRole('ADMIN_DELEGUE') && !hasRole('ADMIN_SYSTEME')) {
@@ -47,13 +48,14 @@ const ImportQuestions = () => {
     );
   }
 
-  // Modèle de question (nouvelle structure)
+  // Modèle de question (nouvelle structure avec chapitre)
   const questionTemplate = {
     // Référentiel
     domaine: "Éducatif",
     sousDomaine: "Secondaire Général",
     niveau: "3e",
     matiere: "Géographie",
+    libChapitre: "Chapitre 1: Introduction", // ✅ Ajout du chapitre
     // Contenu
     libQuestion: "Question exemple ?",
     options: ["Option A", "Option B", "Option C", "Option D"],
@@ -66,38 +68,39 @@ const ImportQuestions = () => {
     tempsMin: 1, // minutes
     tempsMinParQuestion: 60, // secondes
     difficulty: "moyen",
+    tags: [],
     // Auteur
     matriculeAuteur: "",
   };
 
-  // Télécharger le template CSV (nouvelle structure)
+  // Télécharger le template CSV (avec chapitre)
   const downloadTemplate = () => {
     const template = [
       [
-        "domaine", "sousDomaine", "niveau", "matiere", 
+        "domaine", "sousDomaine", "niveau", "matiere", "libChapitre",
         "libQuestion", "options", "correctAnswer", "typeQuestion", 
-        "points", "tempsMin", "explanation", "difficulty"
+        "points", "tempsMin", "explanation", "difficulty", "tags"
       ],
       [
-        "Éducatif", "Secondaire Général", "3e", "Géographie", 
+        "Éducatif", "Secondaire Général", "3e", "Géographie", "Chapitre 1: Le Cameroun",
         "Quelle est la capitale du Cameroun ?", 
         "Douala|Yaoundé|Garoua|Bafoussam", 
         "Yaoundé", "1", "1", "1", 
-        "Yaoundé est la capitale politique du Cameroun", "facile"
+        "Yaoundé est la capitale politique du Cameroun", "facile", "géographie,capitale"
       ],
       [
-        "Éducatif", "Secondaire Général", "4e", "Mathématiques", 
+        "Éducatif", "Secondaire Général", "4e", "Mathématiques", "Chapitre 2: Nombres",
         "Quelle est la valeur de π ?", 
         "3.12|3.14|3.16|3.18", 
         "3.14", "1", "1", "1", 
-        "π ≈ 3.14159", "facile"
+        "π ≈ 3.14159", "facile", "maths,constante"
       ],
       [
-        "Professionnel", "Management", "Licence 3", "Gestion de Projet", 
+        "Professionnel", "Management", "Licence 3", "Gestion de Projet", "Chapitre 3: Méthodes Agiles",
         "Qu'est-ce que la méthode agile ?", 
         "Méthode séquentielle|Méthode itérative|Méthode linéaire|Méthode statique", 
         "Méthode itérative", "1", "2", "2", 
-        "L'agilité favorise l'itération et l'adaptation", "moyen"
+        "L'agilité favorise l'itération et l'adaptation", "moyen", "agile,management"
       ]
     ];
     
@@ -114,7 +117,7 @@ const ImportQuestions = () => {
     toast.success('Template CSV téléchargé');
   };
 
-  // Télécharger le template JSON (nouvelle structure)
+  // Télécharger le template JSON (avec chapitre)
   const downloadJsonTemplate = () => {
     const template = [
       {
@@ -122,6 +125,7 @@ const ImportQuestions = () => {
         sousDomaine: "Secondaire Général",
         niveau: "3e",
         matiere: "Géographie",
+        libChapitre: "Chapitre 1: Le Cameroun",
         libQuestion: "Quelle est la capitale du Cameroun ?",
         options: ["Douala", "Yaoundé", "Garoua", "Bafoussam"],
         correctAnswer: "Yaoundé",
@@ -130,13 +134,15 @@ const ImportQuestions = () => {
         tempsMin: 1,
         tempsMinParQuestion: 60,
         explanation: "Yaoundé est la capitale politique du Cameroun",
-        difficulty: "facile"
+        difficulty: "facile",
+        tags: ["géographie", "capitale"]
       },
       {
         domaine: "Éducatif",
         sousDomaine: "Secondaire Général",
         niveau: "4e",
         matiere: "Mathématiques",
+        libChapitre: "Chapitre 2: Nombres",
         libQuestion: "Quelle est la valeur de π ?",
         options: ["3.12", "3.14", "3.16", "3.18"],
         correctAnswer: "3.14",
@@ -145,7 +151,8 @@ const ImportQuestions = () => {
         tempsMin: 1,
         tempsMinParQuestion: 60,
         explanation: "π ≈ 3.14159",
-        difficulty: "facile"
+        difficulty: "facile",
+        tags: ["maths", "constante"]
       }
     ];
     
@@ -159,6 +166,66 @@ const ImportQuestions = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     toast.success('Template JSON téléchargé');
+  };
+
+  // ✅ Fonction de validation des données d'une question
+  const validateQuestionData = (q, index) => {
+    const errors = [];
+    
+    // Validation du libellé
+    if (!q.libQuestion || q.libQuestion.trim().length < 5) {
+      errors.push('Libellé de question trop court (min 5 caractères)');
+    }
+    
+    // Validation des options
+    if (!q.options || q.options.length < 2) {
+      errors.push('Au moins 2 options requises');
+    }
+    
+    // Validation de la réponse correcte
+    if (!q.correctAnswer) {
+      errors.push('Réponse correcte manquante');
+    } else if (q.options && !q.options.includes(q.correctAnswer)) {
+      errors.push('La réponse correcte n\'existe pas dans les options');
+    }
+    
+    // Validation de la matière
+    if (!q.matiere || q.matiere.trim().length < 2) {
+      errors.push('Matière requise (min 2 caractères)');
+    }
+    
+    // Validation du niveau
+    if (!q.niveau || q.niveau.trim().length < 1) {
+      errors.push('Niveau requis');
+    }
+    
+    // ✅ Validation du chapitre (optionnel mais recommandé)
+    if (q.libChapitre && q.libChapitre.length > 100) {
+      errors.push('Le nom du chapitre est trop long (max 100 caractères)');
+    }
+    
+    // Validation du domaine
+    if (!q.domaine || q.domaine.trim().length < 2) {
+      errors.push('Domaine requis');
+    }
+    
+    // Validation des points
+    if (q.points && (q.points < 0.5 || q.points > 10)) {
+      errors.push('Les points doivent être entre 0.5 et 10');
+    }
+    
+    // Validation du temps
+    if (q.tempsMin && (q.tempsMin < 0.5 || q.tempsMin > 10)) {
+      errors.push('Le temps doit être entre 0.5 et 10 minutes');
+    }
+    
+    // Validation de la difficulté
+    const validDifficulties = ['facile', 'moyen', 'difficile', 'très difficile'];
+    if (q.difficulty && !validDifficulties.includes(q.difficulty.toLowerCase())) {
+      errors.push(`Difficulté invalide. Utilisez: ${validDifficulties.join(', ')}`);
+    }
+    
+    return errors;
   };
 
   // Normaliser une question au format attendu par le backend
@@ -199,6 +266,8 @@ const ImportQuestions = () => {
       sousDomaine: q.sousDomaine || q.subDomain || q.category || '',
       niveau: q.niveau || q.level || '',
       matiere: q.matiere || q.subject || '',
+      // ✅ Ajout validation du chapitre
+      libChapitre: q.libChapitre || q.chapitre || q.chapter || '',
       // Contenu
       libQuestion: q.libQuestion || q.question || q.text || '',
       options: Array.isArray(q.options) ? q.options : (q.options ? q.options.split('|') : []),
@@ -207,12 +276,14 @@ const ImportQuestions = () => {
       // Métadonnées
       typeQuestion: typeQuestion,
       type: typeQuestion === 2 ? 'multiple' : 'single',
-      points: q.points || 1,
+      points: parseFloat(q.points) || 1,
       explanation: q.explanation || '',
-      tempsMin: tempsMin,
-      tempsMinParQuestion: tempsMinParQuestion,
+      tempsMin: parseFloat(tempsMin) || 1,
+      tempsMinParQuestion: parseInt(tempsMinParQuestion) || 60,
+      // ✅ Ajout niveau de difficulté par défaut
       difficulty: q.difficulty || 'moyen',
-      tags: q.tags || [],
+      // ✅ Ajout validation des tags
+      tags: Array.isArray(q.tags) ? q.tags : (q.tags ? q.tags.split(',').map(t => t.trim()) : []),
       // Auteur
       matriculeAuteur: user?.matricule || user?.email || '',
       status: 'pending' // en attente de validation
@@ -260,8 +331,10 @@ const ImportQuestions = () => {
           let value = values[idx].replace(/^["']|["']$/g, '');
           if (header === 'options') {
             obj[header] = value.split('|').map(v => v.trim());
+          } else if (header === 'tags') {
+            obj[header] = value ? value.split(',').map(v => v.trim()) : [];
           } else if (header === 'points' || header === 'typeQuestion' || header === 'tempsMin') {
-            obj[header] = parseInt(value) || 1;
+            obj[header] = parseFloat(value) || 1;
           } else {
             obj[header] = value;
           }
@@ -270,6 +343,11 @@ const ImportQuestions = () => {
         // S'assurer que libQuestion est utilisé
         if (obj.question && !obj.libQuestion) {
           obj.libQuestion = obj.question;
+        }
+        
+        // S'assurer que libChapitre est utilisé
+        if (obj.chapitre && !obj.libChapitre) {
+          obj.libChapitre = obj.chapitre;
         }
         
         data.push(obj);
@@ -291,6 +369,7 @@ const ImportQuestions = () => {
   // Gérer l'upload de fichier
   const handleFileUpload = (file) => {
     setError(null);
+    setInvalidQuestions([]);
     const reader = new FileReader();
     
     reader.onload = (e) => {
@@ -309,26 +388,51 @@ const ImportQuestions = () => {
         // Normaliser chaque question
         const normalizedData = rawData.map(q => normalizeQuestion(q));
         
-        // Valider les données
-        const validData = normalizedData.filter(q => {
-          const hasRequired = q.libQuestion && 
-                              q.options && q.options.length >= 2 && 
-                              q.correctAnswer && 
-                              q.matiere && 
-                              q.niveau && 
-                              q.domaine;
-          if (!hasRequired) {
-            console.warn('Question invalide:', q);
+        // ✅ Valider les données et collecter les erreurs
+        const validationErrors = [];
+        const validData = [];
+        
+        normalizedData.forEach((q, idx) => {
+          const errors = validateQuestionData(q, idx);
+          if (errors.length > 0) {
+            validationErrors.push({
+              index: idx,
+              question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
+              errors
+            });
+          } else {
+            // Vérifier les champs obligatoires supplémentaires
+            const hasRequired = q.libQuestion && 
+                                q.options && q.options.length >= 2 && 
+                                q.correctAnswer && 
+                                q.matiere && 
+                                q.niveau && 
+                                q.domaine;
+            
+            if (hasRequired) {
+              validData.push(q);
+            } else {
+              validationErrors.push({
+                index: idx,
+                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
+                errors: ['Champs obligatoires manquants (libQuestion, options, correctAnswer, matiere, niveau, domaine)']
+              });
+            }
           }
-          return hasRequired;
         });
         
+        if (validationErrors.length > 0) {
+          setInvalidQuestions(validationErrors);
+          console.warn('Questions invalides:', validationErrors);
+          toast.warning(`${validationErrors.length} question(s) ignorée(s)`, { duration: 5000 });
+        }
+        
         if (validData.length === 0) {
-          throw new Error('Aucune question valide trouvée. Vérifiez le format.');
+          throw new Error('Aucune question valide trouvée. Vérifiez le format et les champs obligatoires.');
         }
         
         setPreviewData(validData);
-        toast.success(`${validData.length} questions chargées pour import`);
+        toast.success(`${validData.length} questions chargées pour import${validationErrors.length > 0 ? ` (${validationErrors.length} ignorées)` : ''}`);
       } catch (err) {
         setError(err.message);
         toast.error(err.message);
@@ -361,6 +465,7 @@ const ImportQuestions = () => {
         toast.success(`${previewData.length} questions importées avec succès (en attente de validation)`);
         setPreviewData([]);
         setFile(null);
+        setInvalidQuestions([]);
       } else {
         throw new Error(result.error || 'Erreur lors de l\'import');
       }
@@ -382,6 +487,7 @@ const ImportQuestions = () => {
   const clearPreview = () => {
     setPreviewData([]);
     setFile(null);
+    setInvalidQuestions([]);
     toast.info('Liste vidée');
   };
 
@@ -516,6 +622,33 @@ const ImportQuestions = () => {
               }}>
                 <AlertCircle size={16} />
                 {error}
+              </div>
+            )}
+
+            {/* Afficher les erreurs de validation */}
+            {invalidQuestions.length > 0 && (
+              <div style={{
+                background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b',
+                borderRadius: 8, padding: 12, marginBottom: 24
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <AlertCircle size={16} color="#f59e0b" />
+                  <span style={{ color: '#f59e0b', fontWeight: 600, fontSize: '0.8rem' }}>
+                    {invalidQuestions.length} question(s) ignorée(s)
+                  </span>
+                </div>
+                <div style={{ maxHeight: 150, overflowY: 'auto' }}>
+                  {invalidQuestions.slice(0, 5).map((inv, idx) => (
+                    <div key={idx} style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: 4 }}>
+                      • "{inv.question}": {inv.errors.join(', ')}
+                    </div>
+                  ))}
+                  {invalidQuestions.length > 5 && (
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
+                      ... et {invalidQuestions.length - 5} autre(s)
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -673,6 +806,17 @@ const ImportQuestions = () => {
                           {q.sousDomaine}
                         </span>
                       )}
+                      {/* ✅ Affichage du chapitre */}
+                      {q.libChapitre && (
+                        <span style={{
+                          background: 'rgba(16,185,129,0.15)', color: '#10b981',
+                          padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
+                          display: 'flex', alignItems: 'center', gap: 4
+                        }}>
+                          <Bookmark size={10} />
+                          {q.libChapitre.length > 30 ? q.libChapitre.substring(0, 27) + '...' : q.libChapitre}
+                        </span>
+                      )}
                       <span style={{
                         background: 'rgba(16,185,129,0.2)', color: '#10b981',
                         padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
@@ -688,6 +832,15 @@ const ImportQuestions = () => {
                       }}>
                         {q.typeQuestion === 2 ? 'Multiple' : 'Unique'}
                       </span>
+                      {/* ✅ Affichage des tags */}
+                      {q.tags && q.tags.length > 0 && (
+                        <span style={{
+                          background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
+                          padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem'
+                        }}>
+                          #{q.tags.slice(0, 2).join(', #')}{q.tags.length > 2 ? ` +${q.tags.length - 2}` : ''}
+                        </span>
+                      )}
                     </div>
                     
                     {/* Question */}
@@ -710,7 +863,7 @@ const ImportQuestions = () => {
                     
                     {/* Points */}
                     <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: 6 }}>
-                      {q.points} point{q.points > 1 ? 's' : ''}
+                      {q.points} point{q.points > 1 ? 's' : ''} • {q.difficulty}
                     </div>
                   </div>
                 ))}

@@ -1,5 +1,5 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec lien terminal dynamique (local/production)
+// Version avec support complet pour SAISISEUR
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,7 +9,8 @@ import {
   CheckSquare, Users, LogOut, Eye, FileText, Shield,
   ClipboardList, Award, BarChart3, Terminal, TrendingUp,
   Library, LayoutDashboard, User, LogOutIcon, HomeIcon,
-  FileQuestion, GraduationCap, Activity
+  FileQuestion, GraduationCap, Activity, PenTool,
+  Clock, CheckCircle  // ✅ ICÔNES MANQUANTES AJOUTÉES
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import ENV_CONFIG from '../../config/env';
@@ -42,8 +43,46 @@ const TERMINAL_URL = ENV_CONFIG.TERMINAL_URL;
 
 console.log('[EvaluationSummative] Terminal URL:', TERMINAL_URL);
 
-// ========== MODULES AVEC RÔLES CORRIGÉS ==========
+// ========== MODULES AVEC RÔLES CORRIGÉS (AJOUT SAISISEUR) ==========
 const ALL_MODULES = [
+  // ========== MODULES SAISISEUR (NOUVEAU) ==========
+  {
+    id: 'create_question_saisisseur',
+    path: '/create/question',
+    icon: PenTool,
+    title: 'Saisie de questions',
+    subtitle: 'Création digitale',
+    desc: 'Saisir des questions QCM qui seront soumises au circuit de validation pédagogique',
+    color: COLORS.primary,
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+    tag: 'Saisie',
+    roles: ['SAISISEUR']
+  },
+  {
+    id: 'my_questions_saisisseur',
+    path: '/teacher/questions',
+    icon: FileQuestion,
+    title: 'Mes saisies',
+    subtitle: 'Suivi des QCM',
+    desc: 'Consulter l\'état de vos questions saisies (en attente, validées, rejetées)',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+    tag: 'Suivi',
+    roles: ['SAISISEUR']
+  },
+  {
+    id: 'qcm_bank_saisisseur',
+    path: '/qcm-bank',
+    icon: Library,
+    title: 'Banque QCM',
+    subtitle: 'Consultation',
+    desc: 'Consulter la banque des questions validées',
+    color: COLORS.secondary,
+    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+    tag: 'Consultation',
+    roles: ['SAISISEUR']
+  },
+
   // ========== MODULES ENSEIGNANT & ADMIN ==========
   {
     id: 'create_question',
@@ -67,7 +106,6 @@ const ALL_MODULES = [
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
     tag: 'Banque',
-    // ✅ RETIRÉ OPERATEUR_EVALUATION
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -92,7 +130,6 @@ const ALL_MODULES = [
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Épreuves',
-    // ✅ GARDÉ OPERATEUR_EVALUATION
     roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -105,7 +142,6 @@ const ALL_MODULES = [
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
     tag: 'Live',
-    // ✅ GARDÉ OPERATEUR_EVALUATION
     roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -220,7 +256,7 @@ const ALL_MODULES = [
   },
   {
     id: 'terminal',
-    path: TERMINAL_URL,  // ✅ URL dynamique selon environnement
+    path: TERMINAL_URL,
     icon: Terminal,
     title: 'Terminal d\'examen',
     subtitle: 'Poste candidat',
@@ -229,12 +265,21 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
     tag: 'Examen',
     roles: ['APPRENANT'],
-    external: true  // ← Ouvre dans un nouvel onglet
+    external: true
   }
 ];
 
-// ========== GROUPES FONCTIONNELS ==========
+// ========== GROUPES FONCTIONNELS (AJOUT GROUPE SAISISSEUR) ==========
 const INTEREST_GROUPS = [
+  {
+    id: 'saisisseur',
+    title: '✏️ Espace Saisisseur',
+    subtitle: 'Saisie · Suivi · Banque QCM',
+    icon: PenTool,
+    modules: ['create_question_saisisseur', 'my_questions_saisisseur', 'qcm_bank_saisisseur'],
+    color: COLORS.primary,
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
+  },
   {
     id: 'qcm',
     title: 'Gestion des questions',
@@ -321,7 +366,6 @@ const EvaluationSummative = () => {
 
   const handleModuleClick = (mod) => {
     if (mod.external) {
-      // Ouvre le terminal dans un nouvel onglet (URL déjà dynamique)
       window.open(mod.path, '_blank', 'noopener,noreferrer');
     } else {
       navigate(mod.path);
@@ -343,9 +387,11 @@ const EvaluationSummative = () => {
     );
   }
 
-  // Déterminer le message d'accueil selon le rôle
+  // Déterminer le message d'accueil selon le rôle (AJOUT SAISISEUR)
   const getWelcomeMessage = () => {
     switch (user?.role) {
+      case 'SAISISEUR':
+        return '✏️ Saisissez des questions qui seront soumises au circuit de validation pédagogique';
       case 'APPRENANT':
         return 'Accédez à vos épreuves, consultez vos résultats et utilisez le terminal d\'examen';
       case 'OPERATEUR_EVALUATION':
@@ -360,6 +406,26 @@ const EvaluationSummative = () => {
         return 'Tableau de bord NA²QUIZ';
     }
   };
+
+  // Déterminer le sous-titre de l'en-tête (AJOUT SAISISEUR)
+  const getHeaderSubtitle = () => {
+    switch (user?.role) {
+      case 'SAISISEUR':
+        return 'Saisie et suivi des questions';
+      case 'ENSEIGNANT':
+        return 'Création et gestion pédagogique';
+      case 'ADMIN_DELEGUE':
+        return 'Supervision et validation';
+      case 'OPERATEUR_EVALUATION':
+        return 'Distribution et surveillance';
+      case 'ADMIN_SYSTEME':
+        return 'Configuration et administration';
+      default:
+        return 'Plateforme d\'évaluation';
+    }
+  };
+
+  const isSaisisseur = user?.role === 'SAISISEUR';
 
   return (
     <div style={styles.app}>
@@ -377,7 +443,9 @@ const EvaluationSummative = () => {
             <div style={styles.userBadge}>
               <User size={12} style={{ marginRight: 6 }} />
               {user.name?.split(' ')[0] || user.email?.split('@')[0]} · 
-              <span style={{ color: COLORS.primaryLight, marginLeft: 4 }}>{user.role}</span>
+              <span style={{ color: isSaisisseur ? COLORS.success : COLORS.primaryLight, marginLeft: 4 }}>
+                {user.role === 'SAISISEUR' ? 'SAISISSEUR' : user.role}
+              </span>
             </div>
           )}
           <button onClick={() => navigate('/')} style={styles.iconButton}>
@@ -401,8 +469,13 @@ const EvaluationSummative = () => {
             <span style={styles.badgeDot} />
             <span style={styles.badgeText}>Tableau de bord</span>
           </div>
-          <h1 style={styles.title}>ÉVALUATION SOMMATIVE</h1>
+          <h1 style={styles.title}>
+            {isSaisisseur ? 'ESPACE SAISISSEUR' : 'ÉVALUATION SOMMATIVE'}
+          </h1>
           <p style={styles.subtitle}>{getWelcomeMessage()}</p>
+          <p style={{ fontSize: '0.7rem', color: COLORS.textMuted, marginTop: 8 }}>
+            {getHeaderSubtitle()}
+          </p>
         </motion.div>
 
         {/* Groupes de modules */}
@@ -471,6 +544,67 @@ const EvaluationSummative = () => {
                 </motion.div>
               );
             })}
+          </motion.div>
+        )}
+
+        {/* Information sur le circuit de validation pour SAISISEUR */}
+        {isSaisisseur && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            style={{
+              marginTop: 48,
+              padding: 20,
+              background: 'rgba(15,23,42,0.5)',
+              borderRadius: 16,
+              border: '1px solid rgba(16,185,129,0.2)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <Shield size={20} color={COLORS.success} />
+              <h3 style={{ color: COLORS.text, fontSize: '0.9rem', fontWeight: 600 }}>
+                Circuit de validation pédagogique
+              </h3>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  background: 'rgba(245,158,11,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 8px'
+                }}>
+                  <PenTool size={20} color="#f59e0b" />
+                </div>
+                <p style={{ color: '#f59e0b', fontSize: '0.7rem', fontWeight: 600 }}>1. Saisie</p>
+                <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>Vous saisissez la question</p>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  background: 'rgba(99,102,241,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 8px'
+                }}>
+                  <Clock size={20} color="#a5b4fc" />
+                </div>
+                <p style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>2. Validation</p>
+                <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>Le CPS examine la question</p>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  background: 'rgba(16,185,129,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 8px'
+                }}>
+                  <CheckCircle size={20} color="#10b981" />
+                </div>
+                <p style={{ color: '#10b981', fontSize: '0.7rem', fontWeight: 600 }}>3. Intégration</p>
+                <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>Question disponible dans la banque</p>
+              </div>
+            </div>
           </motion.div>
         )}
       </main>

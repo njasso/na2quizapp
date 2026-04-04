@@ -1,4 +1,4 @@
-// src/App.jsx - Version avec protection des routes et nouvelle page QCMBank
+// src/App.jsx - Version corrigée avec SAISISEUR
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -10,7 +10,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 
-// Pages de création (ENSEIGNANT)
+// Pages de création (ENSEIGNANT et SAISISEUR)
 import ManualQuizCreation from './pages/creation/ManualQuizCreation';
 import DatabaseQuizCreation from './pages/creation/DatabaseQuizCreation';
 import AIQuizCreation from './pages/creation/AIQuizCreation';
@@ -45,7 +45,7 @@ import QCMValidationPage from './pages/admin/QCMValidationPage';
 import ImportQuestions from './pages/admin/ImportQuestions';
 import UserManagementPage from './pages/admin/UserManagementPage';
 
-// ✅ NOUVEAU - Consultation analytique de la Banque de QCM
+// Consultation analytique de la Banque de QCM
 import QCMBankPage from './pages/qcm/QCMBankPage';
 
 // Composant de chargement
@@ -99,26 +99,26 @@ function App() {
             <Route path="/demo" element={<HomePage />} />
 
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* TABLEAU DE BORD UNIFIÉ - TOUS LES RÔLES */}
+            {/* TABLEAU DE BORD UNIFIÉ - TOUS LES RÔLES (INCLUT SAISISEUR) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/evaluate" element={
-              <ProtectedRoute allowedRoles={['APPRENANT', 'ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
+              <ProtectedRoute allowedRoles={['APPRENANT', 'ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
                 <EvaluationSummative />
               </ProtectedRoute>
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* PÔLE QUESTIONS (ENSEIGNANT, ADMIN) */}
+            {/* PÔLE QUESTIONS (ENSEIGNANT, SAISISEUR, ADMIN) */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             
-            {/* Création de question individuelle (avec validation) */}
+            {/* Création de question individuelle - ACCESSIBLE AU SAISISEUR */}
             <Route path="/create/question" element={
-              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
+              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
                 <CreateQuestion />
               </ProtectedRoute>
             } />
             
-            {/* Création d'épreuves */}
+            {/* Création d'épreuves - NON ACCESSIBLE AU SAISISEUR */}
             <Route path="/create/manual" element={
               <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
                 <ManualQuizCreation />
@@ -135,22 +135,22 @@ function App() {
               </ProtectedRoute>
             } />
             
-            {/* ✅ Consultation analytique de la Banque de QCM */}
+            {/* Consultation analytique de la Banque de QCM - ACCESSIBLE AU SAISISEUR */}
             <Route path="/qcm-bank" element={
-              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
+              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
                 <QCMBankPage />
               </ProtectedRoute>
             } />
             
-            {/* Gestion des questions par l'enseignant */}
+            {/* Gestion des questions par l'enseignant/saisisseur - ACCESSIBLE AU SAISISEUR */}
             <Route path="/teacher/questions" element={
-              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
+              <ProtectedRoute allowedRoles={['ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
                 <TeacherQuestionsPage />
               </ProtectedRoute>
             } />
             
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* PÔLE ÉPREUVES (ENSEIGNANT, OPERATEUR, ADMIN) */}
+            {/* PÔLE ÉPREUVES (ENSEIGNANT, OPERATEUR, ADMIN) - NON ACCESSIBLE SAISISEUR */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             <Route path="/exams" element={
               <ProtectedRoute allowedRoles={['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']}>
