@@ -10,7 +10,7 @@ import {
   ClipboardList, Award, BarChart3, Terminal, TrendingUp,
   Library, LayoutDashboard, User, LogOutIcon, HomeIcon,
   FileQuestion, GraduationCap, Activity, PenTool,
-  Clock, CheckCircle  // ✅ ICÔNES MANQUANTES AJOUTÉES
+  Clock, CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import ENV_CONFIG from '../../config/env';
@@ -43,9 +43,8 @@ const TERMINAL_URL = ENV_CONFIG.TERMINAL_URL;
 
 console.log('[EvaluationSummative] Terminal URL:', TERMINAL_URL);
 
-// ========== MODULES AVEC RÔLES CORRIGÉS (AJOUT SAISISEUR) ==========
+// ========== MODULES AVEC RÔLES CORRIGÉS ==========
 const ALL_MODULES = [
-  // ========== MODULES SAISISEUR (NOUVEAU) ==========
   {
     id: 'create_question_saisisseur',
     path: '/create/question',
@@ -97,18 +96,6 @@ const ALL_MODULES = [
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
-    id: 'database',
-    path: '/create/database',
-    icon: Database,
-    title: 'Création depuis la banque',
-    subtitle: 'Questions validées',
-    desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
-    tag: 'Banque',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
     id: 'ai',
     path: '/create/ai',
     icon: Bot,
@@ -118,6 +105,56 @@ const ALL_MODULES = [
     color: COLORS.secondary,
     gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
     tag: 'IA',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'qcm_validation',
+    path: '/admin/qcm-validation',
+    icon: CheckSquare,
+    title: 'Validation pédagogique',
+    subtitle: 'Questions en attente',
+    desc: 'Examiner et statuer sur les questions proposées par les enseignants',
+    color: COLORS.secondary,
+    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+    tag: 'Validation',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'qcm_import',
+    path: '/admin/qcm-import',
+    icon: Download,
+    title: 'Importation massive',
+    subtitle: 'CSV / JSON',
+    desc: 'Intégrer un lot de questions depuis un fichier structuré',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
+    tag: 'Import',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'my_questions',
+    path: '/teacher/questions',
+    icon: FileQuestion,
+    title: 'Mes questions',
+    subtitle: 'Suivi des QCM',
+    desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+    tag: 'Suivi',
+    roles: ['ENSEIGNANT']
+  },
+
+  // ========== MODULES GESTION DES ÉPREUVES (avec Banque QCM déplacée ici) ==========
+  {
+    id: 'database',
+    path: '/create/database',
+    icon: Database,
+    title: 'Création depuis la banque',
+    subtitle: 'Questions validées',
+    desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
+    tag: 'Banque',
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
@@ -131,6 +168,18 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Épreuves',
     roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'qcm_bank',
+    path: '/qcm-bank',
+    icon: Library,
+    title: 'Banque analytique',
+    subtitle: 'Consultation détaillée',
+    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+    tag: 'Analyse',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
     id: 'surveillance',
@@ -169,30 +218,6 @@ const ALL_MODULES = [
     roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
-    id: 'qcm_validation',
-    path: '/admin/qcm-validation',
-    icon: CheckSquare,
-    title: 'Validation pédagogique',
-    subtitle: 'Questions en attente',
-    desc: 'Examiner et statuer sur les questions proposées par les enseignants',
-    color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-    tag: 'Validation',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'qcm_import',
-    path: '/admin/qcm-import',
-    icon: Download,
-    title: 'Importation massive',
-    subtitle: 'CSV / JSON',
-    desc: 'Intégrer un lot de questions depuis un fichier structuré',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #059669, #10b981)',
-    tag: 'Import',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
     id: 'user_management',
     path: '/admin/users',
     icon: Users,
@@ -203,30 +228,6 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
     tag: 'Admin',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'qcm_bank',
-    path: '/qcm-bank',
-    icon: Library,
-    title: 'Banque analytique',
-    subtitle: 'Consultation détaillée',
-    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
-    color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-    tag: 'Analyse',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'my_questions',
-    path: '/teacher/questions',
-    icon: FileQuestion,
-    title: 'Mes questions',
-    subtitle: 'Suivi des QCM',
-    desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
-    color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-    tag: 'Suivi',
-    roles: ['ENSEIGNANT']
   },
 
   // ========== MODULES APPRENANT ==========
@@ -269,7 +270,7 @@ const ALL_MODULES = [
   }
 ];
 
-// ========== GROUPES FONCTIONNELS (AJOUT GROUPE SAISISSEUR) ==========
+// ========== GROUPES FONCTIONNELS (CORRIGÉ) ==========
 const INTEREST_GROUPS = [
   {
     id: 'saisisseur',
@@ -285,16 +286,16 @@ const INTEREST_GROUPS = [
     title: 'Gestion des questions',
     subtitle: 'Création · Validation · Import · Analyse · Suivi',
     icon: FileQuestion,
-    modules: ['create_question', 'database', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank', 'my_questions'],
+    modules: ['create_question', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank', 'my_questions'],  // ✅ qcm_bank RESTE ici
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
   },
   {
     id: 'exam',
     title: 'Gestion des épreuves',
-    subtitle: 'Composition · Distribution',
+    subtitle: 'Composition · Banque QCM · Distribution',
     icon: GraduationCap,
-    modules: ['exams'],
+    modules: ['database', 'exams'],  // ✅ Seulement 'database' (création depuis la banque)
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)'
   },
@@ -387,7 +388,7 @@ const EvaluationSummative = () => {
     );
   }
 
-  // Déterminer le message d'accueil selon le rôle (AJOUT SAISISEUR)
+  // Déterminer le message d'accueil selon le rôle
   const getWelcomeMessage = () => {
     switch (user?.role) {
       case 'SAISISEUR':
@@ -407,7 +408,7 @@ const EvaluationSummative = () => {
     }
   };
 
-  // Déterminer le sous-titre de l'en-tête (AJOUT SAISISEUR)
+  // Déterminer le sous-titre de l'en-tête
   const getHeaderSubtitle = () => {
     switch (user?.role) {
       case 'SAISISEUR':
@@ -470,7 +471,7 @@ const EvaluationSummative = () => {
             <span style={styles.badgeText}>Tableau de bord</span>
           </div>
           <h1 style={styles.title}>
-            {isSaisisseur ? 'ESPACE SAISISSEUR' : 'ÉVALUATION SOMMATIVE'}
+            {isSaisisseur ? 'ESPACE SAISISEUR' : 'ÉVALUATION SOMMATIVE'}
           </h1>
           <p style={styles.subtitle}>{getWelcomeMessage()}</p>
           <p style={{ fontSize: '0.7rem', color: COLORS.textMuted, marginTop: 8 }}>
