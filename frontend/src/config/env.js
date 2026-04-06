@@ -20,11 +20,13 @@ const getSocketUrl = () => {
   return process.env.REACT_APP_SOCKET_URL || 'https://na2quizapp.onrender.com';
 };
 
+// ✅ CORRECTION: Le terminal est servi par le BACKEND (Render), pas par Netlify
 const getTerminalUrl = () => {
   if (isLocalhost) {
     return process.env.REACT_APP_TERMINAL_URL || 'http://localhost:5000/terminal.html';
   }
-  return process.env.REACT_APP_TERMINAL_URL || 'https://na2quizapp.netlify.app/terminal.html';
+  // ⚠️ Le terminal est sur le même serveur que le backend (Render)
+  return process.env.REACT_APP_TERMINAL_URL || 'https://na2quizapp.onrender.com/terminal.html';
 };
 
 const ENV_CONFIG = {
