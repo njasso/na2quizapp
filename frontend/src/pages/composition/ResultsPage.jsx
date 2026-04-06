@@ -292,12 +292,19 @@ const ResultsPage = () => {
 
     const getOptionLabel = (opt) => {
         const labels = {
-            A: 'Collective Figée',
-            B: 'Collective Souple',
-            C: 'Personnalisée',
-            D: 'Aléatoire'
+            A: 'Fermée · Figée · Binaire',
+            B: 'Fermée · Figée · Binaire+',
+            C: 'Fermée · Figée · Sans résultat',
+            D: 'Fermée · Aléatoire · Binaire',
+            E: 'Fermée · Aléatoire · Binaire+',
+            F: 'Fermée · Aléatoire · Sans résultat',
+            G: 'Ouverte · Binaire · Reprise OK',
+            H: 'Ouverte · Binaire · No Reply',
+            I: 'Ouverte · Binaire+ · Reprise OK',
+            J: 'Ouverte · Binaire+ · No Reply',
+            K: 'Ouverte · Sans résultat · No Reply',
         };
-        return labels[opt] || `Option ${opt}`;
+        return labels[opt] || `Configuration ${opt}`;
     };
 
     // ✅ Export CSV
@@ -633,6 +640,36 @@ const ResultsPage = () => {
         return (
             <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', fontFamily: "'DM Sans', sans-serif" }}>
                 Impossible de charger l'épreuve ou ses résultats.
+            </div>
+        );
+    }
+
+    // ✅ C, F, K : "Pas de renvoi dynamique du résultat" — afficher une page de confirmation minimaliste
+    const noResultOptions = ['C', 'F', 'K'];
+    const examOption = config?.examOption || passedResultSnapshot?.examOption || passedResultSnapshot?.config?.examOption;
+    if (noResultOptions.includes(examOption)) {
+        return (
+            <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", padding: '24px' }}>
+                <div style={{ textAlign: 'center', maxWidth: '480px', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '24px', padding: '48px 32px' }}>
+                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+                        <span style={{ fontSize: '2rem' }}>✓</span>
+                    </div>
+                    <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginBottom: '12px' }}>
+                        Épreuve terminée
+                    </h1>
+                    <p style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '8px' }}>
+                        {studentInfo?.firstName} {studentInfo?.lastName}
+                    </p>
+                    <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '32px' }}>
+                        Vos réponses ont bien été enregistrées.<br />
+                        Les résultats de cette configuration (<strong style={{ color: '#60a5fa' }}>{examOption}</strong>) ne sont pas communiqués.
+                    </p>
+                    <button
+                        onClick={() => navigate('/', { replace: true })}
+                        style={{ padding: '12px 32px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}>
+                        Retour à l'accueil
+                    </button>
+                </div>
             </div>
         );
     }

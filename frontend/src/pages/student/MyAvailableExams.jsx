@@ -1,11 +1,11 @@
-// src/pages/student/MyAvailableExams.jsx - Version optimisée
+// src/pages/student/MyAvailableExams.jsx - Version COMPLÈTE À JOUR
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Play, Clock, BookOpen, ArrowLeft, Info, Tag, Layers, 
   Filter, Search, X, Calendar, Award, Star, TrendingUp,
-  Image as ImageIcon, AlertCircle
+  Image as ImageIcon, AlertCircle, CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -22,7 +22,7 @@ const MyAvailableExams = () => {
   const [filterLevel, setFilterLevel] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
   const [filterOption, setFilterOption] = useState('');
-  const [sortBy, setSortBy] = useState('date'); // date, title, duration, questions
+  const [sortBy, setSortBy] = useState('date');
 
   // Extraire les valeurs uniques pour les filtres
   const domains = useMemo(() => [...new Set(exams.map(e => e.domain).filter(Boolean))], [exams]);
@@ -94,6 +94,7 @@ const MyAvailableExams = () => {
           throw new Error('Token non trouvé');
         }
 
+        // ✅ Récupérer les épreuves disponibles
         const response = await api.get('/api/exams/available');
 
         console.log('📦 Réponse brute:', response);
@@ -114,7 +115,10 @@ const MyAvailableExams = () => {
           ...exam,
           totalPoints: exam.totalPoints || exam.questions?.reduce((sum, q) => sum + (q.points || 1), 0) || 0,
           questionCount: exam.questions?.length || 0,
-          imageUrl: exam.imageQuestion || exam.imageUrl || null
+          imageUrl: exam.imageQuestion || exam.imageUrl || exam.coverImage || null,
+          scheduledDate: exam.scheduledDate || null,
+          sessionRoom: exam.sessionRoom || null,
+          isCompleted: user.completedExams?.includes(exam._id) || false
         }));
 
         setExams(normalizedExams);
@@ -159,6 +163,12 @@ const MyAvailableExams = () => {
   }, [user, isAuthenticated, authLoading, navigate]);
 
   const startExam = (exam) => {
+    // Vérifier si l'épreuve a une date programmée dans le futur
+    if (exam.scheduledDate && new Date(exam.scheduledDate) > new Date()) {
+      toast.error(`Cette épreuve sera disponible le ${new Date(exam.scheduledDate).toLocaleString()}`);
+      return;
+    }
+
     localStorage.setItem('studentInfoForExam', JSON.stringify({
       examId: exam._id,
       info: {
@@ -172,6 +182,8 @@ const MyAvailableExams = () => {
       config: exam.config || {},
       examTitle: exam.title,
       examImage: exam.imageUrl || null,
+      scheduledDate: exam.scheduledDate,
+      sessionRoom: exam.sessionRoom,
       createdAt: new Date().toISOString()
     }));
 
@@ -489,6 +501,9 @@ const MyAvailableExams = () => {
                   D: '#3b82f6'
                 }[exam.examOption] || '#10b981';
                 
+                const isScheduledFuture = exam.scheduledDate && new Date(exam.scheduledDate) > new Date();
+                const isCompleted = exam.isCompleted;
+                
                 return (
                   <motion.div
                     key={exam._id}
@@ -503,7 +518,8 @@ const MyAvailableExams = () => {
                       borderRadius: 20,
                       padding: 24,
                       backdropFilter: 'blur(12px)',
-                      transition: 'all 0.3s ease'
+                      transition: 'all 0.3s ease',
+                      opacity: isScheduledFuture ? 0.7 : 1
                     }}
                   >
                     {/* Badge option */}
@@ -572,6 +588,23 @@ const MyAvailableExams = () => {
                       )}
                     </div>
 
+                    {/* Date programmée */}
+                    {exam.scheduledDate && (
+                      <div style={{
+                        marginBottom: 12,
+                        padding: '8px 12px',
+                        background: isScheduledFuture ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.1)',
+                        borderRadius: 8,
+                        fontSize: '0.7rem',
+                        color: isScheduledFuture ? '#f59e0b' : '#60a5fa'
+                      }}>
+                        <Calendar size={12} style={{ display: 'inline', marginRight: 6 }} />
+                        {isScheduledFuture ? 'Programmé le: ' : 'Disponible depuis le: '}
+                        {new Date(exam.scheduledDate).toLocaleString()}
+                        {exam.sessionRoom && ` · Salle: ${exam.sessionRoom}`}
+                      </div>
+                    )}
+
                     {/* Description */}
                     <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: 16, lineHeight: 1.5 }}>
                       {exam.description || 'Aucune description disponible'}
@@ -595,32 +628,51 @@ const MyAvailableExams = () => {
                       )}
                     </div>
 
+                    {/* État complété */}
+                    {isCompleted && (
+                      <div style={{ marginBottom: 12, padding: '6px 10px', background: 'rgba(16,185,129,0.1)', borderRadius: 8, textAlign: 'center' }}>
+                        <CheckCircle size={14} style={{ display: 'inline', marginRight: 6, color: '#10b981' }} />
+                        <span style={{ fontSize: '0.7rem', color: '#10b981' }}>Déjà complété</span>
+                      </div>
+                    )}
+
                     {/* Bouton de démarrage */}
                     <button
                       onClick={() => startExam(exam)}
+                      disabled={isScheduledFuture || isCompleted}
                       style={{
                         width: '100%',
                         padding: '12px',
-                        background: `linear-gradient(135deg, ${optionColor}, ${optionColor}dd)`,
+                        background: (isScheduledFuture || isCompleted) 
+                          ? 'rgba(100,100,100,0.3)' 
+                          : `linear-gradient(135deg, ${optionColor}, ${optionColor}dd)`,
                         border: 'none',
                         borderRadius: 12,
-                        color: 'white',
+                        color: (isScheduledFuture || isCompleted) ? '#64748b' : 'white',
                         fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: (isScheduledFuture || isCompleted) ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: 8,
                         transition: 'transform 0.2s'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                      onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      onMouseEnter={(e) => {
+                        if (!isScheduledFuture && !isCompleted) {
+                          e.currentTarget.style.transform = 'scale(1.02)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }}
                     >
                       <Play size={16} />
-                      {exam.examOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'épreuve'}
+                      {isScheduledFuture ? 'Épreuve à venir' : 
+                       isCompleted ? 'Déjà complété' :
+                       exam.examOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'épreuve'}
                     </button>
 
-                    {exam.examOption === 'B' && (
+                    {exam.examOption === 'B' && !isScheduledFuture && !isCompleted && (
                       <p style={{ fontSize: '0.65rem', color: '#f59e0b', textAlign: 'center', marginTop: 12 }}>
                         ⏳ Attendez que le superviseur démarre l'épreuve
                       </p>

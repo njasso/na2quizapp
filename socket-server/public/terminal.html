@@ -7,7 +7,13 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- ✅ CORRIGÉ: charge d'abord depuis le serveur (serveClient:true), CDN en fallback -->
+    <script src="/socket.io/socket.io.js" onerror="
+        var s=document.createElement('script');
+        s.src='https://cdn.socket.io/4.7.5/socket.io.min.js';
+        document.head.appendChild(s);
+        console.warn('[Terminal] ⚠️ socket.io local indisponible, CDN chargé');
+    "></script>
     <style>
         :root {
             --bg:#080e1a;
@@ -55,7 +61,7 @@
         .c-amber { color: var(--amber); }
         .c-red { color: var(--red); }
         .slbl { font-family: var(--mono); font-size: 0.53rem; font-weight: 700; color: var(--t3); letter-spacing: 0.12em; text-transform: uppercase; padding: 8px 18px 4px; }
-        .dp { margin: 0 14px; border: 1px solid rgba(255,255,255,0.05); borderRadius: 9px; overflow: hidden; background: rgba(0,0,0,0.18); }
+        .dp { margin: 0 14px; border: 1px solid rgba(255,255,255,0.05); border-radius: 9px; overflow: hidden; background: rgba(0,0,0,0.18); }
         .dr { display: flex; align-items: center; padding: 7px 11px; gap: 9px; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .dr:last-child { border-bottom: none; }
         .dk { font-family: var(--mono); font-size: 0.56rem; color: var(--t3); letter-spacing: 0.08em; text-transform: uppercase; width: 68px; flex-shrink: 0; }
@@ -119,7 +125,7 @@
     <div class="exam-ring"><span class="exam-icon">📋</span></div>
     <div>
         <div class="exam-title" id="ovTitle">Épreuve reçue</div>
-        <div class="exam-opt" id="ovOpt">OPTION A — COLLECTIVE FIGÉE</div>
+        <div class="exam-opt" id="ovOpt">OPTION — CONFIGURATION</div>
     </div>
     <div class="exam-cd" id="ovCd">▋ REDIRECTION EN COURS…</div>
 </div>
@@ -169,15 +175,16 @@
             <div class="howto-step"><div class="howto-num">2</div><div class="howto-txt">Ce terminal s'ouvre sur le <strong>poste candidat</strong> via l'URL :<br><code id="currentUrl"></code></div></div>
             <div class="howto-step"><div class="howto-num">3</div><div class="howto-txt">Le superviseur sélectionne une épreuve et clique <strong>Distribuer</strong>.</div></div>
             <div class="howto-step"><div class="howto-num">4</div><div class="howto-txt">Le candidat remplit son profil et compose l'examen.</div></div>
+            <div class="howto-step"><div class="howto-num">💡</div><div class="howto-txt"><strong>Conseil :</strong> Pour éviter de ressaisir les identifiants, l'URL du terminal peut être enregistrée comme page d'accueil du navigateur.</div></div>
         </div>
     </div>
 </div>
 <script>
 (function(){
-    console.log('[Terminal] Démarrage...');
+    console.log('[Terminal] 🚀 Démarrage...');
     
     if(typeof io === 'undefined'){
-        console.error('[Terminal] Socket.IO non chargé');
+        console.error('[Terminal] ❌ Socket.IO non chargé');
         document.getElementById('orbTitle').textContent = 'Socket.IO non chargé';
         document.getElementById('orbDesc').textContent = 'Vérifier que le serveur est démarré';
         return;
@@ -185,22 +192,32 @@
     
     var SERVER_URL = window.location.origin;
     
-    // ✅ Détection automatique de l'environnement
+    // ✅ Détection automatique de l'environnement avec fallback
     var FRONTEND_URL = (function() {
         var hostname = window.location.hostname;
+        var storedUrl = localStorage.getItem('terminalFrontendUrl');
+        
+        // URL personnalisée stockée
+        if (storedUrl) {
+            console.log('[Terminal] 📍 Frontend personnalisé:', storedUrl);
+            return storedUrl;
+        }
+        
+        // Détection automatique
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
             return 'http://localhost:3000';
         }
         if (hostname === '192.168.0.1' || hostname === '192.168.106.51') {
             return 'http://' + hostname + ':3000';
         }
+        // Production
         return 'https://na2quizapp.netlify.app';
     })();
     
-    console.log('[Terminal] Serveur:', SERVER_URL);
-    console.log('[Terminal] Frontend:', FRONTEND_URL);
+    console.log('[Terminal] 🌐 Serveur:', SERVER_URL);
+    console.log('[Terminal] 🌍 Frontend:', FRONTEND_URL);
     
-    var MAX_RECONNECT = 10;
+    var MAX_RECONNECT = 20;
     var socket = null;
     var sessionId = null;
     var reconnAttempts = 0;
@@ -241,7 +258,7 @@
     };
     
     function setStatus(state, ico, title, desc){
-        console.log('[Terminal] Status:', state, title);
+        console.log('[Terminal] 📍 Status:', state, title);
         var c = COLORS[state] || 'c-cyan';
         ['c-cyan','c-emerald','c-violet','c-amber','c-red'].forEach(function(x){
             orbWrap.classList.remove(x);
@@ -280,11 +297,11 @@
     function getOrCreateSession(){
         var id = localStorage.getItem('terminalSessionId');
         if(!id){
-            id = 'TERMINAL_' + Math.random().toString(36).substr(2, 9);
+            id = 'TERM_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             localStorage.setItem('terminalSessionId', id);
-            console.log('[Terminal] Nouvelle session créée:', id);
+            console.log('[Terminal] 🆕 Nouvelle session créée:', id);
         } else {
-            console.log('[Terminal] Session existante:', id);
+            console.log('[Terminal] 🔄 Session existante:', id);
         }
         return id;
     }
@@ -301,16 +318,16 @@
     
     function registerTerminal(){
         if(!socket || !socket.connected){
-            console.log('[Terminal] Socket non connecté, attente...');
+            console.log('[Terminal] ⚠️ Socket non connecté, attente...');
             return;
         }
         if(isRegistered){
-            console.log('[Terminal] Déjà enregistré');
+            console.log('[Terminal] ✅ Déjà enregistré');
             return;
         }
         
         sessionId = getOrCreateSession();
-        console.log('[Terminal] Envoi registerTerminal:', { sessionId: sessionId, type: 'terminal', socketId: socket.id });
+        console.log('[Terminal] 📡 Envoi registerSession:', { sessionId: sessionId, type: 'terminal', socketId: socket.id });
         
         socket.emit('registerSession', { 
             sessionId: sessionId, 
@@ -318,38 +335,44 @@
             status: 'connected'
         });
         
+        // Envoyer aussi un événement spécifique pour la salle d'attente
+        socket.emit('terminalReady', {
+            terminalId: sessionId,
+            status: 'ready'
+        });
+        
         setTimeout(function(){ isRegistered = true; }, 500);
     }
     
     function connect(){
         if(socket && socket.connected){
-            console.log('[Terminal] Déjà connecté');
+            console.log('[Terminal] 🔌 Déjà connecté');
             registerTerminal();
             return;
         }
         if(socket) socket.disconnect();
         
         setStatus('connecting', '⬡', 'Connexion…', 'tentative ' + (reconnAttempts+1) + '/' + MAX_RECONNECT);
-        console.log('[Terminal] Connexion à:', SERVER_URL);
+        console.log('[Terminal] 🔌 Connexion à:', SERVER_URL);
         
         socket = io(SERVER_URL, {
             transports: ['polling'],
             reconnection: true,
             reconnectionAttempts: MAX_RECONNECT,
             reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 20000,
+            reconnectionDelayMax: 10000,
+            timeout: 30000,
             forceNew: true,
             upgrade: false
         });
         
         socket.on('connect', function(){
-            console.log('[Terminal] ✅ Socket connecté (polling), ID:', socket.id);
+            console.log('[Terminal] ✅ Socket connecté, ID:', socket.id);
             reconnAttempts = 0;
             reconnBtn.classList.add('hidden');
             syncPanel();
             setStatus('connected', '✓', 'Connecté', 'en attente de distribution');
-            addFeed('success', 'Connecté au serveur', SERVER_URL);
+            addFeed('success', '✅ Connecté au serveur', SERVER_URL);
             
             isRegistered = false;
             registerTerminal();
@@ -365,7 +388,7 @@
             reconnAttempts++;
             if(reconnAttempts >= MAX_RECONNECT){
                 setStatus('error', '⚠', 'Serveur inaccessible', SERVER_URL);
-                addFeed('error', 'Connexion impossible', 'vérifier que le serveur est démarré');
+                addFeed('error', '❌ Connexion impossible', 'vérifier que le serveur est démarré');
                 reconnBtn.classList.remove('hidden');
             }
         });
@@ -376,7 +399,7 @@
             reconnBtn.classList.add('hidden');
             syncPanel();
             setStatus('connected', '✓', 'Reconnecté', 'connexion rétablie');
-            addFeed('info', 'Reconnecté', 'tentative ' + n);
+            addFeed('info', '🔄 Reconnecté', 'tentative ' + n);
             isRegistered = false;
             registerTerminal();
         });
@@ -386,20 +409,21 @@
             cleanup();
             syncPanel();
             setStatus('error', '⚡', 'Déconnecté', reason);
-            addFeed('warning', 'Déconnecté', reason);
+            addFeed('warning', '⚠️ Déconnecté', reason);
             isRegistered = false;
         });
         
-        // ✅ VERSION CORRIGÉE DE examDistributed
+        // ✅ Écouteur pour examDistributed (version améliorée)
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
             
             var examId = data.examId;
-            var option = data.examOption || 'C';
+            var option = data.examOption || data.option || 'C';
+            var config = data.config || null;
             
             if(!examId) {
-                console.error('[Terminal] Aucun examId reçu');
+                console.error('[Terminal] ❌ Aucun examId reçu');
                 addFeed('error', 'Erreur de distribution', 'examId manquant');
                 return;
             }
@@ -409,33 +433,53 @@
                 socket.emit('terminalReadyForExam', {
                     examId: examId,
                     examOption: option,
-                    terminalId: sessionId
+                    terminalId: sessionId,
+                    config: config
                 });
                 console.log('[Terminal] ✅ Accusé envoyé pour option', option);
-                addFeed('success', 'Accusé envoyé', 'Option ' + option);
+                addFeed('success', '✅ Accusé envoyé', 'Option ' + option);
             }
             
+            // ✅ Mapper les options vers leurs libellés
+            var OPTIONS_LABELS = {
+                'A': 'COLLECTIVE FIGÉE (Plage fermée, séquentiel figé)',
+                'B': 'COLLECTIVE SOUPLE (Plage fermée, séquentiel figé)',
+                'C': 'PERSONNALISÉE (Plage fermée, navigation libre)',
+                'D': 'ALÉATOIRE (Plage fermée, QCM aléatoire)',
+                'E': 'ALÉATOIRE+ (Plage fermée, aléatoire + bonne réponse)',
+                'F': 'ALÉATOIRE LIBRE (Plage fermée, aléatoire sans feedback)',
+                'G': 'PLAGE OUVERTE + REPRISE (Résultat binaire)',
+                'H': 'PLAGE OUVERTE (Résultat binaire, sans reprise)',
+                'I': 'PLAGE OUVERTE+ (Résultat binaire + bonne réponse)',
+                'J': 'PLAGE OUVERTE++ (Résultat binaire + bonne réponse, sans reprise)',
+                'K': 'PLAGE OUVERTE LIBRE (Sans résultat, sans reprise)'
+            };
+            
             // ✅ Récupérer le token JWT
-            var token = localStorage.getItem('userToken');
+            var token = localStorage.getItem('userToken') || localStorage.getItem('token');
             var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
             if (token) {
                 redirectUrl += '&token=' + encodeURIComponent(token);
-                console.log('[Terminal] ✅ Token ajouté à l\'URL');
+                console.log('[Terminal] 🔑 Token ajouté à l\'URL');
             } else {
                 console.warn('[Terminal] ⚠️ Aucun token trouvé dans localStorage');
             }
             
-            console.log('[Terminal] Redirection vers:', redirectUrl);
+            // ✅ Ajouter la config si elle existe
+            if (config) {
+                redirectUrl += '&config=' + encodeURIComponent(JSON.stringify(config));
+            }
+            
+            console.log('[Terminal] 🔗 Redirection vers:', redirectUrl);
             
             isRedirecting = true;
             cleanup();
             
-            var OPTS = { A:'COLLECTIVE FIGÉE', B:'COLLECTIVE SOUPLE', C:'PERSONNALISÉE', D:'ALÉATOIRE' };
-            var optName = OPTS[option] || ('OPTION ' + (option || '?'));
+            var optName = OPTIONS_LABELS[option] || ('OPTION ' + (option || '?'));
             
             setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — redirection…');
-            addFeed('success', 'Épreuve reçue — Option ' + (option || '?'), 'redirection dans 2s…');
+            addFeed('success', '📋 Épreuve reçue — Option ' + (option || '?'), optName);
             ovTitle.textContent = (option ? 'Option ' + option + ' — ' : '') + 'Épreuve reçue';
             ovOpt.textContent = optName;
             overlay.classList.add('on');
@@ -448,13 +492,13 @@
             }, 1000);
             
             redirTimeout = setTimeout(function(){
-                console.log('[Terminal] Redirection finale vers:', redirectUrl);
+                console.log('[Terminal] 🚀 Redirection finale vers:', redirectUrl);
                 window.location.href = redirectUrl;
             }, 2000);
         });
         
         socket.on('waitingCountUpdate', function(data){
-            console.log('[Terminal] Compteur attente:', data);
+            console.log('[Terminal] 📊 Compteur attente:', data);
             var n = (data && data.count) ? data.count : 0;
             if(n > 0){
                 ctr.classList.add('on');
@@ -465,20 +509,31 @@
             }
         });
         
-        socket.on('pong', function(){});
-        
         socket.on('examFinished', function(data){
-            console.log('[Terminal] Examen terminé:', data);
+            console.log('[Terminal] 🏁 Examen terminé:', data);
             isRedirecting = false;
             overlay.classList.remove('on');
             ctr.classList.remove('on');
             setStatus('connected', '✓', 'Connecté', 'en attente d\'une nouvelle distribution');
-            addFeed('info', 'Épreuve terminée', 'Terminal prêt pour une nouvelle session');
+            addFeed('info', '🏁 Épreuve terminée', 'Terminal prêt pour une nouvelle session');
+        });
+        
+        socket.on('pong', function(){
+            // Heartbeat reçu
+        });
+        
+        socket.on('examCanceled', function(data){
+            console.log('[Terminal] ❌ Examen annulé:', data);
+            isRedirecting = false;
+            overlay.classList.remove('on');
+            setStatus('connected', '✓', 'Connecté', 'distribution annulée');
+            addFeed('warning', '❌ Distribution annulée', 'Le superviseur a annulé l\'épreuve');
         });
     }
     
+    // Reconnecter manuellement
     reconnBtn.addEventListener('click', function(){
-        console.log('[Terminal] Reconnexion manuelle');
+        console.log('[Terminal] 🔄 Reconnexion manuelle');
         reconnBtn.classList.add('hidden');
         reconnAttempts = 0;
         cleanup();
@@ -487,14 +542,17 @@
         setTimeout(connect, 300);
     });
     
+    // Actualiser la page
     refrBtn.addEventListener('click', function(){
-        console.log('[Terminal] Rechargement manuel');
+        console.log('[Terminal] 🔄 Rechargement manuel');
         window.location.reload();
     });
     
+    // Désactiver les service workers
     if('serviceWorker' in navigator){
         navigator.serviceWorker.getRegistrations().then(function(rs){
             rs.forEach(function(r){ r.unregister(); });
+            console.log('[Terminal] 🧹 Service workers désenregistrés');
         });
     }
     
@@ -503,19 +561,20 @@
     connect();
     
     window.addEventListener('beforeunload', function(){
-        console.log('[Terminal] Fermeture de la page');
+        console.log('[Terminal] 👋 Fermeture de la page');
         cleanup();
         if(socket) socket.disconnect();
     });
     
+    // Timeout de vérification
     setTimeout(function(){
         if(!socket || !socket.connected){
-            console.log('[Terminal] Connexion lente, affichage avertissement');
-            addFeed('warning', 'Connexion lente', 'Vérifier que le serveur est démarré');
+            console.log('[Terminal] ⚠️ Connexion lente, affichage avertissement');
+            addFeed('warning', '⚠️ Connexion lente', 'Vérifier que le serveur est démarré');
         }
-    }, 4000);
+    }, 5000);
     
-    console.log('[Terminal] Initialisation terminée');
+    console.log('[Terminal] ✅ Initialisation terminée');
 })();
 </script>
 </body>

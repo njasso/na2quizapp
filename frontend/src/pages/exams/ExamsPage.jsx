@@ -1,30 +1,120 @@
-// src/pages/ExamsPage.jsx - Version avec affichage des images
+// src/pages/ExamsPage.jsx - Version COMPLÈTE avec accès par rôle (Admin, Enseignant, Opérateur)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit, Trash2, Play, Eye, Plus, Home, RefreshCw, Search, Clock, Layers, BookOpen, ArrowLeft, Award, Tag, Image as ImageIcon } from 'lucide-react';
+import { 
+  Edit, Trash2, Play, Eye, Plus, Home, RefreshCw, Search, 
+  Clock, Layers, BookOpen, ArrowLeft, Award, Tag, Image as ImageIcon,
+  Shield, UserCheck, Calendar, Monitor
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import ENV_CONFIG from '../../config/env';
 
 const ExamsPage = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [exams, setExams] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState('');
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [assignedToMe, setAssignedToMe] = useState(false); // Filtre pour opérateur
+
+  // ✅ Déterminer les droits d'accès
+  const isAdmin = hasRole('ADMIN_SYSTEME') || hasRole('ADMIN_DELEGUE');
+  const isTeacher = hasRole('ENSEIGNANT');
+  const isOperator = hasRole('OPERATEUR_EVALUATION');
+  const isSaisisseur = hasRole('SAISISEUR');
+  const isApprenant = hasRole('APPRENANT');
+
+  // ✅ Message d'accueil personnalisé selon le rôle
+  const getHeaderTitle = () => {
+    if (isAdmin) return 'Gestion des épreuves';
+    if (isTeacher) return 'Mes épreuves';
+    if (isOperator) return 'Épreuves assignées';
+    if (isSaisisseur) return 'Accès restreint';
+    if (isApprenant) return 'Accès restreint';
+    return 'Épreuves';
+  };
+
+  const getHeaderDescription = () => {
+    if (isAdmin) return 'Administration complète des épreuves de la plateforme';
+    if (isTeacher) return 'Consultez et gérez vos épreuves pédagogiques';
+    if (isOperator) return 'Épreuves qui vous ont été assignées pour supervision';
+    if (isSaisisseur) return 'Cette page est réservée aux enseignants et administrateurs';
+    if (isApprenant) return 'Cette page est réservée aux enseignants et administrateurs';
+    return '';
+  };
+
+  // ✅ Vérifier si l'utilisateur peut modifier/supprimer une épreuve
+  const canModifyExam = (exam) => {
+    if (isAdmin) return true;
+    if (isTeacher) {
+      const isOwner = exam.createdBy?._id === user?._id || exam.createdBy === user?._id;
+      return isOwner;
+    }
+    return false;
+  };
+
+  // ✅ Vérifier si l'utilisateur peut composer une épreuve
+  const canComposeExam = (exam) => {
+    if (isAdmin) return true;
+    if (isTeacher) return true;
+    if (isOperator) {
+      // L'opérateur peut composer les épreuves qui lui sont assignées
+      return exam.assignedTo === user?._id || exam.assignedTo?._id === user?._id;
+    }
+    return false;
+  };
 
   useEffect(() => {
+    // ✅ Vérification d'accès pour les rôles non autorisés
+    if (!isAdmin && !isTeacher && !isOperator) {
+      console.log('[ExamsPage] Accès non autorisé pour le rôle:', user?.role);
+      setAccessDenied(true);
+      setIsLoading(false);
+      toast.error('Accès non autorisé. Cette page est réservée aux enseignants, opérateurs et administrateurs.');
+      setTimeout(() => navigate('/evaluate'), 2000);
+      return;
+    }
+
     const controller = new AbortController();
 
     const fetchExams = async () => {
       setIsLoading(true);
 
       try {
-        const response = await api.get('/api/exams', {
-          signal: controller.signal,
-        });
+        let response;
+        
+        // ✅ Sélectionner la bonne API selon le rôle
+        if (isAdmin) {
+          // Admin voit TOUTES les épreuves
+          console.log('[ExamsPage] Admin - Récupération de toutes les épreuves');
+          response = await api.get('/api/exams', { signal: controller.signal });
+        } 
+        else if (isTeacher) {
+          // Enseignant voit SES PROPRES épreuves
+          console.log('[ExamsPage] Enseignant - Récupération de ses propres épreuves');
+          response = await api.get('/api/exams/my-created', { signal: controller.signal });
+        }
+        else if (isOperator) {
+          // Opérateur voit les épreuves qui lui sont ASSIGNÉES
+          console.log('[ExamsPage] Opérateur - Récupération des épreuves assignées');
+          try {
+            response = await api.get('/api/exams/assigned-to-me', { signal: controller.signal });
+          } catch (err) {
+            // Fallback: utiliser la route générique avec filtre
+            console.log('[ExamsPage] Fallback - Utilisation de /api/exams/by-role');
+            response = await api.get('/api/exams/by-role', { signal: controller.signal });
+          }
+        }
+        else {
+          setExams([]);
+          setIsLoading(false);
+          return;
+        }
 
         let examsData = [];
         if (Array.isArray(response)) {
@@ -37,17 +127,33 @@ const ExamsPage = () => {
           examsData = [];
         }
 
+        console.log(`[ExamsPage] ✅ ${examsData.length} épreuve(s) chargée(s)`);
+
         // Normaliser les données avec images
         const normalizedExams = examsData.map(exam => {
           // Récupérer l'image de couverture
           let coverImage = exam.coverImage || '';
+          
           if (!coverImage && exam.questions && exam.questions.length > 0) {
             const firstQuestionWithImage = exam.questions.find(q => q.imageQuestion || q.imageBase64);
             if (firstQuestionWithImage) {
-              coverImage = firstQuestionWithImage.imageQuestion || 
-                          (firstQuestionWithImage.imageBase64?.startsWith('data:') ? firstQuestionWithImage.imageBase64 : '');
+              let img = firstQuestionWithImage.imageQuestion || '';
+              if (!img && firstQuestionWithImage.imageBase64?.startsWith('data:')) {
+                img = firstQuestionWithImage.imageBase64;
+              }
+              if (img && img.startsWith('/uploads/')) {
+                img = `${ENV_CONFIG.BACKEND_URL}${img}`;
+              }
+              coverImage = img;
             }
           }
+          
+          if (coverImage && coverImage.startsWith('/uploads/')) {
+            coverImage = `${ENV_CONFIG.BACKEND_URL}${coverImage}`;
+          }
+          
+          // Déterminer le statut d'assignation pour l'opérateur
+          const isAssignedToMe = exam.assignedTo === user?._id || exam.assignedTo?._id === user?._id;
           
           return {
             ...exam,
@@ -57,13 +163,17 @@ const ExamsPage = () => {
             level: exam.level || 'Non spécifié',
             subject: exam.subject || 'Non spécifié',
             coverImage: coverImage,
+            isOwner: exam.createdBy?._id === user?._id || exam.createdBy === user?._id,
+            isAssignedToMe: isAssignedToMe,
+            assignedByName: exam.assignedBy?.name || (exam.assignedTo ? 'Administrateur' : null)
           };
         });
 
         setExams(normalizedExams);
+        
       } catch (error) {
         if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
-          console.log('[ExamsPage] Requête annulée (comportement normal en développement)');
+          console.log('[ExamsPage] Requête annulée');
           return;
         }
 
@@ -74,8 +184,11 @@ const ExamsPage = () => {
           localStorage.removeItem('userToken');
           localStorage.removeItem('userInfo');
           navigate('/login');
+        } else if (error.response?.status === 403) {
+          toast.error('Accès non autorisé à cette ressource');
+          setTimeout(() => navigate('/evaluate'), 2000);
         } else {
-          toast.error("Impossible de charger les épreuves. Vérifiez que le serveur est démarré.");
+          toast.error("Impossible de charger les épreuves.");
         }
         setExams([]);
       } finally {
@@ -86,9 +199,15 @@ const ExamsPage = () => {
     fetchExams();
 
     return () => controller.abort();
-  }, [navigate]);
+  }, [navigate, user, isAdmin, isTeacher, isOperator]);
 
   const deleteExam = async (examId) => {
+    const exam = exams.find(e => e._id === examId);
+    if (!canModifyExam(exam)) {
+      toast.error('Vous n\'avez pas les droits pour supprimer cette épreuve');
+      return;
+    }
+    
     try {
       await api.delete(`/api/exams/${examId}`);
       setExams(exams.filter(e => e._id !== examId));
@@ -141,6 +260,49 @@ const ExamsPage = () => {
     </motion.button>
   );
 
+  // ✅ Affichage si accès refusé
+  if (accessDenied) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #05071a, #0a0f2e)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px'
+      }}>
+        <div style={{
+          background: 'rgba(239,68,68,0.1)',
+          border: '1px solid #ef4444',
+          borderRadius: 24,
+          padding: 48,
+          textAlign: 'center',
+          maxWidth: 500
+        }}>
+          <Shield size={64} color="#ef4444" style={{ marginBottom: 16 }} />
+          <h2 style={{ color: '#f8fafc', marginBottom: 12 }}>Accès non autorisé</h2>
+          <p style={{ color: '#ef4444', marginBottom: 24 }}>
+            Cette page est réservée aux enseignants, opérateurs et administrateurs.
+            <br />Votre rôle actuel: <strong>{user?.role || 'inconnu'}</strong>
+          </p>
+          <button
+            onClick={() => navigate('/evaluate')}
+            style={{
+              padding: '10px 24px',
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              border: 'none',
+              borderRadius: 8,
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            Retour au tableau de bord
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       minHeight: '100vh', fontFamily: "'DM Sans', sans-serif",
@@ -188,7 +350,7 @@ const ExamsPage = () => {
             WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
           }}>NA²QUIZ</span>
           <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Mes Épreuves</span>
+          <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>{getHeaderTitle()}</span>
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -207,20 +369,24 @@ const ExamsPage = () => {
           >
             <Home size={14} /> Accueil
           </motion.button>
-          <motion.button 
-            whileHover={{ scale: 1.04 }} 
-            whileTap={{ scale: 0.97 }}
-            onClick={() => navigate('/create/database')}
-            style={{ 
-              display: 'flex', alignItems: 'center', gap: '6px', 
-              padding: '7px 16px', borderRadius: '8px', 
-              background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', 
-              border: 'none', color: '#fff', fontSize: '0.875rem', 
-              fontWeight: 600, cursor: 'pointer' 
-            }}
-          >
-            <Plus size={14} /> Nouvelle épreuve
-          </motion.button>
+          
+          {/* ✅ Seuls les admins et enseignants peuvent créer des épreuves */}
+          {(isAdmin || isTeacher) && (
+            <motion.button 
+              whileHover={{ scale: 1.04 }} 
+              whileTap={{ scale: 0.97 }}
+              onClick={() => navigate('/create/database')}
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: '6px', 
+                padding: '7px 16px', borderRadius: '8px', 
+                background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', 
+                border: 'none', color: '#fff', fontSize: '0.875rem', 
+                fontWeight: 600, cursor: 'pointer' 
+              }}
+            >
+              <Plus size={14} /> Nouvelle épreuve
+            </motion.button>
+          )}
         </div>
       </header>
 
@@ -229,10 +395,10 @@ const ExamsPage = () => {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.875rem', fontWeight: 800, letterSpacing: '-0.03em', color: '#f8fafc', marginBottom: '4px' }}>
-              Mes Épreuves
+              {getHeaderTitle()}
             </h1>
             <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-              {exams.length} épreuve{exams.length !== 1 ? 's' : ''} au total
+              {getHeaderDescription()} · {exams.length} épreuve{exams.length !== 1 ? 's' : ''}
             </p>
           </div>
           <div style={{ position: 'relative', width: '280px' }}>
@@ -268,20 +434,24 @@ const ExamsPage = () => {
           >
             <BookOpen size={48} color="#1e293b" style={{ marginBottom: '16px' }} />
             <p style={{ color: '#475569', fontSize: '1rem', marginBottom: '20px' }}>
-              {search ? 'Aucune épreuve ne correspond à votre recherche.' : 'Aucune épreuve disponible.'}
+              {search ? 'Aucune épreuve ne correspond à votre recherche.' : 
+                isOperator ? 'Aucune épreuve ne vous a été assignée pour le moment.' :
+                'Aucune épreuve disponible.'}
             </p>
-            <motion.button 
-              whileHover={{ scale: 1.03 }} 
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate('/create/database')}
-              style={{ 
-                padding: '10px 24px', background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', 
-                border: 'none', borderRadius: '8px', color: '#fff', 
-                fontWeight: 600, cursor: 'pointer' 
-              }}
-            >
-              <Plus size={15} style={{ marginRight: '6px' }} /> Créer une épreuve
-            </motion.button>
+            {(isAdmin || isTeacher) && (
+              <motion.button 
+                whileHover={{ scale: 1.03 }} 
+                whileTap={{ scale: 0.97 }}
+                onClick={() => navigate('/create/database')}
+                style={{ 
+                  padding: '10px 24px', background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', 
+                  border: 'none', borderRadius: '8px', color: '#fff', 
+                  fontWeight: 600, cursor: 'pointer' 
+                }}
+              >
+                <Plus size={15} style={{ marginRight: '6px' }} /> Créer une épreuve
+              </motion.button>
+            )}
           </motion.div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '18px' }}>
@@ -316,6 +486,27 @@ const ExamsPage = () => {
                   >
                     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: `linear-gradient(90deg, ${color}, transparent)` }} />
 
+                    {/* Badge d'assignation pour opérateur */}
+                    {isOperator && exam.isAssignedToMe && (
+                      <div style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        zIndex: 10,
+                        background: 'rgba(16,185,129,0.9)',
+                        padding: '2px 8px',
+                        borderRadius: '20px',
+                        fontSize: '0.6rem',
+                        fontWeight: 600,
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}>
+                        <UserCheck size={10} /> Assignée
+                      </div>
+                    )}
+
                     {/* Image de couverture */}
                     {exam.coverImage && (
                       <div style={{
@@ -330,6 +521,10 @@ const ExamsPage = () => {
                             width: '100%',
                             height: '100%',
                             objectFit: 'cover',
+                          }}
+                          onError={(e) => {
+                            console.warn('[ExamsPage] Erreur chargement image:', exam.coverImage);
+                            e.target.style.display = 'none';
                           }}
                         />
                       </div>
@@ -346,12 +541,18 @@ const ExamsPage = () => {
                               padding: '2px 8px', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 700,
                               background: exam.examOption === 'A' ? 'rgba(239,68,68,0.2)' : 
                                          exam.examOption === 'B' ? 'rgba(59,130,246,0.2)' : 
-                                         exam.examOption === 'C' ? 'rgba(139,92,246,0.2)' : 'rgba(245,158,11,0.2)',
+                                         exam.examOption === 'C' ? 'rgba(139,92,246,0.2)' : 
+                                         exam.examOption === 'D' ? 'rgba(245,158,11,0.2)' :
+                                         exam.examOption === 'E' ? 'rgba(245,158,11,0.2)' :
+                                         exam.examOption === 'F' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
                               color: exam.examOption === 'A' ? '#ef4444' : 
                                      exam.examOption === 'B' ? '#3b82f6' : 
-                                     exam.examOption === 'C' ? '#8b5cf6' : '#f59e0b',
+                                     exam.examOption === 'C' ? '#8b5cf6' : 
+                                     exam.examOption === 'D' ? '#f59e0b' :
+                                     exam.examOption === 'E' ? '#f59e0b' :
+                                     exam.examOption === 'F' ? '#f59e0b' : '#10b981',
                             }}>
-                              Option {exam.examOption}
+                              {exam.examOption}
                             </span>
                           )}
                         </div>
@@ -415,35 +616,51 @@ const ExamsPage = () => {
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <ActionBtn color="#10b981" title="Composer" onClick={() => {
-                            localStorage.setItem('studentInfoForExam', JSON.stringify({
-                              examId: exam._id,
-                              info: { firstName: 'Test', lastName: 'Enseignant', matricule: 'PROF-001', level: exam.level || '' },
-                              examOption: exam.examOption || 'C',
-                              config: exam.config,
-                              terminalSessionId: null
-                            }));
-                            navigate(`/exam/compose/${exam._id}`);
-                          }}>
-                            <Play size={15} />
-                          </ActionBtn>
+                          {/* ✅ Bouton Composer - accessible selon le rôle */}
+                          {canComposeExam(exam) && (
+                            <ActionBtn color="#10b981" title="Composer" onClick={() => {
+                              localStorage.setItem('studentInfoForExam', JSON.stringify({
+                                examId: exam._id,
+                                info: { 
+                                  firstName: user?.name?.split(' ')[0] || 'Test', 
+                                  lastName: user?.name?.split(' ')[1] || 'Enseignant', 
+                                  matricule: user?.matricule || 'PROF-001', 
+                                  level: exam.level || '' 
+                                },
+                                examOption: exam.examOption || 'C',
+                                config: exam.config,
+                                terminalSessionId: null
+                              }));
+                              navigate(`/exam/compose/${exam._id}`);
+                            }}>
+                              <Play size={15} />
+                            </ActionBtn>
+                          )}
+                          
                           <ActionBtn color="#3b82f6" title="Prévisualiser" onClick={() => navigate(`/preview/${exam._id}`)}>
                             <Eye size={15} />
                           </ActionBtn>
-                          <ActionBtn color="#f59e0b" title="Modifier" onClick={() => navigate(`/create/manual`, { state: { editExamId: exam._id, exam } })}>
-                            <Edit size={15} />
-                          </ActionBtn>
+                          
+                          {/* ✅ Seuls les propriétaires et admins peuvent modifier */}
+                          {canModifyExam(exam) && (
+                            <ActionBtn color="#f59e0b" title="Modifier" onClick={() => navigate(`/create/manual`, { state: { editExamId: exam._id, exam } })}>
+                              <Edit size={15} />
+                            </ActionBtn>
+                          )}
                         </div>
 
-                        {deleteConfirm === exam._id ? (
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button onClick={() => deleteExam(exam._id)} style={{ padding: '5px 10px', background: '#dc2626', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Confirmer</button>
-                            <button onClick={() => setDeleteConfirm(null)} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '6px', color: '#94a3b8', fontSize: '0.75rem', cursor: 'pointer' }}>Annuler</button>
-                          </div>
-                        ) : (
-                          <ActionBtn color="#ef4444" title="Supprimer" onClick={() => setDeleteConfirm(exam._id)}>
-                            <Trash2 size={15} />
-                          </ActionBtn>
+                        {/* ✅ Seuls les propriétaires et admins peuvent supprimer */}
+                        {canModifyExam(exam) && (
+                          deleteConfirm === exam._id ? (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button onClick={() => deleteExam(exam._id)} style={{ padding: '5px 10px', background: '#dc2626', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Confirmer</button>
+                              <button onClick={() => setDeleteConfirm(null)} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '6px', color: '#94a3b8', fontSize: '0.75rem', cursor: 'pointer' }}>Annuler</button>
+                            </div>
+                          ) : (
+                            <ActionBtn color="#ef4444" title="Supprimer" onClick={() => setDeleteConfirm(exam._id)}>
+                              <Trash2 size={15} />
+                            </ActionBtn>
+                          )
                         )}
                       </div>
                     </div>

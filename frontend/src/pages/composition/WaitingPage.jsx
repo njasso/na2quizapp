@@ -87,6 +87,20 @@ const WaitingPage = () => {
       setExamTitle(parsed.examTitle || 'Épreuve');
       setExamOption(parsed.examOption || 'A');
 
+      // ✅ Plage ouverte (G–K) : pas besoin d'attendre le signal du professeur
+      // → naviguer directement vers la composition
+      const openRangeOptions = ['G', 'H', 'I', 'J', 'K'];
+      if (openRangeOptions.includes(parsed.examOption)) {
+        toast.success('Épreuve en accès libre — démarrage immédiat !', { duration: 2000, icon: '🟢' });
+        setTimeout(() => {
+          navigate(`/exam/compose/${examId}`, {
+            state: { examOption: parsed.examOption },
+            replace: true
+          });
+        }, 1200);
+        return;
+      }
+
       const stableKey = `studentSessionId_${examId}`;
       let stableId = sessionStorage.getItem(stableKey);
       if (!stableId) {
@@ -207,20 +221,26 @@ const WaitingPage = () => {
 
   const getOptionLabel = (option) => {
     const labels = {
-      'A': 'Collective Figée',
-      'B': 'Collective Souple',
-      'C': 'Personnalisée',
-      'D': 'Aléatoire'
+      'A': 'Fermée · Figée · Binaire',
+      'B': 'Fermée · Figée · Binaire+',
+      'C': 'Fermée · Figée · Sans résultat',
+      'D': 'Fermée · Aléatoire · Binaire',
+      'E': 'Fermée · Aléatoire · Binaire+',
+      'F': 'Fermée · Aléatoire · Sans résultat',
+      'G': 'Ouverte · Binaire · Reprise OK',
+      'H': 'Ouverte · Binaire · No Reply',
+      'I': 'Ouverte · Binaire+ · Reprise OK',
+      'J': 'Ouverte · Binaire+ · No Reply',
+      'K': 'Ouverte · Sans résultat · No Reply',
     };
-    return labels[option] || `Option ${option}`;
+    return labels[option] || `Configuration ${option}`;
   };
 
   const getOptionColor = (option) => {
     const colors = {
-      'A': '#ef4444',
-      'B': '#3b82f6',
-      'C': '#8b5cf6',
-      'D': '#f59e0b'
+      'A': '#ef4444', 'B': '#ef4444', 'C': '#ef4444',
+      'D': '#f59e0b', 'E': '#f59e0b', 'F': '#f59e0b',
+      'G': '#10b981', 'H': '#10b981', 'I': '#10b981', 'J': '#10b981', 'K': '#10b981',
     };
     return colors[option] || '#3b82f6';
   };

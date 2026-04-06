@@ -1,4 +1,4 @@
-// socket-server/server.js - Version finale avec terminal.html
+// socket-server/server.js - Version COMPLÈTE avec référentiel intégré
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -15,6 +15,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import fs from 'fs';
+
+// ✅ IMPORT DU RÉFÉRENTIEL CAMEROUNAIS
+import DOMAIN_DATA, { 
+  getAllDomaines, 
+  getAllSousDomaines, 
+  getAllLevels, 
+  getAllMatieres,
+  getDomainNom,
+  getSousDomaineNom,
+  getLevelNom,
+  getMatiereNom,
+  getMatiereCode
+} from './domainConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,7 +70,6 @@ const CORS_ORIGINS = [
 const app = express();
 const server = createServer(app);
 
-// ✅ UN SEUL appel app.use(cors())
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -77,16 +89,13 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Security (désactivé en dev pour éviter les blocages)
 if (isProduction) {
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" }, contentSecurityPolicy: false }));
   app.use(compression());
 }
 
-// Trust proxy (Render passe par un reverse proxy — obligatoire pour express-rate-limit)
 app.set('trust proxy', 1);
 
-// Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProduction ? 500 : 5000,
@@ -102,15 +111,13 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 const uploadsDir = path.join(publicDir, 'uploads/questions');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// Servir les fichiers statiques (uploads + terminal.html)
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(publicDir, 'uploads')));
 
 // ═══════════════════════════════════════════════════════════════
-// SCHÉMAS MONGOOSE (COMPLETS)
+// SCHÉMAS MONGOOSE
 // ═══════════════════════════════════════════════════════════════
 
-// === User Schema ===
 // === User Schema ===
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -149,13 +156,27 @@ userSchema.methods.toJSON = function() {
   return obj;
 };
 
-// === Question Schema ===
+// === Question Schema - VERSION AVEC RÉFÉRENTIEL COMPLET ===
 const questionSchema = new mongoose.Schema({
+  // ✅ CHAMPS RÉFÉRENTIEL (IDs pour validation et recherche)
+  domaineId: { type: String, required: true },
   domaine: { type: String, required: true },
-  sousDomaine: { type: String, default: '' },
+  domaineCode: { type: String, default: '' },
+  
+  sousDomaineId: { type: String, required: true },
+  sousDomaine: { type: String, required: true },
+  sousDomaineCode: { type: String, default: '' },
+  
+  niveauId: { type: String, required: true },
   niveau: { type: String, required: true },
+  
+  matiereId: { type: String, required: true },
   matiere: { type: String, required: true },
- libChapitre: { type: String, required: true }, 
+  matiereCode: { type: String, default: '' },
+  
+  libChapitre: { type: String, required: true },
+  
+  // ✅ Contenu de la question
   libQuestion: { type: String, required: true },
   imageQuestion: { type: String, default: '' },
   imageBase64: { type: String, default: '', select: false },
@@ -184,14 +205,21 @@ const questionSchema = new mongoose.Schema({
   rejectionComment: { type: String, default: '' }
 }, { timestamps: true });
 
+// ✅ INDEX OPTIMISÉS
+questionSchema.index({ domaineId: 1, sousDomaineId: 1, niveauId: 1, matiereId: 1 });
+questionSchema.index({ matiereCode: 1 });
+questionSchema.index({ status: 1, createdAt: -1 });
+questionSchema.index({ createdBy: 1, status: 1 });
 questionSchema.index({ cleInterne: 1 }, { unique: true, sparse: true });
-questionSchema.index({ matiere: 1, libQuestion: 1 }, { unique: true });
-questionSchema.index({ domaine: 1, niveau: 1, matiere: 1 });
-questionSchema.index({ status: 1 });
+questionSchema.index({ libChapitre: 1 });
 
 questionSchema.pre('save', function(next) {
   if (!this.cleInterne && this.matiere && this.libQuestion) {
     this.cleInterne = `${this.matiere}::${this.libQuestion}`;
+  }
+  if (!this.matiereCode && this.matiereId && this.sousDomaineId && this.domaineId) {
+    const code = getMatiereCode(this.domaineId, this.sousDomaineId, this.matiereId);
+    if (code) this.matiereCode = code;
   }
   if (this.imageQuestion && this.imageQuestion.trim()) {
     this.imageMetadata.storageType = 'url';
@@ -220,7 +248,27 @@ const examSchema = new mongoose.Schema({
   teacherGrade: { type: String, default: '' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
-  cleExterne: { type: String, default: '' }
+  cleExterne: { type: String, default: '' },
+  
+  assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  scheduledDate: { type: Date, default: null },
+  sessionRoom: { type: String, default: 'Salle principale' },
+  
+  config: {
+    examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+    openRange: { type: Boolean, default: false },
+    requiredQuestions: { type: Number, default: 0 },
+    sequencing: { type: String, default: 'identical' },
+    allowRetry: { type: Boolean, default: false },
+    showBinaryResult: { type: Boolean, default: false },
+    showCorrectAnswer: { type: Boolean, default: false },
+    timerPerQuestion: { type: Boolean, default: false },
+    timePerQuestion: { type: Number, default: 60 },
+    totalTime: { type: Number, default: 60 },
+    pointsType: { type: String, enum: ['uniform', 'variable'], default: 'uniform' },
+    globalPoints: { type: Number, default: 1 },
+    timerDisplayMode: { type: String, enum: ['once', 'twice', 'fourTimes', 'permanent'], default: 'permanent' }
+  }
 }, { timestamps: true });
 
 examSchema.virtual('totalPoints').get(function() {
@@ -230,6 +278,9 @@ examSchema.virtual('totalPoints').get(function() {
 examSchema.virtual('questionCount').get(function() {
   return this.questions?.length || 0;
 });
+
+examSchema.index({ assignedTo: 1, status: 1 });
+examSchema.index({ createdBy: 1, createdAt: -1 });
 
 // === Result Schema ===
 const resultSchema = new mongoose.Schema({
@@ -256,8 +307,8 @@ const resultSchema = new mongoose.Schema({
   examQuestions: { type: Array, default: [] },
   pdfPath: { type: String, default: null },
   cleExterne: { type: String, default: '' },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   
-  // ✅ NOUVEAU: Configuration de l'épreuve (pour le bulletin)
   config: {
     examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
     openRange: { type: Boolean, default: false },
@@ -274,11 +325,9 @@ const resultSchema = new mongoose.Schema({
     timerDisplayMode: { type: String, enum: ['once', 'twice', 'fourTimes', 'permanent'], default: 'permanent' }
   },
   
-  // ✅ NOUVEAU: Détails par question (pour affichage dans le bulletin)
   questionDetails: { type: Array, default: [] }
 }, { timestamps: true });
 
-// ✅ Virtuals
 resultSchema.virtual('fullName').get(function() {
   return `${this.studentInfo.firstName} ${this.studentInfo.lastName}`;
 });
@@ -287,7 +336,6 @@ resultSchema.virtual('note20').get(function() {
   return ((this.percentage / 100) * 20).toFixed(2);
 });
 
-// ✅ Virtual pour obtenir la mention
 resultSchema.virtual('mention').get(function() {
   if (this.percentage >= 90) return 'Très Bien';
   if (this.percentage >= 75) return 'Bien';
@@ -296,41 +344,22 @@ resultSchema.virtual('mention').get(function() {
   return 'Insuffisant';
 });
 
-// ✅ Virtual pour obtenir le statut texte
 resultSchema.virtual('statusText').get(function() {
   return this.passed ? 'Reçu' : 'Échoué';
 });
 
-// ✅ Virtual pour obtenir le nombre de bonnes réponses
 resultSchema.virtual('correctCount').get(function() {
   if (!this.questionDetails || this.questionDetails.length === 0) return 0;
   return this.questionDetails.filter(q => q.isCorrect === true).length;
 });
 
-// ✅ Méthode pour obtenir le bulletin HTML
-resultSchema.methods.getBulletinHTML = function() {
-  // Cette méthode peut être utilisée pour générer le bulletin
-  const note20 = this.note20;
-  const mention = this.mention;
-  const statusText = this.statusText;
-  const correctCount = this.correctCount;
-  
-  return {
-    note20,
-    mention,
-    statusText,
-    correctCount,
-    totalQuestions: this.totalQuestions || this.examQuestions?.length || 0
-  };
-};
-
-// ✅ Index pour optimiser les recherches
 resultSchema.index({ examId: 1, createdAt: -1 });
 resultSchema.index({ 'studentInfo.matricule': 1 });
 resultSchema.index({ createdAt: -1 });
 resultSchema.index({ percentage: -1 });
+resultSchema.index({ userId: 1 });
 
-// === Domain Schema ===
+// === Domain Schema (MongoDB) ===
 const subDomainSchema = new mongoose.Schema({
   name: { type: String, required: true },
   code: { type: String, required: true, uppercase: true },
@@ -351,7 +380,6 @@ const domainSchema = new mongoose.Schema({
   categories: [{ name: String, description: String, order: Number }]
 }, { timestamps: true });
 
-// === Subject Schema ===
 const subjectSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   description: { type: String, default: '' },
@@ -382,9 +410,26 @@ mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 })
   .then(async () => {
     isConnected = true;
     console.log('[DB] ✅ Connecté à MongoDB');
+    await cleanIndexes();
     await createDefaultData();
   })
   .catch(err => console.error('[DB] ❌ Erreur:', err.message));
+
+async function cleanIndexes() {
+  try {
+    const collection = mongoose.connection.collection('questions');
+    const indexes = await collection.indexes();
+    const problematicIndex = indexes.find(idx => idx.name === 'matiere_1_libQuestion_1');
+    if (problematicIndex) {
+      console.log('[DB] 🗑️ Suppression de l\'index problématique');
+      await collection.dropIndex('matiere_1_libQuestion_1');
+    }
+    await collection.createIndex({ matiere: 1, libQuestion: 1 });
+    console.log('[DB] ✅ Index de recherche créé');
+  } catch (err) {
+    console.error('[DB] Erreur nettoyage indexes:', err.message);
+  }
+}
 
 async function createDefaultData() {
   try {
@@ -452,6 +497,7 @@ const protect = async (req, res, next) => {
 
 const authorize = (...roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ message: 'Non autorisé' });
+  if (req.user.role === 'ADMIN_SYSTEME') return next();
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({ message: `Rôle ${req.user.role} non autorisé. Rôles requis: ${roles.join(', ')}` });
   }
@@ -466,13 +512,15 @@ const authorize = (...roles) => (req, res, next) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'NA²QUIZ API',
-    version: '2.0.0',
+    version: '3.0.0',
     status: 'running',
     environment: NODE_ENV,
     mongodb: isConnected ? 'connected' : 'disconnected',
+    referentiel: 'Cameroonian Education System (Francophone + Anglophone + Doctorat)',
     endpoints: {
       health: '/health',
       api: '/api',
+      referentiel: '/api/referentiel',
       terminal: '/terminal.html',
       socket: '/socket.io'
     }
@@ -501,6 +549,62 @@ app.get('/terminal.html', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', timestamp: new Date() });
+});
+
+// ==================== ROUTES RÉFÉRENTIEL (NOUVEAU) ====================
+
+// ✅ GET /api/referentiel/domains - Récupérer tous les domaines
+app.get('/api/referentiel/domains', (req, res) => {
+  try {
+    const domains = getAllDomaines();
+    res.json({ success: true, data: domains });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ GET /api/referentiel/sous-domaines/:domaineId
+app.get('/api/referentiel/sous-domaines/:domaineId', (req, res) => {
+  try {
+    const { domaineId } = req.params;
+    const sousDomaines = getAllSousDomaines(domaineId);
+    res.json({ success: true, data: sousDomaines });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ GET /api/referentiel/levels/:domaineId/:sousDomaineId
+app.get('/api/referentiel/levels/:domaineId/:sousDomaineId', (req, res) => {
+  try {
+    const { domaineId, sousDomaineId } = req.params;
+    const levels = getAllLevels(domaineId, sousDomaineId);
+    res.json({ success: true, data: levels });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ GET /api/referentiel/matieres/:domaineId/:sousDomaineId
+app.get('/api/referentiel/matieres/:domaineId/:sousDomaineId', (req, res) => {
+  try {
+    const { domaineId, sousDomaineId } = req.params;
+    const matieres = getAllMatieres(domaineId, sousDomaineId);
+    res.json({ success: true, data: matieres });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ GET /api/referentiel/chapitres/:matiereId
+app.get('/api/referentiel/chapitres/:matiereId', async (req, res) => {
+  try {
+    const { matiereId } = req.params;
+    const chapitres = await Question.distinct('libChapitre', { matiereId: matiereId, status: 'approved' });
+    res.json({ success: true, data: chapitres.filter(c => c && c.trim()) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ==================== AUTH ROUTES ====================
@@ -569,17 +673,63 @@ app.delete('/api/users/:id', protect, authorize('ADMIN_SYSTEME'), async (req, re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ==================== QUESTIONS ROUTES ====================
+// ==================== ROUTES POUR OPÉRATEUR ====================
+
+app.get('/api/exams/assigned', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    let examsData;
+    if (req.user.role === 'OPERATEUR_EVALUATION') {
+      examsData = await Exam.find({ 
+        status: 'published',
+        $or: [
+          { assignedTo: req.user._id },
+          { assignedTo: null }
+        ]
+      }).sort({ createdAt: -1 });
+    } else {
+      examsData = await Exam.find().sort({ createdAt: -1 });
+    }
+    res.json({ success: true, data: examsData });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/exams/assigned:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.put('/api/exams/:id/assign', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { operatorId } = req.body;
+    const exam = await Exam.findByIdAndUpdate(req.params.id, { assignedTo: operatorId }, { new: true });
+    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    res.json({ success: true, data: exam });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/operators', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const operators = await User.find({ role: 'OPERATEUR_EVALUATION', status: 'active' }).select('name email matricule _id');
+    console.log(`[API] 📋 ${operators.length} opérateur(s) trouvé(s)`);
+    res.json({ success: true, data: operators });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/operators:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==================== QUESTIONS ROUTES (VERSION AVEC RÉFÉRENTIEL) ====================
+
 app.get('/api/questions/public', async (req, res) => {
   try {
-    const { domaine, sousDomaine, niveau, matiere, limit = 1000 } = req.query;
+    const { domaineId, sousDomaineId, niveauId, matiereId, limit = 1000 } = req.query;
     const filter = { status: 'approved' };
-    if (domaine) filter.domaine = domaine;
-    if (sousDomaine) filter.sousDomaine = sousDomaine;
-    if (niveau) filter.niveau = niveau;
-    if (matiere) filter.matiere = matiere;
+    if (domaineId) filter.domaineId = domaineId;
+    if (sousDomaineId) filter.sousDomaineId = sousDomaineId;
+    if (niveauId) filter.niveauId = niveauId;
+    if (matiereId) filter.matiereId = matiereId;
     const questions = await Question.find(filter)
-      .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
+      .select('+imageBase64')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
     res.json({ success: true, data: questions, count: questions.length });
@@ -588,10 +738,10 @@ app.get('/api/questions/public', async (req, res) => {
   }
 });
 
-app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE'), async (req, res) => {
+app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const questions = await Question.find({ status: 'pending' })
-      .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
+      .select('+imageBase64')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
     res.json({ success: true, data: questions });
@@ -600,71 +750,48 @@ app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE'), async (re
   }
 });
 
-// ✅ ROUTE CORRIGÉE - Avec support de createdBy et SAISISEUR
+// ✅ GET /api/questions - AVEC FILTRES PAR ID RÉFÉRENTIEL
 app.get('/api/questions', protect, async (req, res) => {
   try {
-    const { domaine, sousDomaine, niveau, matiere, status, limit = 1000, page = 1, createdBy } = req.query;
+    const { 
+      domaineId, sousDomaineId, niveauId, matiereId, matiereCode,
+      libChapitre, status, limit = 1000, page = 1, createdBy 
+    } = req.query;
+    
     const filter = {};
     
-    // Filtres optionnels
-    if (domaine) filter.domaine = domaine;
-    if (sousDomaine) filter.sousDomaine = sousDomaine;
-    if (niveau) filter.niveau = niveau;
-    if (matiere) filter.matiere = matiere;
+    if (domaineId) filter.domaineId = domaineId;
+    if (sousDomaineId) filter.sousDomaineId = sousDomaineId;
+    if (niveauId) filter.niveauId = niveauId;
+    if (matiereId) filter.matiereId = matiereId;
+    if (matiereCode) filter.matiereCode = matiereCode;
+    if (libChapitre) filter.libChapitre = { $regex: libChapitre, $options: 'i' };
     if (status) filter.status = status;
-    
-    // ✅ CONVERSION DE createdBy EN ObjectId
-    if (createdBy && mongoose.Types.ObjectId.isValid(createdBy)) {
-      filter.createdBy = new mongoose.Types.ObjectId(createdBy);
-      console.log(`[API] 🔍 Filtrage par createdBy (ObjectId): ${filter.createdBy}`);
-    } else if (createdBy) {
-      console.log(`[API] ⚠️ createdBy invalide (pas un ObjectId): ${createdBy}`);
-    }
     
     const userRole = req.user.role;
     const userId = req.user._id.toString();
     
-    console.log(`[API] GET /api/questions - Rôle: ${userRole}, userId: ${userId}`);
-    
-    // GESTION DES PERMISSIONS SELON LE RÔLE
     if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
-      console.log('[API] Admin - Accès à toutes les questions');
-    } 
-    else if (userRole === 'SAISISEUR') {
-      if (!filter.createdBy) {
-        filter.createdBy = new mongoose.Types.ObjectId(userId);
-        console.log('[API] SAISISEUR - Filtrage par createdBy:', userId);
-      }
+      // Admins voient tout
+    } else if (userRole === 'SAISISEUR') {
+      filter.createdBy = new mongoose.Types.ObjectId(userId);
+    } else if (userRole === 'ENSEIGNANT') {
+      if (!filter.status) filter.status = 'approved';
+    } else {
+      filter.status = 'approved';
     }
-    else if (userRole === 'ENSEIGNANT') {
-      if (filter.createdBy && filter.createdBy.toString() === userId) {
-        console.log('[API] ENSEIGNANT - Ses propres questions, tous statuts');
-      } else if (!filter.createdBy) {
-        filter.status = 'approved';
-        console.log('[API] ENSEIGNANT - Filtre status: approved');
-      }
-    }
-    else {
-      if (!status) {
-        filter.status = 'approved';
-      }
-    }
-    
-    console.log('[API] Filtre final:', JSON.stringify(filter, (key, value) => 
-      value instanceof mongoose.Types.ObjectId ? value.toString() : value
-    ));
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const questions = await Question.find(filter)
-  .select('+imageBase64')  // ← AJOUTEZ CETTE LIGNE
-  .sort({ createdAt: -1 })
-  .skip(skip)
-  .limit(parseInt(limit))
-  .populate('createdBy', 'name email');
+      .select('+imageBase64')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('createdBy', 'name email');
     
     const total = await Question.countDocuments(filter);
     
-    console.log(`[API] ${questions.length} questions trouvées sur ${total} total`);
+    console.log(`[API] 📋 ${questions.length} questions trouvées`);
     
     res.json({ 
       success: true, 
@@ -690,20 +817,15 @@ app.get('/api/questions/:id', protect, async (req, res) => {
     const userId = req.user._id.toString();
     const isOwner = question.createdBy?._id?.toString() === userId;
     
-    // Vérification des droits d'accès
     let canView = false;
-    
     if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
-      canView = true; // Admins peuvent tout voir
-    } 
-    else if (userRole === 'SAISISEUR') {
-      canView = isOwner; // SAISISEUR voit uniquement ses propres questions
-    }
-    else if (userRole === 'ENSEIGNANT') {
-      canView = isOwner || question.status === 'approved'; // Enseignant voit ses questions + approuvées
-    }
-    else if (userRole === 'OPERATEUR_EVALUATION' || userRole === 'APPRENANT') {
-      canView = question.status === 'approved'; // Opérateur et apprenant voient seulement approuvées
+      canView = true;
+    } else if (userRole === 'SAISISEUR') {
+      canView = isOwner;
+    } else if (userRole === 'ENSEIGNANT') {
+      canView = isOwner || question.status === 'approved';
+    } else if (userRole === 'OPERATEUR_EVALUATION' || userRole === 'APPRENANT') {
+      canView = question.status === 'approved';
     }
     
     if (!canView) {
@@ -716,48 +838,75 @@ app.get('/api/questions/:id', protect, async (req, res) => {
   }
 });
 
-// ✅ ROUTE CORRIGÉE - Ajout de SAISISEUR aux rôles autorisés
+// ✅ POST /api/questions - AVEC VALIDATION DU RÉFÉRENTIEL
 app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
     const { 
       libQuestion, question, options, correctAnswer, bonOpRep, 
-      matiere, niveau, domaine, sousDomaine, typeQuestion, 
-      points, explanation, type, difficulty, imageQuestion, 
-      imageBase64, libChapitre  // ✅ Ajouter libChapitre
+      matiereId, matiere, matiereCode,
+      niveauId, niveau,
+      domaineId, domaine, domaineCode,
+      sousDomaineId, sousDomaine, sousDomaineCode,
+      libChapitre, typeQuestion, points, explanation, 
+      type, difficulty, imageQuestion, imageBase64
     } = req.body;
 
-     const questionText = libQuestion || question;
+    const questionText = libQuestion || question;
     if (!questionText) return res.status(400).json({ success: false, error: 'libQuestion requis' });
     if (!options || !Array.isArray(options) || options.length < 3 || options.length > 5) 
       return res.status(400).json({ success: false, error: '3 à 5 options requises' });
-    if (!matiere) return res.status(400).json({ success: false, error: 'matiere requis' });
-    if (!niveau) return res.status(400).json({ success: false, error: 'niveau requis' });
-    if (!domaine) return res.status(400).json({ success: false, error: 'domaine requis' });
-    if (!libChapitre || libChapitre.trim() === '')  // ✅ Validation chapitre obligatoire
-      return res.status(400).json({ success: false, error: 'libChapitre requis' });
+    
+    // ✅ Validation du référentiel
+    if (!domaineId) return res.status(400).json({ success: false, error: 'domaineId requis' });
+    if (!sousDomaineId) return res.status(400).json({ success: false, error: 'sousDomaineId requis' });
+    if (!niveauId) return res.status(400).json({ success: false, error: 'niveauId requis' });
+    if (!matiereId) return res.status(400).json({ success: false, error: 'matiereId requis' });
+    if (!libChapitre || libChapitre.trim() === '') return res.status(400).json({ success: false, error: 'libChapitre requis' });
+    
+    // Validation avec DOMAIN_DATA
+    const domainData = DOMAIN_DATA[domaineId];
+    if (!domainData) return res.status(400).json({ success: false, error: 'Domaine invalide' });
+    
+    const sousDomaineData = domainData.sousDomaines[sousDomaineId];
+    if (!sousDomaineData) return res.status(400).json({ success: false, error: 'Sous-domaine invalide' });
+    
+    const levelData = sousDomaineData.levels?.find(l => String(l.id) === niveauId);
+    if (!levelData) return res.status(400).json({ success: false, error: 'Niveau invalide' });
+    
+    const matiereData = sousDomaineData.matieres?.find(m => String(m.id) === matiereId);
+    if (!matiereData) return res.status(400).json({ success: false, error: 'Matière invalide' });
     
     let finalBonOpRep = bonOpRep;
     if (finalBonOpRep === undefined && correctAnswer !== undefined) finalBonOpRep = options.findIndex(opt => opt === correctAnswer);
     if (finalBonOpRep === undefined || finalBonOpRep < 0) return res.status(400).json({ success: false, error: 'correctAnswer ou bonOpRep requis' });
     
-        const newQuestion = new Question({
-      libQuestion: questionText, 
-      options, 
-      bonOpRep: finalBonOpRep, 
-      matiere, 
-      niveau, 
-      domaine, 
-      sousDomaine: sousDomaine || '',
-      libChapitre: libChapitre, // ✅ Ajouter le chapitre
-      imageQuestion: imageQuestion || '', 
-      imageBase64: imageBase64 || '', 
+    const newQuestion = new Question({
+      libQuestion: questionText,
+      options,
+      bonOpRep: finalBonOpRep,
+      
+      domaineId: domaineId,
+      domaine: domainData.nom,
+      domaineCode: domainData.code,
+      sousDomaineId: sousDomaineId,
+      sousDomaine: sousDomaineData.nom,
+      sousDomaineCode: sousDomaineData.code,
+      niveauId: niveauId,
+      niveau: levelData.nom,
+      matiereId: matiereId,
+      matiere: matiereData.nom,
+      matiereCode: matiereData.code,
+      libChapitre: libChapitre,
+      
+      imageQuestion: imageQuestion || '',
+      imageBase64: imageBase64 || '',
       typeQuestion: typeQuestion || 1,
-      points: points || 1, 
-      explanation: explanation || '', 
-      type: type || 'single', 
+      points: points || 1,
+      explanation: explanation || '',
+      type: type || 'single',
       difficulty: difficulty || 'moyen',
-      createdBy: req.user._id, 
-      matriculeAuteur: req.user.matricule, 
+      createdBy: req.user._id,
+      matriculeAuteur: req.user.matricule,
       status: 'pending'
     });
 
@@ -768,165 +917,157 @@ app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_
   }
 });
 
-app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+// ✅ POST /api/questions/save - SAUVEGARDE MASSIVE AVEC RÉFÉRENTIEL
+app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  console.log('[SAVE] ===== NOUVELLE REQUÊTE REÇUE =====');
+  
   try {
     const { questions } = req.body;
-    if (!Array.isArray(questions) || questions.length === 0) 
+    
+    if (!Array.isArray(questions) || questions.length === 0) {
       return res.status(400).json({ success: false, error: 'Array de questions requis' });
+    }
     
     const questionsWithMetadata = questions.map(q => {
       const questionText = q.libQuestion || q.question;
       let bonOpRep = q.bonOpRep;
-      if (bonOpRep === undefined && q.correctAnswer !== undefined) 
+      if (bonOpRep === undefined && q.correctAnswer !== undefined) {
         bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
+      }
       
       if (!q.libChapitre || q.libChapitre.trim() === '') {
         throw new Error(`Le chapitre est obligatoire pour la question: ${questionText?.substring(0, 50)}`);
       }
       
+      // Récupération des informations du référentiel
+      const domainData = DOMAIN_DATA[q.domaineId];
+      const sousDomaineData = domainData?.sousDomaines[q.sousDomaineId];
+      const levelData = sousDomaineData?.levels?.find(l => String(l.id) === q.niveauId);
+      const matiereData = sousDomaineData?.matieres?.find(m => String(m.id) === q.matiereId);
+      
+      const uniqueKey = `${q.matiere || ''}::${questionText}::${Date.now()}`;
+      
       return {
-        libQuestion: questionText, 
-        options: q.options, 
-        bonOpRep, 
-        matiere: q.matiere || '', 
-        niveau: q.niveau || '', 
-        domaine: q.domaine || '',
-        sousDomaine: q.sousDomaine || '', 
-        libChapitre: q.libChapitre || '',
-        typeQuestion: q.typeQuestion || 1, 
-        points: q.points || 1, 
+        libQuestion: questionText,
+        options: q.options,
+        bonOpRep,
+        matiere: matiereData?.nom || q.matiere,
+        matiereId: q.matiereId,
+        matiereCode: matiereData?.code || '',
+        niveau: levelData?.nom || q.niveau,
+        niveauId: q.niveauId,
+        domaine: domainData?.nom || q.domaine,
+        domaineId: q.domaineId,
+        domaineCode: domainData?.code || '',
+        sousDomaine: sousDomaineData?.nom || q.sousDomaine,
+        sousDomaineId: q.sousDomaineId,
+        sousDomaineCode: sousDomaineData?.code || '',
+        libChapitre: q.libChapitre,
+        typeQuestion: q.typeQuestion || 1,
+        points: q.points || 1,
         explanation: q.explanation || '',
-        type: q.type || 'single', 
-        difficulty: q.difficulty || 'moyen', 
-        createdBy: req.user._id, 
+        type: q.type || 'single',
+        difficulty: q.difficulty || 'moyen',
+        createdBy: req.user._id,
         matriculeAuteur: req.user.matricule,
-        status: 'pending', 
-        createdAt: new Date(), 
+        status: 'pending',
+        createdAt: new Date(),
         updatedAt: new Date(),
-        // ✅ AJOUTEZ CES 3 LIGNES :
+        cleInterne: uniqueKey,
         imageQuestion: q.imageQuestion || '',
         imageBase64: q.imageBase64 || '',
         imageMetadata: q.imageMetadata || { originalName: '', mimeType: '', size: 0, storageType: 'none' }
       };
     });
     
-    const result = await Question.insertMany(questionsWithMetadata);
-    res.json({ success: true, message: `${result.length} questions enregistrées`, data: result });
-  } catch (err) { 
-    console.error('[API] Erreur save:', err);
-    res.status(500).json({ success: false, error: err.message }); 
+    const result = await Question.insertMany(questionsWithMetadata, { ordered: false });
+    
+    console.log('[SAVE] ✅ Succès!', result.length, 'questions insérées');
+    
+    res.json({ 
+      success: true, 
+      message: `${result.length} questions enregistrées et en attente de validation`, 
+      data: result,
+      count: result.length
+    });
+    
+  } catch (err) {
+    console.error('[SAVE] ❌ ERREUR:', err);
+    
+    if (err.code === 11000) {
+      const insertedCount = err.result?.insertedCount || 0;
+      if (insertedCount > 0) {
+        return res.json({ 
+          success: true, 
+          message: `${insertedCount} questions enregistrées (doublons ignorés)`,
+          data: { insertedCount }
+        });
+      } else {
+        return res.status(409).json({ 
+          success: false, 
+          error: 'Ces questions existent déjà dans la base de données'
+        });
+      }
+    }
+    
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ==================== VALIDATION DES QUESTIONS ====================
-// ✅ Route pour valider ou rejeter une question (pour ADMIN_DELEGUE)
 app.put('/api/questions/:id/validate', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { id } = req.params;
     const { approved, comment } = req.body;
     
-    console.log(`[Validation] Traitement de la question ${id}`);
-    console.log(`[Validation] Approuvée: ${approved}, Commentaire: ${comment || 'aucun'}`);
-    
-    // Vérifier si la question existe
     const question = await Question.findById(id);
-    if (!question) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Question non trouvée' 
-      });
-    }
+    if (!question) return res.status(404).json({ success: false, message: 'Question non trouvée' });
     
-    // Vérifier que la question est bien en attente
     if (question.status !== 'pending') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Cette question a déjà été ${question.status === 'approved' ? 'approuvée' : 'rejetée'}` 
-      });
+      return res.status(400).json({ success: false, message: `Cette question a déjà été ${question.status}` });
     }
     
-    // Mettre à jour le statut
     question.status = approved ? 'approved' : 'rejected';
     question.approvedBy = req.user._id;
     question.approvedAt = new Date();
-    
-    if (!approved && comment) {
-      question.rejectionComment = comment;
-    }
-    
+    if (!approved && comment) question.rejectionComment = comment;
     await question.save();
     
-    console.log(`[Validation] ✅ Question ${id} ${approved ? 'approuvée' : 'rejetée'} par ${req.user.name}`);
-    
-    res.json({
-      success: true,
-      message: approved ? 'Question approuvée avec succès' : 'Question rejetée',
-      data: {
-        _id: question._id,
-        status: question.status,
-        approvedBy: question.approvedBy,
-        approvedAt: question.approvedAt,
-        rejectionComment: question.rejectionComment
-      }
-    });
-    
+    res.json({ success: true, message: approved ? 'Question approuvée' : 'Question rejetée', data: question });
   } catch (err) {
     console.error('[Validation] Erreur:', err);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Erreur lors de la validation',
-      error: err.message 
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ✅ Alternative : route PATCH pour la compatibilité
 app.patch('/api/questions/:id/status', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status, comment } = req.body;
     
     if (!['approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Status invalide. Utilisez "approved" ou "rejected"' 
-      });
+      return res.status(400).json({ success: false, message: 'Status invalide' });
     }
     
     const question = await Question.findById(id);
-    if (!question) {
-      return res.status(404).json({ success: false, message: 'Question non trouvée' });
-    }
+    if (!question) return res.status(404).json({ success: false, message: 'Question non trouvée' });
     
     if (question.status !== 'pending') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Cette question a déjà été ${question.status}` 
-      });
+      return res.status(400).json({ success: false, message: `Cette question a déjà été ${question.status}` });
     }
     
     question.status = status;
     question.approvedBy = req.user._id;
     question.approvedAt = new Date();
-    
-    if (status === 'rejected' && comment) {
-      question.rejectionComment = comment;
-    }
-    
+    if (status === 'rejected' && comment) question.rejectionComment = comment;
     await question.save();
     
-    res.json({
-      success: true,
-      message: status === 'approved' ? 'Question approuvée' : 'Question rejetée',
-      data: question
-    });
-    
+    res.json({ success: true, message: status === 'approved' ? 'Question approuvée' : 'Question rejetée', data: question });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ✅ Route pour obtenir les statistiques de validation
 app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const [pending, approved, rejected, total] = await Promise.all([
@@ -936,7 +1077,6 @@ app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', '
       Question.countDocuments()
     ]);
     
-    // Top validateurs
     const topValidators = await Question.aggregate([
       { $match: { approvedBy: { $exists: true } } },
       { $group: { _id: '$approvedBy', count: { $sum: 1 } } },
@@ -949,16 +1089,8 @@ app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', '
     
     res.json({
       success: true,
-      data: {
-        pending,
-        approved,
-        rejected,
-        total,
-        approvalRate: total > 0 ? (approved / total * 100).toFixed(2) : 0,
-        topValidators
-      }
+      data: { pending, approved, rejected, total, approvalRate: total > 0 ? (approved / total * 100).toFixed(2) : 0, topValidators }
     });
-    
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -966,10 +1098,34 @@ app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', '
 
 // ==================== EXAM ROUTES ====================
 
-// ✅ GET /api/exams - Liste tous les examens (accessible selon rôle)
-app.get('/api/exams', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
+app.get('/api/exams', protect, async (req, res) => {
   try {
-    const exams = await Exam.find().sort({ createdAt: -1 });
+    let exams;
+    const userRole = req.user.role;
+    const userId = req.user._id;
+    
+    console.log(`[API] GET /api/exams - Rôle: ${userRole}, ID: ${userId}`);
+    
+    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
+      // Les admins voient TOUTES les épreuves
+      exams = await Exam.find().sort({ createdAt: -1 });
+      console.log(`[API] ✅ Admin: ${exams.length} épreuves trouvées`);
+    } else if (userRole === 'ENSEIGNANT') {
+      // Les enseignants voient leurs épreuves + celles publiées
+      exams = await Exam.find({ 
+        $or: [{ createdBy: userId }, { status: 'published' }] 
+      }).sort({ createdAt: -1 });
+    } else if (userRole === 'OPERATEUR_EVALUATION') {
+      // Les opérateurs voient les épreuves qui leur sont assignées
+      exams = await Exam.find({ 
+        assignedTo: userId,
+        status: 'published'
+      }).sort({ createdAt: -1 });
+    } else {
+      // Les apprenants voient seulement les épreuves publiées
+      exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
+    }
+    
     res.json({ success: true, data: exams, count: exams.length });
   } catch (err) { 
     console.error('[API] Erreur GET /api/exams:', err);
@@ -977,7 +1133,6 @@ app.get('/api/exams', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSE
   }
 });
 
-// ✅ GET /api/exams/available - Examens disponibles pour les apprenants
 app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
@@ -987,7 +1142,6 @@ app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
   }
 });
 
-// ✅ GET /api/exams/teacher - Examens créés par l'enseignant connecté
 app.get('/api/exams/teacher', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
@@ -997,7 +1151,6 @@ app.get('/api/exams/teacher', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 
   }
 });
 
-// ✅ GET /api/exams/by-subject/:subject
 app.get('/api/exams/by-subject/:subject', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const exams = await Exam.find({ subject: req.params.subject, status: 'published' }).sort({ createdAt: -1 });
@@ -1007,7 +1160,6 @@ app.get('/api/exams/by-subject/:subject', protect, authorize('ADMIN_SYSTEME', 'A
   }
 });
 
-// ✅ GET /api/exams/by-domain/:domain
 app.get('/api/exams/by-domain/:domain', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const filter = { domain: req.params.domain, status: 'published' };
@@ -1019,7 +1171,6 @@ app.get('/api/exams/by-domain/:domain', protect, authorize('ADMIN_SYSTEME', 'ADM
   }
 });
 
-// ✅ GET /api/exams/count - Comptage des épreuves
 app.get('/api/exams/count', protect, async (req, res) => {
   try {
     const { teacher, matiere, niveau } = req.query;
@@ -1027,7 +1178,6 @@ app.get('/api/exams/count', protect, async (req, res) => {
     if (teacher) filter['createdBy.matricule'] = teacher;
     if (matiere) filter.matiere = matiere;
     if (niveau) filter.niveau = niveau;
-    
     const count = await Exam.countDocuments(filter);
     res.json({ success: true, count });
   } catch (err) {
@@ -1035,7 +1185,6 @@ app.get('/api/exams/count', protect, async (req, res) => {
   }
 });
 
-// ✅ GET /api/exams/:id - Récupérer un examen spécifique
 app.get('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const exam = await Exam.findById(req.params.id);
@@ -1046,7 +1195,6 @@ app.get('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', '
   }
 });
 
-// ✅ POST /api/exams - Créer un examen
 app.post('/api/exams', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const exam = new Exam({ ...req.body, createdBy: req.user._id });
@@ -1058,7 +1206,6 @@ app.post('/api/exams', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_
   }
 });
 
-// ✅ PUT /api/exams/:id - Mettre à jour un examen
 app.put('/api/exams/:id', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const exam = await Exam.findById(req.params.id);
@@ -1078,7 +1225,6 @@ app.put('/api/exams/:id', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADM
   }
 });
 
-// ✅ DELETE /api/exams/:id - Supprimer un examen
 app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const exam = await Exam.findByIdAndDelete(req.params.id);
@@ -1089,7 +1235,6 @@ app.delete('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'
   }
 });
 
-// ✅ POST /api/exams/:id/duplicate - Dupliquer un examen
 app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const original = await Exam.findById(req.params.id);
@@ -1111,19 +1256,106 @@ app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DEL
   }
 });
 
+app.get('/api/operator/exams/all', protect, authorize('OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ assignedTo: req.user._id }).sort({ scheduledDate: 1, createdAt: -1 });
+    res.json(exams);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// GET /api/exams/assigned-to-me - Pour les opérateurs
+app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const filter = { assignedTo: req.user._id };
+    
+    // Les admins peuvent voir toutes les épreuves assignées
+    if (req.user.role !== 'OPERATEUR_EVALUATION') {
+      delete filter.assignedTo;
+    }
+    
+    const exams = await Exam.find(filter).sort({ scheduledDate: 1, createdAt: -1 });
+    console.log(`[API] 📋 ${exams.length} épreuves assignées à ${req.user.name}`);
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    console.error('[API] Erreur:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/debug/exams - Route de diagnostic (admin seulement)
+app.get('/api/debug/exams', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const totalExams = await Exam.countDocuments();
+    const examsByStatus = await Exam.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+    const recentExams = await Exam.find().sort({ createdAt: -1 }).limit(5).select('title status createdBy createdAt');
+    
+    res.json({
+      success: true,
+      data: {
+        total: totalExams,
+        byStatus: examsByStatus,
+        recent: recentExams,
+        sample: recentExams.length > 0 ? recentExams[0] : null
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+// ==================== ROUTES POUR ÉPREUVES PAR RÔLE ====================
+
+app.get('/api/exams/by-role', protect, async (req, res) => {
+  try {
+    let filter = { status: 'published' };
+    const userRole = req.user.role;
+    const userId = req.user._id;
+    
+    console.log(`[API] GET /api/exams/by-role - Rôle: ${userRole}, ID: ${userId}`);
+    
+    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
+      filter = {};
+    } else if (userRole === 'ENSEIGNANT') {
+      filter = { $or: [{ createdBy: userId }, { status: 'published' }] };
+    } else if (userRole === 'OPERATEUR_EVALUATION') {
+      filter = { status: 'published', assignedTo: userId };
+    }
+    
+    const exams = await Exam.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/exams/by-role:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ assignedTo: req.user._id }).sort({ scheduledDate: 1, createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    console.error('[API] Erreur:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/exams/my-created', protect, authorize('ENSEIGNANT', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ==================== RESULT ROUTES ====================
 app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    console.log('[API] === RECHERCHE RÉSULTATS APPRENANT ===');
-    console.log('[API] Utilisateur ID:', req.user._id);
-    console.log('[API] Matricule utilisateur:', req.user.matricule);
-    console.log('[API] Email utilisateur:', req.user.email);
-    console.log('[API] Rôle:', req.user.role);
-    
-    // ✅ CORRECTION: Rechercher par plusieurs critères
     let results = [];
-    
-    // 1. Recherche par matricule (si disponible)
     if (req.user.matricule) {
       results = await Result.find({ 
         $or: [
@@ -1131,79 +1363,28 @@ app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
           { 'studentInfo.matricule': req.user.matricule?.toUpperCase() },
           { 'studentInfo.matricule': req.user.matricule?.toLowerCase() }
         ]
-      })
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-      
-      console.log(`[API] Recherche par matricule: ${results.length} résultats`);
+      }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
     }
     
-    // 2. Si aucun résultat, rechercher par userId (champ createdBy ou userId)
     if (results.length === 0 && req.user._id) {
       results = await Result.find({ 
-        $or: [
-          { userId: req.user._id },
-          { createdBy: req.user._id },
-          { 'studentInfo.email': req.user.email }
-        ]
-      })
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-      
-      console.log(`[API] Recherche par userId/email: ${results.length} résultats`);
+        $or: [{ userId: req.user._id }, { createdBy: req.user._id }, { 'studentInfo.email': req.user.email }]
+      }).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
     }
     
-    // 3. Fallback: chercher dans tous les résultats et filtrer manuellement
-    if (results.length === 0) {
-      const allResults = await Result.find({})
-        .populate('examId', 'title domain subject level')
-        .sort({ createdAt: -1 });
-      
-      // Filtrer manuellement par nom ou email
-      results = allResults.filter(r => {
-        const studentName = `${r.studentInfo?.firstName} ${r.studentInfo?.lastName}`.toLowerCase();
-        const userName = `${req.user.name}`.toLowerCase();
-        return studentName.includes(userName) || userName.includes(studentName);
-      });
-      
-      console.log(`[API] Recherche par nom: ${results.length} résultats`);
-    }
-    
-    console.log(`[API] ✅ Résultats trouvés au total: ${results.length}`);
-    
-    // Si encore aucun résultat, retourner un tableau vide avec un message clair
-    if (results.length === 0) {
-      console.warn(`[API] ⚠️ Aucun résultat trouvé pour l'utilisateur ${req.user.email}`);
-    }
-    
-    res.json({ 
-      success: true, 
-      data: results,
-      count: results.length,
-      message: results.length === 0 ? 'Aucun résultat trouvé pour votre compte' : undefined
-    });
-    
+    res.json({ success: true, data: results, count: results.length });
   } catch (err) { 
     console.error('[API] Erreur:', err);
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
-// ==================== RESULT ROUTES ====================
-// ✅ ROUTE POST CORRIGÉE ET OPTIMISÉE - Version finale
+
+// ✅ POST /api/results
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { examId, studentInfo, answers } = req.body;
     
-    console.log('[API] === SOUMISSION RÉSULTATS ===');
-    console.log('[API] examId:', examId);
-    console.log('[API] studentInfo:', studentInfo);
-    console.log('[API] answers reçues:', answers);
-    console.log('[API] answers clés:', Object.keys(answers || {}));
-    
-    // Vérification des données obligatoires
-    if (!examId) {
-      return res.status(400).json({ success: false, message: 'examId requis' });
-    }
+    if (!examId) return res.status(400).json({ success: false, message: 'examId requis' });
     if (!studentInfo || !studentInfo.firstName || !studentInfo.lastName) {
       return res.status(400).json({ success: false, message: 'Informations étudiant requises' });
     }
@@ -1212,145 +1393,76 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     }
     
     const exam = await Exam.findById(examId);
-    if (!exam) {
-      return res.status(404).json({ success: false, message: 'Examen non trouvé' });
-    }
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     
-    console.log('[API] Examen trouvé:', exam.title);
-    console.log('[API] Nombre de questions:', exam.questions?.length);
-    
-    // ✅ Récupérer la configuration de l'épreuve
     const config = exam.config || {};
     const pointsType = config.pointsType || 'uniform';
     const globalPoints = config.globalPoints || 1;
     const openRange = config.openRange || false;
     const requiredQuestions = config.requiredQuestions || 0;
     
-    // ✅ Fonction pour extraire les options
     const getQuestionOptions = (q) => {
-      if (q.options && Array.isArray(q.options) && q.options.length > 0) {
-        return q.options;
-      }
+      if (q.options && Array.isArray(q.options) && q.options.length > 0) return q.options;
       const options = [];
       for (let i = 1; i <= 5; i++) {
         const optKey = `opRep${i}`;
-        if (q[optKey] && q[optKey] !== '') {
-          options.push(String(q[optKey]));
-        }
+        if (q[optKey] && q[optKey] !== '') options.push(String(q[optKey]));
       }
       return options;
     };
     
-    // ✅ Gestion de la plage ouverte
     let questionsToGrade = exam.questions;
-    let requiredQuestionsCount = requiredQuestions;
-    
-    if (openRange && requiredQuestionsCount > 0) {
+    if (openRange && requiredQuestions > 0) {
       const answeredQuestions = [];
       exam.questions.forEach((q, idx) => {
         const hasAnswer = answers[idx] !== undefined && answers[idx] !== null && answers[idx] !== '';
-        if (hasAnswer) {
-          answeredQuestions.push({ question: q, originalIndex: idx });
-        }
+        if (hasAnswer) answeredQuestions.push({ question: q, originalIndex: idx });
       });
-      
-      questionsToGrade = answeredQuestions.slice(0, requiredQuestionsCount).map(item => item.question);
-      
-      console.log('[API] Plage ouverte - Questions répondues:', answeredQuestions.length);
-      console.log('[API] Plage ouverte - Questions retenues:', questionsToGrade.length);
+      questionsToGrade = answeredQuestions.slice(0, requiredQuestions).map(item => item.question);
     }
     
     let score = 0;
     let totalPoints = 0;
     const questionResults = [];
-    const correctCount = 0;
     
-    // ✅ Calcul du score
     for (let idx = 0; idx < questionsToGrade.length; idx++) {
       const q = questionsToGrade[idx];
-      
-      // Déterminer les points de la question
       let points = q.points || 1;
-      if (pointsType === 'uniform') {
-        points = globalPoints;
-      }
+      if (pointsType === 'uniform') points = globalPoints;
       totalPoints += points;
       
-      // Récupérer la réponse de l'étudiant
       let studentAnswer = null;
-      
-      // Essayer différents formats de clés
-      if (answers[idx] !== undefined) {
-        studentAnswer = answers[idx];
-      } else if (answers[String(idx)] !== undefined) {
-        studentAnswer = answers[String(idx)];
-      } else if (q._id && answers[q._id.toString()] !== undefined) {
-        studentAnswer = answers[q._id.toString()];
-      } else if (answers[`q${idx}`] !== undefined) {
-        studentAnswer = answers[`q${idx}`];
-      } else if (answers[`question_${idx}`] !== undefined) {
-        studentAnswer = answers[`question_${idx}`];
-      }
+      if (answers[idx] !== undefined) studentAnswer = answers[idx];
+      else if (answers[String(idx)] !== undefined) studentAnswer = answers[String(idx)];
+      else if (q._id && answers[q._id.toString()] !== undefined) studentAnswer = answers[q._id.toString()];
       
       const options = getQuestionOptions(q);
       const correctAnswerIndex = q.bonOpRep;
       const correctAnswerText = options[correctAnswerIndex] || q.correctAnswer || '';
       
       let isCorrect = false;
-      let selectedIndex = -1;
-      
       if (studentAnswer && studentAnswer !== '' && studentAnswer !== 'Non répondu') {
-        // Chercher l'index de la réponse sélectionnée
-        selectedIndex = options.findIndex(opt => 
-          String(opt).trim().toLowerCase() === String(studentAnswer).trim().toLowerCase()
-        );
-        
-        // Comparer avec l'index correct
+        const selectedIndex = options.findIndex(opt => String(opt).trim().toLowerCase() === String(studentAnswer).trim().toLowerCase());
         isCorrect = selectedIndex === correctAnswerIndex;
-        
-        // Si pas trouvé par texte, essayer par index direct
-        if (!isCorrect && typeof studentAnswer === 'number') {
-          isCorrect = studentAnswer === correctAnswerIndex;
-          selectedIndex = studentAnswer;
-        }
+        if (!isCorrect && typeof studentAnswer === 'number') isCorrect = studentAnswer === correctAnswerIndex;
       }
       
-      if (isCorrect) {
-        score += points;
-      }
-      
-      console.log(`[API] Q${idx}: réponse="${studentAnswer}", correcte=${isCorrect ? '✓' : '✗'}, points=${points}`);
+      if (isCorrect) score += points;
       
       questionResults.push({
         questionId: q._id,
-        libQuestion: q.libQuestion || q.question || q.text || 'Question sans texte',
+        libQuestion: q.libQuestion || q.question || q.text,
         studentAnswer: studentAnswer || 'Non répondu',
         correctAnswer: correctAnswerText,
         isCorrect,
         points: points,
         options: options,
-        selectedIndex: selectedIndex,
-        correctIndex: correctAnswerIndex,
         explanation: q.explanation || ''
       });
     }
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
-    console.log('[API] Score final:', score, '/', totalPoints, '=', percentage, '%');
-    
-    // ✅ Construction du snapshot des questions
-    const examQuestionsWithOptions = exam.questions.map(q => ({
-      _id: q._id,
-      libQuestion: q.libQuestion || q.question || q.text,
-      options: getQuestionOptions(q),
-      bonOpRep: q.bonOpRep,
-      correctAnswer: q.correctAnswer || getQuestionOptions(q)[q.bonOpRep],
-      points: pointsType === 'uniform' ? globalPoints : (q.points || 1),
-      explanation: q.explanation || ''
-    }));
-    
-    // ✅ Création du résultat
     const result = new Result({
       examId,
       studentInfo: {
@@ -1373,7 +1485,7 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       duration: exam.duration,
       passingScore: exam.passingScore,
       examOption: exam.examOption,
-      examQuestions: examQuestionsWithOptions,
+      examQuestions: exam.questions.map(q => ({ ...q })),
       config: {
         examOption: exam.examOption,
         openRange: openRange,
@@ -1394,12 +1506,8 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     
     await result.save();
     
-    console.log('[API] ✅ Résultat sauvegardé - ID:', result._id);
-    console.log('[API] ✅ Pour étudiant:', studentInfo.firstName, studentInfo.lastName, `(${studentInfo.matricule || 'sans matricule'})`);
-    
     res.status(201).json({ 
       success: true, 
-      message: 'Résultat soumis avec succès', 
       data: {
         _id: result._id,
         score: result.score,
@@ -1417,95 +1525,9 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
   }
 });
 
-// ==================== ROUTES POUR RÉSULTATS APPRENANT ====================
-
-// ✅ ROUTE CORRIGÉE - Récupération des résultats de l'apprenant connecté
-app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
-  try {
-    console.log('[API] === RECHERCHE RÉSULTATS APPRENANT ===');
-    console.log('[API] Utilisateur ID:', req.user._id);
-    console.log('[API] Matricule:', req.user.matricule);
-    console.log('[API] Email:', req.user.email);
-    console.log('[API] Nom:', req.user.name);
-    
-    let results = [];
-    
-    // 1. Recherche par userId (le plus fiable)
-    results = await Result.find({ 
-      $or: [
-        { userId: req.user._id },
-        { createdBy: req.user._id }
-      ]
-    })
-    .populate('examId', 'title domain subject level')
-    .sort({ createdAt: -1 });
-    
-    console.log(`[API] Recherche par userId: ${results.length} résultats`);
-    
-    // 2. Recherche par matricule
-    if (results.length === 0 && req.user.matricule) {
-      results = await Result.find({ 
-        'studentInfo.matricule': { $regex: new RegExp(`^${req.user.matricule}$`, 'i') }
-      })
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-      
-      console.log(`[API] Recherche par matricule: ${results.length} résultats`);
-    }
-    
-    // 3. Recherche par email
-    if (results.length === 0 && req.user.email) {
-      results = await Result.find({ 
-        'studentInfo.email': { $regex: new RegExp(`^${req.user.email}$`, 'i') }
-      })
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-      
-      console.log(`[API] Recherche par email: ${results.length} résultats`);
-    }
-    
-    // 4. Recherche par nom
-    if (results.length === 0 && req.user.name) {
-      const nameParts = req.user.name.split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
-      results = await Result.find({ 
-        $or: [
-          { 'studentInfo.firstName': { $regex: new RegExp(firstName, 'i') } },
-          { 'studentInfo.lastName': { $regex: new RegExp(lastName, 'i') } }
-        ]
-      })
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-      
-      console.log(`[API] Recherche par nom: ${results.length} résultats`);
-    }
-    
-    console.log(`[API] ✅ Résultats finaux: ${results.length}`);
-    
-    res.json({ 
-      success: true, 
-      data: results,
-      count: results.length 
-    });
-    
-  } catch (err) { 
-    console.error('[API] Erreur:', err);
-    res.status(500).json({ success: false, message: err.message }); 
-  }
-});
-
-// ✅ NOUVELLE ROUTE - Mes résultats (fallback)
 app.get('/api/results/my-results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME', 'ENSEIGNANT'), async (req, res) => {
   try {
-    console.log('[API] === RECHERCHE MES RÉSULTATS ===');
-    
-    // Récupérer tous les résultats et filtrer par nom
-    const allResults = await Result.find({})
-      .populate('examId', 'title domain subject level')
-      .sort({ createdAt: -1 });
-    
+    const allResults = await Result.find({}).populate('examId', 'title domain subject level').sort({ createdAt: -1 });
     const userName = req.user.name?.toLowerCase() || '';
     const userEmail = req.user.email?.toLowerCase() || '';
     const userMatricule = req.user.matricule?.toLowerCase() || '';
@@ -1514,44 +1536,29 @@ app.get('/api/results/my-results', protect, authorize('APPRENANT', 'ADMIN_SYSTEM
       const studentName = `${r.studentInfo?.firstName || ''} ${r.studentInfo?.lastName || ''}`.toLowerCase();
       const studentEmail = (r.studentInfo?.email || '').toLowerCase();
       const studentMatricule = (r.studentInfo?.matricule || '').toLowerCase();
-      
-      return studentName === userName ||
-             studentName.includes(userName) ||
-             userName.includes(studentName) ||
-             studentEmail === userEmail ||
-             studentMatricule === userMatricule;
+      return studentName === userName || studentName.includes(userName) || userName.includes(studentName) || studentEmail === userEmail || studentMatricule === userMatricule;
     });
     
-    console.log(`[API] ${filteredResults.length} résultats trouvés pour ${req.user.name}`);
-    
-    res.json({ 
-      success: true, 
-      data: filteredResults,
-      count: filteredResults.length 
-    });
-    
+    res.json({ success: true, data: filteredResults, count: filteredResults.length });
   } catch (err) {
     console.error('[API] Erreur:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ✅ ROUTE POUR TOUS LES RÉSULTATS (admin/teacher)
 app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
-    const results = await Result.find({})
-      .populate('examId', 'title domain subject level passingScore')
-      .sort({ createdAt: -1 });
+    const results = await Result.find({}).populate('examId', 'title domain subject level passingScore').sort({ createdAt: -1 });
     res.json({ success: true, data: results, count: results.length });
   } catch (err) { 
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
 
-// ✅ ROUTE POUR RÉSULTATS D'UN EXAMEN
 app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
-    const exam = await Exam.findById(req.params.examId);
+    const examId = req.params.examId;
+    const exam = await Exam.findById(examId);
     if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
     
     const isOwner = exam.createdBy?.toString() === req.user._id?.toString();
@@ -1561,21 +1568,20 @@ app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DEL
       return res.status(403).json({ success: false, message: 'Accès non autorisé' });
     }
     
-    const results = await Result.find({ examId: req.params.examId }).sort({ percentage: -1 });
-    res.json({ success: true, data: results });
+    const results = await Result.find({ examId: examId }).populate('examId', 'title domain level subject passingScore').sort({ createdAt: -1 });
+    res.json({ success: true, data: results, count: results.length });
   } catch (err) { 
+    console.error('[API] Erreur résultats examen:', err);
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
 
-// ✅ ROUTE POUR UN RÉSULTAT SPÉCIFIQUE
 app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
     const result = await Result.findById(req.params.id).populate('examId');
     if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
     
-    const isOwner = result.studentInfo?.matricule === req.user.matricule ||
-                    result.userId?.toString() === req.user._id?.toString();
+    const isOwner = result.studentInfo?.matricule === req.user.matricule || result.userId?.toString() === req.user._id?.toString();
     const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'].includes(req.user.role);
     
     if (!isOwner && !isAdmin) {
@@ -1593,104 +1599,62 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
 app.post('/api/ai/generate-questions', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    const { 
-      domain, sousDomaine, level, subject, 
-      numQuestions = 5, 
-      typeQuestion = 1,
-      tempsMinParQuestion = 60,
-      difficulty = 'moyen',
-      keywords = '' 
-    } = req.body;
-
-    if (!domain || !level || !subject) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Domain, level et subject sont requis' 
-      });
-    }
-
-    const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
+    const { domain, sousDomaine, level, subject, numQuestions = 5, typeQuestion = 1, difficulty = 'moyen', keywords = '' } = req.body;
     
+    if (!domain || !level || !subject) {
+      return res.status(400).json({ success: false, error: 'Domain, level et subject sont requis' });
+    }
+    
+    const prompt = `Génère ${numQuestions} questions de type QCM (${typeQuestion === 2 ? 'choix multiples' : 'choix unique'}) sur le thème "${subject}" au niveau "${level}" dans le domaine "${domain}"${sousDomaine ? `, sous-domaine "${sousDomaine}"` : ''}.
     ${keywords ? `Mots-clés spécifiques: ${keywords}` : ''}
     Difficulté: ${difficulty}
+    Format JSON: { "questions": [ { "text": "question", "options": ["opt1","opt2","opt3","opt4"], "answer": "opt2", "explanation": "explication" } ] }`;
     
-    Pour chaque question, fournis:
-    - La question
-    - 4 options de réponse
-    - La bonne réponse (index 0-3)
-    - Une brève explication
-    
-    Format JSON attendu:
-    {
-      "questions": [
-        {
-          "text": "question",
-          "options": ["opt1", "opt2", "opt3", "opt4"],
-          "answer": "opt2",
-          "explanation": "explication"
-        }
-      ]
-    }`;
-
     let generatedQuestions = [];
-
+    
     if (DEEPSEEK_API_KEY) {
       try {
         const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-          },
-          body: JSON.stringify({
-            model: 'deepseek-chat',
-            messages: [
-              { role: 'system', content: 'Tu es un générateur de QCM pédagogique. Réponds uniquement au format JSON demandé.' },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.7,
-            max_tokens: 4000
-          })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
+          body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: 'Tu es un générateur de QCM pédagogique. Réponds uniquement au format JSON demandé.' }, { role: 'user', content: prompt }], temperature: 0.7, max_tokens: 4000 })
         });
-
+        
         if (response.ok) {
           const data = await response.json();
-          const content = data.choices[0]?.message?.content || '';
+          let content = data.choices[0]?.message?.content || '';
+          content = content.trim();
+          if (content.startsWith('```json')) content = content.substring(7);
+          else if (content.startsWith('```')) content = content.substring(3);
+          if (content.endsWith('```')) content = content.substring(0, content.length - 3);
+          content = content.trim();
+          
           try {
             const parsed = JSON.parse(content);
             generatedQuestions = parsed.questions || [];
           } catch (e) {
-            console.error('Erreur parsing JSON IA:', e);
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              try {
+                const parsed = JSON.parse(jsonMatch[0]);
+                generatedQuestions = parsed.questions || [];
+              } catch (e2) {}
+            }
           }
         }
       } catch (err) {
         console.error('Erreur appel DeepSeek:', err.message);
       }
     }
-
+    
     if (generatedQuestions.length === 0) {
       generatedQuestions = generateMockQuestions(domain, subject, level, numQuestions);
     }
-
-    res.json({
-      success: true,
-      questions: generatedQuestions,
-      metadata: {
-        model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock',
-        generatedAt: new Date().toISOString(),
-        count: generatedQuestions.length,
-        domain,
-        level,
-        subject
-      }
-    });
-
+    
+    res.json({ success: true, questions: generatedQuestions, metadata: { model: DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mock', generatedAt: new Date().toISOString(), count: generatedQuestions.length, domain, level, subject } });
   } catch (error) {
     console.error('Erreur génération IA:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Erreur lors de la génération des questions' 
-    });
+    res.status(500).json({ success: false, error: error.message || 'Erreur lors de la génération des questions' });
   }
 });
 
@@ -1701,30 +1665,16 @@ function generateMockQuestions(domain, subject, level, count) {
     { text: `Quelle est l'importance de ${subject} dans le ${level} ?`, options: ['Très importante', 'Peu importante', 'Non essentielle', 'Dépend du contexte'], answer: 'Très importante', explanation: `Le ${subject} est fondamental à ce niveau.` },
     { text: `Quel est le concept clé en ${subject} ?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], answer: 'Concept A', explanation: `Le concept A est central dans ${subject}.` }
   ];
-
+  
   for (let i = 0; i < Math.min(count, templates.length); i++) {
     const t = templates[i % templates.length];
-    mockQuestions.push({
-      text: t.text,
-      options: t.options,
-      answer: t.answer,
-      explanation: t.explanation,
-      points: 1,
-      difficulty: 'moyen'
-    });
+    mockQuestions.push({ text: t.text, options: t.options, answer: t.answer, explanation: t.explanation, points: 1, difficulty: 'moyen' });
   }
-
+  
   while (mockQuestions.length < count) {
-    mockQuestions.push({
-      text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`,
-      options: ['Option A', 'Option B', 'Option C', 'Option D'],
-      answer: 'Option A',
-      explanation: `Explication pour la question ${mockQuestions.length + 1}`,
-      points: 1,
-      difficulty: 'moyen'
-    });
+    mockQuestions.push({ text: `Question ${mockQuestions.length + 1} sur ${subject} en ${level} ?`, options: ['Option A', 'Option B', 'Option C', 'Option D'], answer: 'Option A', explanation: `Explication pour la question ${mockQuestions.length + 1}`, points: 1, difficulty: 'moyen' });
   }
-
+  
   return mockQuestions;
 }
 
@@ -1796,58 +1746,128 @@ app.get('/api/stats/advanced', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGU
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     
-    const [totalUsers, totalQuestions, totalExams, totalResults, 
-           pendingQuestions, approvedQuestions, rejectedQuestions,
-           resultsThisMonth, resultsThisWeek, avgScore] = await Promise.all([
-      User.countDocuments(),
-      Question.countDocuments(),
-      Exam.countDocuments(),
-      Result.countDocuments(),
-      Question.countDocuments({ status: 'pending' }),
-      Question.countDocuments({ status: 'approved' }),
-      Question.countDocuments({ status: 'rejected' }),
-      Result.countDocuments({ createdAt: { $gte: startOfMonth } }),
-      Result.countDocuments({ createdAt: { $gte: startOfWeek } }),
+    const [totalUsers, totalQuestions, totalExams, totalResults, pendingQuestions, approvedQuestions, rejectedQuestions, resultsThisMonth, resultsThisWeek, avgScore] = await Promise.all([
+      User.countDocuments(), Question.countDocuments(), Exam.countDocuments(), Result.countDocuments(),
+      Question.countDocuments({ status: 'pending' }), Question.countDocuments({ status: 'approved' }), Question.countDocuments({ status: 'rejected' }),
+      Result.countDocuments({ createdAt: { $gte: startOfMonth } }), Result.countDocuments({ createdAt: { $gte: startOfWeek } }),
       Result.aggregate([{ $group: { _id: null, avg: { $avg: '$percentage' } } }])
     ]);
     
-    // Top 10 des meilleurs scores
-    const topScores = await Result.find()
-      .sort({ percentage: -1 })
-      .limit(10)
-      .populate('examId', 'title');
+    const topScores = await Result.find().sort({ percentage: -1 }).limit(10).populate('examId', 'title');
+    const questionsBySubject = await Question.aggregate([{ $group: { _id: '$matiere', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 10 }]);
     
-    // Répartition par matière
-    const questionsBySubject = await Question.aggregate([
-      { $group: { _id: '$matiere', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]);
-    
-    res.json({
-      success: true,
-      data: {
-        users: { total: totalUsers },
-        questions: {
-          total: totalQuestions,
-          pending: pendingQuestions,
-          approved: approvedQuestions,
-          rejected: rejectedQuestions,
-          bySubject: questionsBySubject
-        },
-        exams: { total: totalExams },
-        results: {
-          total: totalResults,
-          thisMonth: resultsThisMonth,
-          thisWeek: resultsThisWeek,
-          averageScore: avgScore[0]?.avg || 0,
-          topScores
-        }
-      }
-    });
+    res.json({ success: true, data: { users: { total: totalUsers }, questions: { total: totalQuestions, pending: pendingQuestions, approved: approvedQuestions, rejected: rejectedQuestions, bySubject: questionsBySubject }, exams: { total: totalExams }, results: { total: totalResults, thisMonth: resultsThisMonth, thisWeek: resultsThisWeek, averageScore: avgScore[0]?.avg || 0, topScores } } });
   } catch (err) {
     console.error('[Stats] Erreur:', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==================== ROUTES STATISTIQUES UTILISATEUR ====================
+app.get('/api/users/:id/stats', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    
+    let stats = { lastLogin: targetUser.lastLogin, createdAt: targetUser.createdAt, status: targetUser.status };
+    
+    if (targetUser.role === 'ENSEIGNANT' || targetUser.role === 'SAISISEUR') {
+      const questionsCreated = await Question.countDocuments({ createdBy: userId });
+      stats.questionsCreated = questionsCreated;
+    }
+    
+    if (targetUser.role === 'ENSEIGNANT') {
+      const examsCreated = await Exam.countDocuments({ createdBy: userId });
+      stats.examsCreated = examsCreated;
+    }
+    
+    if (targetUser.role === 'APPRENANT') {
+      const resultsCount = await Result.countDocuments({ $or: [{ userId: userId }, { 'studentInfo.matricule': targetUser.matricule }] });
+      stats.resultsCount = resultsCount;
+      const bestResult = await Result.findOne({ $or: [{ userId: userId }, { 'studentInfo.matricule': targetUser.matricule }] }).sort({ percentage: -1 });
+      if (bestResult) { stats.bestScore = bestResult.percentage; stats.bestExamTitle = bestResult.examTitle; }
+    }
+    
+    const sessionsCount = Array.from(activeSessions.values()).filter(s => s.userId === userId || s.sessionId === targetUser.matricule).length;
+    stats.sessionCount = sessionsCount;
+    
+    res.json({ success: true, data: stats });
+  } catch (err) {
+    console.error('[API] Erreur stats utilisateur:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/users/:id/sessions', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    
+    const activeUserSessions = Array.from(activeSessions.values()).filter(s => s.userId === userId || s.studentInfo?.matricule === targetUser.matricule || s.studentInfo?.email === targetUser.email);
+    const sessions = activeUserSessions.map(s => ({ _id: s.socketId, socketId: s.socketId, type: s.type, status: s.status, currentExamId: s.currentExamId, examOption: s.examOption, progress: s.progress || 0, score: s.score || 0, studentInfo: s.studentInfo, lastUpdate: s.lastUpdate, isOnline: s.isOnline !== false, createdAt: new Date(s.lastUpdate || Date.now()) }));
+    
+    res.json({ success: true, data: sessions, count: sessions.length });
+  } catch (err) {
+    console.error('[API] Erreur sessions utilisateur:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/users/:id/reset-password', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    
+    const temporaryPassword = Math.random().toString(36).slice(-8) + Math.floor(Math.random() * 1000);
+    const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+    targetUser.password = hashedPassword;
+    await targetUser.save();
+    
+    res.json({ success: true, message: 'Mot de passe réinitialisé', temporaryPassword: temporaryPassword });
+  } catch (err) {
+    console.error('[API] Erreur reset password:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.patch('/api/users/:id/status', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { active } = req.body;
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    
+    targetUser.status = active !== false ? 'active' : 'inactive';
+    await targetUser.save();
+    res.json({ success: true, message: `Utilisateur ${active !== false ? 'activé' : 'désactivé'}`, data: { _id: targetUser._id, status: targetUser.status } });
+  } catch (err) {
+    console.error('[API] Erreur changement statut:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/users/bulk', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { userIds, action } = req.body;
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Liste d\'utilisateurs requise' });
+    }
+    
+    let result;
+    switch (action) {
+      case 'activate': result = await User.updateMany({ _id: { $in: userIds } }, { status: 'active' }); break;
+      case 'deactivate': result = await User.updateMany({ _id: { $in: userIds } }, { status: 'inactive' }); break;
+      case 'delete': result = await User.deleteMany({ _id: { $in: userIds } }); break;
+      default: return res.status(400).json({ success: false, message: 'Action non reconnue' });
+    }
+    
+    res.json({ success: true, message: `${result.modifiedCount || result.deletedCount || 0} utilisateur(s) traités`, data: result });
+  } catch (err) {
+    console.error('[API] Erreur bulk action:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -1866,7 +1886,7 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilt
   else cb(new Error('Seules les images sont autorisées'));
 } });
 
-app.post('/api/upload/question-image', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), upload.single('image'), async (req, res) => {
+app.post('/api/upload/question-image', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'Aucun fichier uploadé' });
     const fileBuffer = fs.readFileSync(req.file.path);
@@ -1875,7 +1895,7 @@ app.post('/api/upload/question-image', protect, authorize('ENSEIGNANT', 'ADMIN_D
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-app.post('/api/upload/question-image-base64', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), async (req, res) => {
+app.post('/api/upload/question-image-base64', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { base64, mimeType, originalName } = req.body;
     if (!base64) return res.status(400).json({ success: false, error: 'Base64 requis' });
@@ -1884,7 +1904,7 @@ app.post('/api/upload/question-image-base64', protect, authorize('ENSEIGNANT', '
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-app.delete('/api/upload/question-image/:filename', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'), (req, res) => {
+app.delete('/api/upload/question-image/:filename', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), (req, res) => {
   try {
     const filePath = path.join(uploadsDir, req.params.filename);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -1903,26 +1923,24 @@ function escapeHtml(text) {
   });
 }
 
-// socket-server/server.js - Modifications pour bulletin et QR Code
-
-// ==================== BULLETIN HTML CORRIGÉ ====================
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId);
     if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
     const exam = await Exam.findById(result.examId);
-
-    // ✅ FIX: Utiliser examQuestions du result (contient les bonnes options normalisées)
+    
     const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
     const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
-
-    // ✅ FIX: Calcul correct du totalPoints (somme des points, PAS le nombre de questions)
     const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0) || questions.length;
-
-    // ✅ FIX: Note /20 basée sur le POURCENTAGE (pas score/nb questions)
     const noteOn20 = ((result.percentage / 100) * 20).toFixed(2);
-
-    // ✅ FIX: Vérifier les réponses correctement (par index ET par texte)
+    
+    let mention = '';
+    if (result.percentage >= 90) mention = 'Très Bien';
+    else if (result.percentage >= 75) mention = 'Bien';
+    else if (result.percentage >= 60) mention = 'Assez Bien';
+    else if (result.percentage >= 50) mention = 'Passable';
+    else mention = 'Insuffisant';
+    
     const getOptions = (q) => {
       if (q.options?.length > 0) return q.options;
       const opts = [];
@@ -1932,32 +1950,23 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
       }
       return opts;
     };
-
-    let mention = '';
-    if (result.percentage >= 90) mention = 'Très Bien';
-    else if (result.percentage >= 75) mention = 'Bien';
-    else if (result.percentage >= 60) mention = 'Assez Bien';
-    else if (result.percentage >= 50) mention = 'Passable';
-    else mention = 'Insuffisant';
-
-    // Recompter les bonnes réponses
+    
     let correctCount = 0;
     let rows = '';
     questions.forEach((q, i) => {
       const opts = getOptions(q);
       const correctIdx = typeof q.bonOpRep === 'number' ? q.bonOpRep : -1;
       const correctAnswer = opts[correctIdx] || q.correctAnswer || '—';
-
       const qId = q._id?.toString();
       const studentAnswer = answers[i] || answers[String(i)] || (qId ? answers[qId] : null) || '—';
-
+      
       let isCorrect = false;
       if (studentAnswer !== '—' && studentAnswer !== null) {
         const selectedIdx = opts.findIndex(opt => String(opt).trim() === String(studentAnswer).trim());
         isCorrect = correctIdx >= 0 ? selectedIdx === correctIdx : String(studentAnswer).trim() === String(correctAnswer).trim();
       }
       if (isCorrect) correctCount++;
-
+      
       const pts = q.points || 1;
       rows += `<tr style="border-bottom:1px solid #e2e8f0; background:${i%2===0?'#fafafa':'white'}">
                 <td style="padding:10px 8px; text-align:center; font-weight:600;">${i+1}<\/td>
@@ -1968,15 +1977,13 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
                 <td style="padding:10px 8px; text-align:center; color:#3b82f6;">${pts}<\/td>
               <\/tr>`;
     });
-
-    // ✅ FIX: QR Code sécurisé
+    
     const qrData = encodeURIComponent(`NA2QUIZ|ID:${result._id}|MAT:${result.studentInfo?.matricule||''}|SC:${result.score}/${totalPoints}|PCT:${result.percentage}%|DATE:${new Date(result.createdAt||Date.now()).toLocaleDateString('fr-FR')}`);
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}&bgcolor=ffffff&color=1e293b`;
-
     const scoreDisplay = `${result.score} / ${totalPoints}`;
     const correctDisplay = `${correctCount} bonne(s) réponse(s) sur ${questions.length}`;
     const generatedAt = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Douala' });
-
+    
     const html = `<!DOCTYPE html>
     <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Bulletin NA²QUIZ — ${escapeHtml(result.studentInfo?.lastName||'Candidat')}</title>
@@ -2049,21 +2056,11 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
   }
 });
 
-// ==================== ROUTE VÉRIFICATION QR CODE ====================
 app.get('/api/bulletin/verify/:resultId', async (req, res) => {
   try {
-    const result = await Result.findById(req.params.resultId)
-      .select('studentInfo score percentage passed examTitle createdAt');
+    const result = await Result.findById(req.params.resultId).select('studentInfo score percentage passed examTitle createdAt');
     if (!result) return res.status(404).json({ valid: false, message: 'Bulletin non trouvé' });
-    res.json({
-      valid: true,
-      candidat: `${result.studentInfo?.lastName} ${result.studentInfo?.firstName}`,
-      matricule: result.studentInfo?.matricule,
-      epreuve: result.examTitle,
-      score: `${result.score}pts · ${result.percentage}%`,
-      statut: result.passed ? 'REÇU' : 'AJOURNÉ',
-      date: result.createdAt
-    });
+    res.json({ valid: true, candidat: `${result.studentInfo?.lastName} ${result.studentInfo?.firstName}`, matricule: result.studentInfo?.matricule, epreuve: result.examTitle, score: `${result.score}pts · ${result.percentage}%`, statut: result.passed ? 'REÇU' : 'AJOURNÉ', date: result.createdAt });
   } catch (err) { 
     res.status(500).json({ valid: false, error: err.message }); 
   }
@@ -2074,36 +2071,71 @@ const activeSessions = new Map();
 const activeDistributedExams = new Map();
 const pendingReconnections = new Map();
 
+// Rate limiting pour les connexions
+const connectionAttempts = new Map();
+
+const rateLimitSocket = (ip) => {
+  const now = Date.now();
+  const attempts = connectionAttempts.get(ip) || [];
+  const recent = attempts.filter(t => now - t < 60000);
+  
+  if (recent.length >= 30) {   // ✅ CORRIGÉ: relevé de 10 → 30 pour absorber les reconnexions légitimes
+    return false;
+  }
+  
+  recent.push(now);
+  connectionAttempts.set(ip, recent);
+  return true;
+};
+
+// ✅ 1. CRÉER io D'ABORD
 const io = new Server(server, {
-  cors: {
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST']
+  cors: { 
+    origin: true, 
+    credentials: true, 
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization']
   },
-  transports: ['polling'],
-  allowEIO3: true,
+  transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
-  allowUpgrades: false,
-  cookie: false
+  allowEIO3: true,
+  cookie: false,
+  allowUpgrades: true,
+  perMessageDeflate: false,
+  maxHttpBufferSize: 1e6,
+  path: '/socket.io/',
+  serveClient: true,   // ✅ CORRIGÉ: sert /socket.io/socket.io.js au terminal.html
+  connectTimeout: 45000
 });
 
-// ✅ Fonction pour émettre les statistiques
+// ✅ 2. ENSUITE AJOUTER LE MIDDLEWARE io.use()
+io.use((socket, next) => {
+  const clientIp = socket.handshake.address;
+  if (rateLimitSocket(clientIp)) {
+    next();
+  } else {
+    console.log(`[Socket] 🚫 Rate limit dépassé pour ${clientIp}`);
+    next(new Error('Too many connection attempts'));
+  }
+});
+
+// ✅ 3. AJOUTER LE MIDDLEWARE POUR LES ERREURS DE CONNEXION
+io.engine.on('connection_error', (err) => {
+  console.log('[Socket] ❌ Erreur de connexion:', err.message, err.req?.headers?.origin);
+});
+
+// ✅ 4. PUIS DÉFINIR LES FONCTIONS DE STATS
 const emitRealtimeStats = (examId) => {
   if (!examId) return;
-  
-  const students = Array.from(activeSessions.values()).filter(s => 
-    s.type === 'student' && s.currentExamId === examId && s.status === 'composing'
-  );
-  
-  const stats = {
-    examId,
-    activeStudentsCount: students.length,
-    averageScore: students.length > 0 ? students.reduce((a, b) => a + (b.score || 0), 0) / students.length : 0,
-    averageProgress: students.length > 0 ? students.reduce((a, b) => a + (b.progress || 0), 0) / students.length : 0,
-    lastUpdate: new Date()
+  const students = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'composing');
+  const stats = { 
+    examId, 
+    activeStudentsCount: students.length, 
+    averageScore: students.length > 0 ? students.reduce((a, b) => a + (b.score || 0), 0) / students.length : 0, 
+    averageProgress: students.length > 0 ? students.reduce((a, b) => a + (b.progress || 0), 0) / students.length : 0, 
+    lastUpdate: new Date() 
   };
-  
   io.to('surveillance').emit('realtimeExamStats', stats);
 };
 
@@ -2112,330 +2144,376 @@ const emitSessionUpdate = () => {
   io.emit('sessionUpdate', { activeSessions: sessionsToSend });
 };
 
+// ✅ 5. ENFIN LE GESTIONNAIRE DE CONNEXION
 io.on('connection', (socket) => {
-  console.log(`[Socket] 🔌 Connexion: ${socket.id}`);
-
-  // ✅ Enregistrement automatique comme terminal par défaut
-  socket.join('terminals');
-  console.log(`[Socket] ✅ Socket ${socket.id} automatiquement ajouté à la room 'terminals'`);
-
-  // ── registerSession ────────────────────────────────────────────
+  console.log(`[Socket] 🔌 Nouvelle connexion: ${socket.id}`);
+  
   socket.on('registerSession', (data) => {
     console.log(`[Socket] registerSession reçu: type=${data.type}, sessionId=${data.sessionId}, socketId=${socket.id}`);
     
-    const existing = Array.from(activeSessions.values()).find(s => s.sessionId === data.sessionId && s.type === data.type);
-    if (existing) {
-      const pending = pendingReconnections.get(data.sessionId);
-      if (pending) clearTimeout(pending);
-      activeSessions.delete(existing.socketId);
-      Object.assign(existing, { socketId: socket.id, isOnline: true, lastUpdate: Date.now() });
-      activeSessions.set(socket.id, existing);
-      
-      // ✅ S'assurer que le socket est dans la bonne room
-      if (existing.type === 'terminal') {
-        socket.join('terminals');
-        console.log(`[Socket] Terminal ${socket.id} a rejoint la room 'terminals' (reconnexion)`);
+    const existingSessions = Array.from(activeSessions.entries()).filter(([id, s]) => 
+      s.type === data.type && s.sessionId === data.sessionId
+    );
+    
+    for (const [oldSocketId, oldSession] of existingSessions) {
+      if (oldSocketId !== socket.id) {
+        console.log(`[Socket] 🗑️ Nettoyage ancienne session ${oldSocketId} (type ${data.type})`);
+        activeSessions.delete(oldSocketId);
+        const oldSocket = io.sockets.sockets.get(oldSocketId);
+        if (oldSocket && oldSocket.connected) {
+          oldSocket.disconnect(true);
+        }
       }
-      if (existing.type === 'student' && existing.currentExamId) {
-        socket.join(`exam:${existing.currentExamId}`);
-        console.log(`[Socket] Student ${socket.id} a rejoint exam:${existing.currentExamId}`);
-      }
-      if (existing.type === 'surveillance') {
-        socket.join('surveillance');
-      }
-      if (existing.type === 'teacher') {
-        socket.join('teachers');
-        console.log(`[Socket] Teacher ${socket.id} a rejoint la room 'teachers' (reconnexion)`);
-      }
-      
-      emitSessionUpdate();
-      if (existing.currentExamId) emitRealtimeStats(existing.currentExamId);
-      return;
     }
-
-    const session = {
-      socketId: socket.id, type: data.type, sessionId: data.sessionId || socket.id,
-      status: data.status || 'idle', currentExamId: data.examId || null,
-      studentInfo: data.studentInfo || null, examOption: data.examOption || null,
-      userId: data.userId || null,
-      progress: 0, score: 0, currentQuestion: 0, lastUpdate: Date.now(), isOnline: true,
-    };
+    
+    const pending = pendingReconnections.get(data.sessionId);
+    if (pending) {
+      clearTimeout(pending);
+      pendingReconnections.delete(data.sessionId);
+    }
+    
+    let session = activeSessions.get(socket.id);
+    if (!session) {
+      session = {
+        socketId: socket.id,
+        type: data.type,
+        sessionId: data.sessionId || socket.id,
+        status: data.status || 'idle',
+        currentExamId: data.examId || null,
+        studentInfo: data.studentInfo || null,
+        examOption: data.examOption || null,
+        userId: data.userId || null,
+        progress: 0,
+        score: 0,
+        currentQuestion: 0,
+        lastUpdate: Date.now(),
+        isOnline: true,
+        reconnectCount: 0
+      };
+    } else {
+      session.lastUpdate = Date.now();
+      session.isOnline = true;
+      session.status = data.status || session.status;
+      if (data.examId) session.currentExamId = data.examId;
+    }
+    
     activeSessions.set(socket.id, session);
     
-    // ✅ Rejoindre les rooms appropriées
-    if (data.type === 'student' && data.examId) {
-      socket.join(`exam:${data.examId}`);
-      console.log(`[Socket] Student ${socket.id} a rejoint exam:${data.examId}`);
-    }
-    if (data.type === 'terminal') {
-      socket.join('terminals');
-      console.log(`[Socket] Terminal ${socket.id} a rejoint la room 'terminals'`);
-    }
-    if (data.type === 'surveillance') {
-      socket.join('surveillance');
-      console.log(`[Socket] Surveillance ${socket.id} a rejoint la room 'surveillance'`);
-    }
+    if (data.type === 'student' && data.examId) socket.join(`exam:${data.examId}`);
+    if (data.type === 'terminal') socket.join('terminals');
+    if (data.type === 'surveillance') socket.join('surveillance');
     if (data.type === 'teacher') {
       socket.join('teachers');
-      session.userId = data.userId;
-      console.log(`[Socket] Teacher ${socket.id} a rejoint la room 'teachers'`);
+      if (data.userId) session.userId = data.userId;
     }
     
+    console.log(`[Socket] ✅ Session enregistrée: ${data.type}, total sessions: ${activeSessions.size}`);
     emitSessionUpdate();
     if (data.examId) emitRealtimeStats(data.examId);
   });
-
-  // ── studentReadyForExam ────────────────────────────────────────
-  socket.on('studentReadyForExam', ({ examId, studentInfo, examOption, config }) => {
-    console.log(`[Socket] studentReadyForExam: examId=${examId}, option=${examOption}, socketId=${socket.id}`);
-    
+  
+  socket.on('ping', () => {
     const session = activeSessions.get(socket.id);
     if (session) {
-      session.status = 'waiting';
-      session.currentExamId = examId;
-      session.studentInfo = studentInfo;
-      session.examOption = examOption;
-      session.config = config || null;
       session.lastUpdate = Date.now();
-      if (!session.joinedExam) {
-        socket.join(`exam:${examId}`);
-        session.joinedExam = true;
-        console.log(`[Socket] Student ${socket.id} a rejoint exam:${examId}`);
-      }
-      
-      const waitingCount = Array.from(activeSessions.values())
-        .filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting').length;
-      console.log(`[Socket] Compteur attente pour ${examId}: ${waitingCount}`);
-      io.emit('waitingCountUpdate', { examId, count: waitingCount });
+      session.isOnline = true;
+      session.reconnectCount = 0;
+    }
+    socket.emit('pong');
+  });
+  
+  // ══════════════════════════════════════════════════════════════
+  // HANDLERS MÉTIER — distribution, démarrage, fin d'épreuve
+  // ══════════════════════════════════════════════════════════════
+
+  // ── 1. Terminal prêt (heartbeat d'enregistrement) ─────────────
+  socket.on('terminalReady', (data) => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.status = 'connected';
+      session.lastUpdate = Date.now();
+      console.log(`[Socket] 🖥️ Terminal prêt: ${data?.terminalId || socket.id}`);
       emitSessionUpdate();
-    } else {
-      console.warn(`[Socket] studentReadyForExam: session non trouvée pour socket ${socket.id}`);
     }
   });
 
-  // ── distributeExam — avec logs améliorés ────────────────────────
+  // ── 2. Distribuer l'épreuve → tous les terminaux ──────────────
   socket.on('distributeExam', (data) => {
-    if (!data.examId || !data.examOption) {
-      console.error('[Socket] distributeExam: examId ou examOption manquant', data);
+    const { examId, examOption } = data || {};
+    if (!examId) {
+      console.warn('[Socket] distributeExam: examId manquant');
       return;
     }
-    
-    const terminalsRoom = io.sockets.adapter.rooms.get('terminals');
-    const terminalsCount = terminalsRoom?.size || 0;
-    const allSocketsCount = io.sockets.sockets.size;
-    
-    console.log(`[Socket] 📡 Distribution épreuve ${data.examId} (Option ${data.examOption})`);
-    console.log(`[Socket] 📊 Statut: Room 'terminals' = ${terminalsCount} sockets, Total sockets = ${allSocketsCount}`);
-    
-    const terminalSessions = Array.from(activeSessions.values())
-      .filter(s => s.type === 'terminal' && s.isOnline !== false);
-    console.log(`[Socket] 📊 Terminaux actifs dans activeSessions: ${terminalSessions.length}`);
-    
-    activeDistributedExams.set(data.examId, {
-      option: data.examOption,
-      config: data.config || null,
-      distributedAt: new Date(),
-      questionCount: data.questionCount || 0
-    });
-    
-    // ✅ Envoyer à la room 'terminals'
-    io.to('terminals').emit('examDistributed', {
-      examId: data.examId,
-      examOption: data.examOption,
-      config: data.config || null,
-      timestamp: Date.now()
-    });
-    
-    // ✅ Envoi individuel de secours
-    terminalSessions.forEach(session => {
-      const targetSocket = io.sockets.sockets.get(session.socketId);
-      if (targetSocket && targetSocket.connected) {
-        targetSocket.emit('examDistributed', {
-          examId: data.examId,
-          examOption: data.examOption,
-          config: data.config || null,
-          timestamp: Date.now()
-        });
-        console.log(`[Socket] ✅ Envoi direct à ${session.socketId}`);
+
+    console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${examOption} par ${socket.id}`);
+
+    // Récupérer la config complète depuis EXAM_CONFIGURATIONS côté serveur
+    // (on transmet la config minimale ; le client connaît le mapping complet)
+    const CONFIGS = {
+      A: { openRange: false, sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
+      B: { openRange: false, sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
+      C: { openRange: false, sequencing: 'identical',        showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
+      D: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
+      E: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
+      F: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
+      G: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: true  },
+      H: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
+      I: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: true  },
+      J: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
+      K: { openRange: true,  sequencing: 'identical',        showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
+    };
+    const config = { ...(CONFIGS[examOption] || CONFIGS['C']), examOption };
+
+    // Mémoriser la distribution active
+    activeDistributedExams.set(examId, { examId, examOption, config, distributedAt: Date.now() });
+
+    // Mettre à jour le statut de tous les terminaux connectés
+    let terminalCount = 0;
+    for (const [sid, session] of activeSessions) {
+      if (session.type === 'terminal') {
+        session.status = 'exam_distributed';
+        session.currentExamId = examId;
+        session.examOption = examOption;
+        terminalCount++;
+        const termSocket = io.sockets.sockets.get(sid);
+        if (termSocket && termSocket.connected) {
+          termSocket.emit('examDistributed', { examId, examOption, config });
+        }
       }
-    });
-    
-    io.to('surveillance').emit('examDistributedConfirm', {
-      examId: data.examId,
-      examOption: data.examOption,
-      terminalCount: terminalsCount
-    });
-    console.log(`[Socket] ✅ Épreuve distribuée à ${terminalsCount} terminaux (room) + ${terminalSessions.length} directs`);
-  });
-
-  // ── startExam ──────────────────────────────────────────────────
-  socket.on('startExam', ({ examId, option }) => {
-    console.log(`[Socket] 🚀 startExam examId=${examId} option=${option}`);
-    
-    const waitingStudents = Array.from(activeSessions.values()).filter(s => 
-      s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
-    );
-    
-    console.log(`[Socket] Étudiants en attente pour ${examId}: ${waitingStudents.length}`);
-    
-    if (waitingStudents.length === 0) {
-      socket.emit('noWaitingStudents', { examId, message: 'Aucun étudiant en attente' });
-      return;
     }
-    
-    waitingStudents.forEach(s => {
-      const studentSocket = io.sockets.sockets.get(s.socketId);
-      if (studentSocket && studentSocket.connected) {
-        s.status = 'composing';
-        s.lastUpdate = Date.now();
-        
-        studentSocket.emit('examStarted', { 
-          examId, 
-          questionIndex: 0, 
-          examOption: s.examOption 
-        });
-        console.log(`[Socket] ✅ examStarted envoyé à ${s.socketId}`);
-      } else {
-        console.warn(`[Socket] ❌ Socket étudiant non trouvé ou déconnecté: ${s.socketId}`);
-      }
-    });
-    
-    io.emit('waitingCountUpdate', { examId, count: 0 });
-    socket.emit('examStartedConfirm', { examId, option, startedCount: waitingStudents.length });
+
+    console.log(`[Socket] ✅ Épreuve distribuée à ${terminalCount} terminal(aux)`);
     emitSessionUpdate();
-    emitRealtimeStats(examId);
+    socket.emit('distributeExamConfirm', { success: true, terminalCount, examId, examOption });
   });
 
-  // ── displayQuestion ────────────────────────────────────────────
-  socket.on('displayQuestion', ({ examId, questionIndex }) => {
-    console.log(`[Socket] ❓ displayQuestion examId=${examId} idx=${questionIndex}`);
-    io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex });
-    io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex });
-  });
-
-  // ── advanceQuestionForOptionA ──────────────────────────────────
-  socket.on('advanceQuestionForOptionA', ({ examId, nextQuestionIndex }) => {
-    console.log(`[Socket] ⏩ advanceQuestion examId=${examId} next=${nextQuestionIndex}`);
-    io.to(`exam:${examId}`).emit('displayQuestion', { examId, questionIndex: nextQuestionIndex });
-    io.to('surveillance').emit('currentQuestionIndexForOptionA', { examId, questionIndex: nextQuestionIndex });
-  });
-
-  // ── finishExam ─────────────────────────────────────────────────
-  socket.on('finishExam', ({ examId }) => {
-    console.log(`[Socket] 🏁 finishExam examId=${examId}`);
-    io.to(`exam:${examId}`).emit('examFinished', { examId });
-    io.to('terminals').emit('examFinished', { examId });
-    
-    Array.from(activeSessions.values())
-      .filter(s => s.type === 'student' && s.currentExamId === examId)
-      .forEach(s => { s.status = 'finished'; s.lastUpdate = Date.now(); });
-    
-    emitSessionUpdate();
-    emitRealtimeStats(examId);
-  });
-
-  // ── updateStudentProgress ──────────────────────────────────────
-  socket.on('updateStudentProgress', ({ examId, progress, score, currentQuestion, percentage }) => {
-    const session = activeSessions.get(socket.id);
-    if (session) {
-      session.progress = progress || 0;
-      session.score = score || 0;
-      session.percentage = percentage || 0;
-      session.currentQuestion = currentQuestion || 0;
-      session.lastUpdate = Date.now();
-      
-      io.to('surveillance').emit('studentProgressUpdate', {
-        studentId: socket.id,
-        studentInfo: session.studentInfo,
-        examId: session.currentExamId,
-        progress: session.progress,
-        currentQuestion: session.currentQuestion,
-        score: session.score,
-        percentage: session.percentage
-      });
-    }
-    emitRealtimeStats(examId);
-  });
-
-  // ── terminalReadyForExam ───────────────────────────────────────
+  // ── 3. Accusé de réception du terminal ───────────────────────
   socket.on('terminalReadyForExam', (data) => {
-    console.log(`[Socket] 🖥️ Terminal prêt pour épreuve: ${data.examId} (Option ${data.examOption})`);
+    const { examId, examOption, terminalId } = data || {};
     const session = activeSessions.get(socket.id);
     if (session) {
       session.status = 'exam_distributed';
-      session.currentExamId = data.examId;
-      session.examOption = data.examOption;
+      session.currentExamId = examId;
+      session.examOption = examOption;
       session.lastUpdate = Date.now();
-      activeSessions.set(socket.id, session);
-      io.to('surveillance').emit('terminalReady', {
-        terminalId: session.sessionId,
-        examId: data.examId,
-        examOption: data.examOption,
-        status: 'exam_distributed'
-      });
+      console.log(`[Socket] 📋 Terminal ${terminalId} accusé de réception pour ${examId} option ${examOption}`);
       emitSessionUpdate();
-    } else {
-      console.warn(`[Socket] terminalReadyForExam: session non trouvée pour socket ${socket.id}`);
     }
   });
 
-  // ── studentWindowChanged (Alerte sécurité) ─────────────────────
-  socket.on('studentWindowChanged', (data) => {
-    console.log(`[Security] ⚠️ Étudiant ${data.studentName} (${data.studentMatricule}) a changé de fenêtre à ${data.timestamp}`);
-    
-    // Diffuser aux superviseurs
-    io.to('surveillance').emit('securityAlert', {
-      type: 'window_change',
-      severity: 'medium',
-      studentName: data.studentName,
-      studentMatricule: data.studentMatricule,
-      examId: data.examId,
-      timestamp: data.timestamp,
-      message: `⚠️ ${data.studentName} a quitté la fenêtre de l'examen`
-    });
-    
-    // Log dans la console pour audit
-    console.log(`[Security Audit] ${data.timestamp} - ${data.studentName} (${data.studentMatricule}) - window change detected`);
+  // ── 4. Démarrer l'épreuve → tous les étudiants en attente ─────
+  socket.on('startExam', (data) => {
+    const { examId, option } = data || {};
+    if (!examId) return;
+
+    console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${option}`);
+
+    let startedCount = 0;
+    const studentsInRoom = io.sockets.adapter.rooms.get(`exam:${examId}`) || new Set();
+
+    for (const [sid, session] of activeSessions) {
+      if (session.type === 'student' && session.currentExamId === examId && session.status === 'waiting') {
+        session.status = 'composing';
+        startedCount++;
+        const stuSocket = io.sockets.sockets.get(sid);
+        if (stuSocket && stuSocket.connected) {
+          stuSocket.emit('examStarted', { examId, examOption: option || session.examOption });
+        }
+      }
+    }
+
+    // Notifier aussi la room exam:<examId> (étudiants inscrits via join)
+    io.to(`exam:${examId}`).emit('examStarted', { examId, examOption: option });
+
+    console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés`);
+    socket.emit('examStartedConfirm', { success: true, startedCount, examId });
+    emitSessionUpdate();
+    emitRealtimeStats(examId);
   });
 
-  // ── ping ───────────────────────────────────────────────────────
-  socket.on('ping', () => {
+  // ── 5. Fin / clôture d'épreuve ───────────────────────────────
+  socket.on('finishExam', (data) => {
+    const { examId } = data || {};
+    if (!examId) return;
+
+    console.log(`[Socket] 🏁 Fin épreuve ${examId}`);
+
+    // Forcer la fin pour les étudiants encore en composition
+    for (const [sid, session] of activeSessions) {
+      if (session.type === 'student' && session.currentExamId === examId && session.status === 'composing') {
+        session.status = 'forced-finished';
+        const stuSocket = io.sockets.sockets.get(sid);
+        if (stuSocket && stuSocket.connected) {
+          stuSocket.emit('forceFinishExam', { examId, reason: 'Clôture par le superviseur' });
+        }
+      }
+    }
+
+    // Notifier les terminaux
+    for (const [sid, session] of activeSessions) {
+      if (session.type === 'terminal' && session.currentExamId === examId) {
+        session.status = 'connected';
+        session.currentExamId = null;
+        const termSocket = io.sockets.sockets.get(sid);
+        if (termSocket && termSocket.connected) {
+          termSocket.emit('examFinished', { examId });
+        }
+      }
+    }
+
+    activeDistributedExams.delete(examId);
+    io.to('surveillance').emit('examFinishedConfirm', { examId });
+    emitSessionUpdate();
+  });
+
+  // ── 6. Avancement de question (options A et B) ────────────────
+  socket.on('advanceQuestionForOptionA', (data) => {
+    const { examId, nextQuestionIndex } = data || {};
+    if (!examId) return;
+    console.log(`[Socket] ⏭️ Option A — Question ${nextQuestionIndex} pour ${examId}`);
+    io.to(`exam:${examId}`).emit('advanceToQuestion', { examId, questionIndex: nextQuestionIndex });
+  });
+
+  socket.on('displayQuestion', (data) => {
+    const { examId, questionIndex } = data || {};
+    if (!examId) return;
+    console.log(`[Socket] 📺 Option B — Affichage question ${questionIndex} pour ${examId}`);
+    io.to(`exam:${examId}`).emit('showQuestion', { examId, questionIndex });
+  });
+
+  // ── 7. Mise à jour de progression étudiant ───────────────────
+  socket.on('studentProgressUpdate', (data) => {
     const session = activeSessions.get(socket.id);
-    if (session) { session.lastUpdate = Date.now(); session.isOnline = true; }
-    socket.emit('pong');
+    if (session && data) {
+      session.progress   = data.progress   ?? session.progress;
+      session.score      = data.score      ?? session.score;
+      session.percentage = data.percentage ?? session.percentage;
+      session.currentQuestion = data.currentQuestion ?? session.currentQuestion;
+      session.status     = data.status     ?? session.status;
+      session.lastUpdate = Date.now();
+      io.to('surveillance').emit('studentProgressUpdate', { studentId: socket.id, ...data });
+      if (session.currentExamId) emitRealtimeStats(session.currentExamId);
+    }
   });
 
-  // ── disconnect ─────────────────────────────────────────────────
-  socket.on('disconnect', () => {
-    console.log(`[Socket] 👋 Déconnexion: ${socket.id}`);
+  // ── 8. Soumission de l'examen ─────────────────────────────────
+  socket.on('examSubmitting', (data) => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.status = 'submitting';
+      session.lastUpdate = Date.now();
+      io.to('surveillance').emit('studentSubmitting', { studentId: socket.id, examId: data?.examId });
+      emitSessionUpdate();
+    }
+  });
+
+  socket.on('examSubmitted', (data) => {
+    const session = activeSessions.get(socket.id);
+    if (session) {
+      session.status = 'finished';
+      session.lastUpdate = Date.now();
+      io.to('surveillance').emit('studentFinished', { studentId: socket.id, examResultId: data?.examResultId });
+      if (session.currentExamId) emitRealtimeStats(session.currentExamId);
+      emitSessionUpdate();
+    }
+  });
+
+  // ── 9. Demande de comptage des étudiants en attente ──────────
+  socket.on('getWaitingStudents', (data, callback) => {
+    const { examId } = data || {};
+    const waiting = Array.from(activeSessions.values()).filter(
+      s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
+    );
+    const count = waiting.length;
+    // Mettre à jour le compteur chez tous les terminaux de cet examen
+    io.to('surveillance').emit('waitingCountUpdate', { examId, count });
+    if (typeof callback === 'function') callback({ count });
+  });
+
+  // ── 10. Enregistrement étudiant en salle d'attente ────────────
+  // Accepte les deux noms d'événement (WaitingPage envoie studentReadyForExam)
+  const handleStudentWaiting = (data) => {
+    const { examId, examOption, studentInfo, sessionId: stuSessionId, config } = data || {};
+    if (!examId) return;
+
+    socket.join(`exam:${examId}`);
+    const existingSession = activeSessions.get(socket.id);
+    if (existingSession) {
+      existingSession.type = 'student';
+      existingSession.status = 'waiting';
+      existingSession.currentExamId = examId;
+      existingSession.examOption = examOption;
+      existingSession.studentInfo = studentInfo || null;
+      existingSession.sessionId = stuSessionId || existingSession.sessionId;
+      existingSession.config = config || null;
+      existingSession.lastUpdate = Date.now();
+    } else {
+      activeSessions.set(socket.id, {
+        socketId: socket.id, type: 'student', sessionId: stuSessionId || socket.id,
+        status: 'waiting', currentExamId: examId, examOption, config: config || null,
+        studentInfo: studentInfo || null, progress: 0, score: 0,
+        currentQuestion: 0, lastUpdate: Date.now(), isOnline: true, reconnectCount: 0
+      });
+    }
+
+    const waitingCount = Array.from(activeSessions.values()).filter(
+      s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
+    ).length;
+
+    io.to('surveillance').emit('waitingCountUpdate', { examId, count: waitingCount });
+    io.to('terminals').emit('waitingCountUpdate', { examId, count: waitingCount });
+    emitSessionUpdate();
+    console.log(`[Socket] ⏳ Étudiant en attente pour ${examId} — option ${examOption} — total: ${waitingCount}`);
+  };
+
+  socket.on('joinWaiting',            handleStudentWaiting);
+  socket.on('studentReadyForExam',    handleStudentWaiting);
+
+  socket.on('disconnect', (reason) => {
+    console.log(`[Socket] ❌ Déconnexion: ${socket.id}, raison: ${reason}`);
     const session = activeSessions.get(socket.id);
     if (session) {
       session.isOnline = false;
+      session.lastUpdate = Date.now();
+      
       if (session.type === 'student') {
         io.to('surveillance').emit('studentDisconnected', {
-          studentName: session.studentInfo
-            ? `${session.studentInfo.firstName} ${session.studentInfo.lastName}`
-            : 'Inconnu',
+          studentName: session.studentInfo ? `${session.studentInfo.firstName} ${session.studentInfo.lastName}` : 'Inconnu',
           examId: session.currentExamId,
           socketId: socket.id
         });
         if (session.currentExamId) emitRealtimeStats(session.currentExamId);
       }
+      
       const timeout = setTimeout(() => {
-        const current = activeSessions.get(socket.id);
-        if (current && !current.isOnline) {
+        const currentSession = activeSessions.get(socket.id);
+        if (currentSession && !currentSession.isOnline) {
+          console.log(`[Socket] 🗑️ Suppression session expirée: ${socket.id}`);
           activeSessions.delete(socket.id);
           emitSessionUpdate();
-          console.log(`[Socket] 🗑️ Session expirée supprimée: ${socket.id}`);
         }
         pendingReconnections.delete(session.sessionId);
-      }, 45000);
+      }, 30000);
+      
       pendingReconnections.set(session.sessionId, timeout);
     }
   });
 });
 
-// Routes API pour les sessions actives
+// ✅ 6. HEARTBEAT (après io.on)
+setInterval(() => {
+  const now = Date.now();
+  for (const [socketId, session] of activeSessions) {
+    if (now - (session.lastUpdate || now) > 30000) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket && socket.connected) {
+        socket.emit('ping');
+      }
+    }
+  }
+}, 15000);
+
+// ✅ 7. ROUTES SOCKET POUR L'API
 app.get('/api/active-sessions', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   res.json({ success: true, count: sessions.length, sessions });
@@ -2444,12 +2522,7 @@ app.get('/api/active-sessions', (req, res) => {
 app.get('/api/surveillance-data', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   const waitingStudents = sessions.filter(s => s.type === 'student' && s.status === 'waiting');
-  const realtimeStats = {
-    activeStudentsCount: sessions.filter(s => s.type === 'student' && s.status === 'composing').length,
-    averageScore: 0,
-    passRate: 0,
-    lastUpdate: new Date()
-  };
+  const realtimeStats = { activeStudentsCount: sessions.filter(s => s.type === 'student' && s.status === 'composing').length, averageScore: 0, passRate: 0, lastUpdate: new Date() };
   res.json({ success: true, activeSessions: sessions, waitingStudents, realtimeStats });
 });
 
@@ -2465,10 +2538,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[NA²QUIZ] 🌍 Environnement: ${NODE_ENV}`);
   console.log(`[NA²QUIZ] 📡 Port: ${PORT}`);
   console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
-  console.log(`[NA²QUIZ] 📄 Terminal: ${FRONTEND_URL}/terminal.html (via Netlify) ou /terminal.html (local)`);
   console.log(`[NA²QUIZ] 💾 MongoDB: ${isConnected ? '✅ Connecté' : '❌ Déconnecté'}`);
-  console.log(`[NA²QUIZ] 🔒 Anti-triche: Activé (détection changement fenêtre)`);
-  console.log(`[NA²QUIZ] 🔔 Notifications: Activées (enseignants)`);
   console.log(`${'='.repeat(60)}\n`);
 });
 

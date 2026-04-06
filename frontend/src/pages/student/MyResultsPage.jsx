@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Award, BookOpen, Calendar, CheckCircle, ChevronDown, ChevronUp,
   Clock, Download, Eye, FileText, Filter, Home, Layers, LogOut,
-  Printer, RefreshCw, Search, Tag, Trophy, User, Users, X, XCircle, ArrowLeft
+  Printer, RefreshCw, Search, Tag, Trophy, User, Users, X, XCircle, ArrowLeft, Shield
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 
 const MyResultsPage = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { user, isAuthenticated, loading: authLoading, hasRole } = useAuth();
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,6 +26,8 @@ const MyResultsPage = () => {
   const [sortBy, setSortBy] = useState('date');
   const [expandedResult, setExpandedResult] = useState(null);
   const [stats, setStats] = useState({ total: 0, passed: 0, avgScore: 0, bestScore: 0, worstScore: 0 });
+
+  const isApprenant = hasRole('APPRENANT');
 
   const examTitles = useMemo(() => [...new Set(results.map(r => r.examTitle).filter(Boolean))], [results]);
   const subjects = useMemo(() => [...new Set(results.map(r => r.matiere || r.subject).filter(Boolean))], [results]);
@@ -78,6 +80,14 @@ const MyResultsPage = () => {
         return;
       }
       
+      // ✅ Vérifier que l'utilisateur est bien un apprenant
+      if (!isApprenant) {
+        console.log('⚠️ Utilisateur non apprenant, accès refusé');
+        setError('Cette page est réservée aux apprenants');
+        setLoading(false);
+        return;
+      }
+      
       setLoading(true);
       setError(null);
       
@@ -85,123 +95,58 @@ const MyResultsPage = () => {
         const token = localStorage.getItem('userToken');
         console.log('🔍 Token présent:', !!token);
         console.log('👤 Utilisateur:', user);
-        console.log('📌 Matricule étudiant:', user?.matricule);
         
         if (!token) {
           throw new Error('Token non trouvé');
         }
         
-        // ✅ MODIFICATION: Utiliser la route générale /api/results
-        // et filtrer côté client si nécessaire
-        let response;
-        try {
-          // Essayer d'abord la route générale
-          response = await api.get('/api/results');
-          console.log('📦 Réponse /api/results:', response);
-        } catch (err) {
-          console.warn('Route /results échouée, tentative /student');
-          response = await api.get('/api/results/student');
-          console.log('📦 Réponse /api/results/student:', response);
-        }
+        // ✅ DIRECTEMENT la route /api/results/student - PAS besoin de fallback
+        const response = await api.get('/api/results/student');
+        console.log('📦 Réponse /api/results/student:', response);
         
-        // ✅ Extraction robuste des données
+        // ✅ Extraction des données
         let data = [];
-        
-        // Format 1: { success: true, data: [...] }
         if (response?.data && Array.isArray(response.data)) {
           data = response.data;
-        }
-        // Format 2: { success: true, data: { data: [...] } }
-        else if (response?.data?.data && Array.isArray(response.data.data)) {
-          data = response.data.data;
-        }
-        // Format 3: direct array
-        else if (Array.isArray(response)) {
+        } else if (response && Array.isArray(response)) {
           data = response;
-        }
-        // Format 4: { results: [...] }
-        else if (response?.results && Array.isArray(response.results)) {
+        } else if (response?.results && Array.isArray(response.results)) {
           data = response.results;
-        }
-        // Format 5: chercher n'importe quel tableau
-        else if (response && typeof response === 'object') {
-          for (const key of ['data', 'results', 'items', 'studentResults', 'docs', 'resultats']) {
-            if (response[key] && Array.isArray(response[key])) {
-              data = response[key];
-              break;
-            }
-          }
         }
         
         console.log('📊 Données brutes extraites:', data.length);
         
-        // ✅ NE PAS filtrer par matricule, prendre tous les résultats
-        // ou filtrer par userId si disponible
-        let filteredData = data;
-        
-        // Si l'utilisateur a un matricule, essayer de filtrer
-        if (user?.matricule && data.length > 0) {
-          const beforeFilter = filteredData.length;
-          filteredData = data.filter(r => {
-            // Vérifier par matricule
-            if (r.studentInfo?.matricule === user.matricule) return true;
-            if (r.studentInfo?.matricule?.toUpperCase() === user.matricule?.toUpperCase()) return true;
-            // Vérifier par userId
-            if (r.userId === user._id) return true;
-            if (r.createdBy === user._id) return true;
-            return false;
-          });
-          console.log(`📊 Filtrage par matricule: ${beforeFilter} → ${filteredData.length}`);
-        }
-        
-        if (filteredData.length === 0 && data.length > 0) {
-          console.warn('⚠️ Aucun résultat filtré, affichage de tous les résultats');
-          filteredData = data;
-        }
-        
         // ✅ Normaliser les résultats
-        const normalizedResults = filteredData.map(r => {
-          // Calculer le nombre de bonnes réponses si disponible
-          let correctAnswersCount = 0;
-          if (r.questionDetails && Array.isArray(r.questionDetails)) {
-            correctAnswersCount = r.questionDetails.filter(q => q.isCorrect === true).length;
-          }
-          
-          return {
-            _id: r._id,
-            examId: r.examId,
-            examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
-            studentInfo: r.studentInfo || {
-              firstName: user?.name?.split(' ')[1] || '',
-              lastName: user?.name?.split(' ')[0] || '',
-              matricule: user?.matricule || ''
-            },
-            score: r.score || 0,
-            percentage: r.percentage || 0,
-            passed: r.passed || false,
-            totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
-            correctAnswers: correctAnswersCount,
-            createdAt: r.createdAt,
-            domain: r.domain || r.examId?.domain || '',
-            subject: r.matiere || r.subject || r.examId?.subject || '',
-            level: r.level || r.examId?.level || '',
-            examOption: r.examOption || '',
-            examQuestions: r.examQuestions || [],
-            answers: r.answers || {},
-            note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
-            dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
-              day: '2-digit', 
-              month: 'long', 
-              year: 'numeric' 
-            }) : 'Date inconnue'
-          };
-        });
+        const normalizedResults = data.map(r => ({
+          _id: r._id,
+          examId: r.examId,
+          examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
+          studentInfo: r.studentInfo || {
+            firstName: user?.name?.split(' ')[1] || '',
+            lastName: user?.name?.split(' ')[0] || '',
+            matricule: user?.matricule || ''
+          },
+          score: r.score || 0,
+          percentage: r.percentage || 0,
+          passed: r.passed || false,
+          totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
+          correctAnswers: r.questionDetails?.filter(q => q.isCorrect === true).length || 0,
+          createdAt: r.createdAt,
+          domain: r.domain || r.examId?.domain || '',
+          subject: r.matiere || r.subject || r.examId?.subject || '',
+          level: r.level || r.examId?.level || '',
+          examOption: r.examOption || '',
+          examQuestions: r.examQuestions || [],
+          answers: r.answers || {},
+          note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
+          dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
+            day: '2-digit', 
+            month: 'long', 
+            year: 'numeric' 
+          }) : 'Date inconnue'
+        }));
         
         console.log('✅ Résultats normalisés:', normalizedResults.length);
-        if (normalizedResults.length > 0) {
-          console.log('📝 Premier résultat:', normalizedResults[0]);
-        }
-        
         setResults(normalizedResults);
         
         // ✅ Calculer les statistiques
@@ -222,9 +167,7 @@ const MyResultsPage = () => {
         });
         
         if (normalizedResults.length === 0) {
-          toast('Aucun résultat trouvé pour votre compte', { icon: 'ℹ️' });
-        } else {
-          toast.success(`${normalizedResults.length} résultat(s) trouvé(s)`);
+          toast('Aucun résultat trouvé', { icon: 'ℹ️' });
         }
         
       } catch (error) {
@@ -238,8 +181,6 @@ const MyResultsPage = () => {
           setTimeout(() => navigate('/login'), 2000);
         } else if (error.response?.status === 403) {
           errorMsg = "Accès non autorisé. Rôle APPRENANT requis.";
-        } else if (error.message?.includes('Network Error')) {
-          errorMsg = `Impossible de joindre le serveur à ${api.defaults.baseURL}`;
         } else if (error.message) {
           errorMsg = error.message;
         }
@@ -252,7 +193,7 @@ const MyResultsPage = () => {
     };
     
     fetchResults();
-  }, [user, isAuthenticated, authLoading, navigate]);
+  }, [user, isAuthenticated, authLoading, navigate, isApprenant]);
 
   const viewBulletin = (resultId) => {
     window.open(`${api.defaults.baseURL}/api/bulletin/${resultId}`, '_blank');
@@ -299,6 +240,48 @@ const MyResultsPage = () => {
     );
   }
 
+  // ✅ Si l'utilisateur n'est pas apprenant
+  if (!isApprenant && !authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #05071a, #0a0f2e)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div style={{
+          background: 'rgba(239,68,68,0.1)',
+          border: '1px solid #ef4444',
+          borderRadius: 24,
+          padding: 48,
+          textAlign: 'center',
+          maxWidth: 500
+        }}>
+          <Shield size={64} color="#ef4444" style={{ marginBottom: 16 }} />
+          <h2 style={{ color: '#f8fafc', marginBottom: 12 }}>Accès restreint</h2>
+          <p style={{ color: '#ef4444', marginBottom: 24 }}>
+            Cette page est réservée aux apprenants.
+            <br />Votre rôle actuel: <strong>{user?.role || 'inconnu'}</strong>
+          </p>
+          <button
+            onClick={() => navigate('/evaluate')}
+            style={{
+              padding: '10px 24px',
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              border: 'none',
+              borderRadius: 8,
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            Retour au tableau de bord
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -332,7 +315,7 @@ const MyResultsPage = () => {
               Mes Résultats
             </h1>
             <p style={{ color: '#64748b' }}>
-              {user?.name || 'Étudiant'} · {filteredResults.length} résultat{filteredResults.length !== 1 ? 's' : ''} trouvé{filteredResults.length !== 1 ? 's' : ''}
+              {user?.name || 'Étudiant'} · {filteredResults.length} résultat{filteredResults.length !== 1 ? 's' : ''}
             </p>
           </div>
           <button
@@ -420,7 +403,7 @@ const MyResultsPage = () => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Rechercher par épreuve, nom, matricule..."
+                  placeholder="Rechercher par épreuve..."
                   style={{
                     width: '100%', padding: '10px 12px 10px 38px',
                     background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)',
@@ -458,36 +441,6 @@ const MyResultsPage = () => {
                 <option value="passed">✓ Réussis</option>
                 <option value="failed">✗ Échoués</option>
               </select>
-              
-              {subjects.length > 0 && (
-                <select
-                  value={filterSubject}
-                  onChange={(e) => setFilterSubject(e.target.value)}
-                  style={{
-                    padding: '10px 12px', background: '#0f172a',
-                    border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
-                    color: filterSubject ? '#f8fafc' : '#94a3b8', outline: 'none'
-                  }}
-                >
-                  <option value="">Toutes les matières</option>
-                  {subjects.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              )}
-              
-              {domains.length > 0 && (
-                <select
-                  value={filterDomain}
-                  onChange={(e) => setFilterDomain(e.target.value)}
-                  style={{
-                    padding: '10px 12px', background: '#0f172a',
-                    border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10,
-                    color: filterDomain ? '#f8fafc' : '#94a3b8', outline: 'none'
-                  }}
-                >
-                  <option value="">Tous les domaines</option>
-                  {domains.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              )}
               
               <select
                 value={sortBy}
@@ -545,7 +498,7 @@ const MyResultsPage = () => {
                   Vous n'avez pas encore participé à une épreuve.
                 </p>
                 <button
-                  onClick={() => navigate('/evaluate')}
+                  onClick={() => navigate('/available-exams')}
                   style={{
                     marginTop: 20,
                     padding: '10px 24px',
@@ -557,14 +510,14 @@ const MyResultsPage = () => {
                     fontWeight: 600
                   }}
                 >
-                  Commencer une épreuve
+                  Voir les épreuves disponibles
                 </button>
               </>
             ) : (
               <>
                 <Filter size={48} color="#1e293b" style={{ marginBottom: 16 }} />
                 <p style={{ fontSize: '1.1rem', marginBottom: 8 }}>Aucun résultat ne correspond aux filtres</p>
-                <p style={{ fontSize: '0.85rem' }}>Modifiez vos critères de recherche pour voir plus de résultats.</p>
+                <p style={{ fontSize: '0.85rem' }}>Modifiez vos critères de recherche.</p>
                 {hasActiveFilters && (
                   <button
                     onClick={resetFilters}
@@ -589,7 +542,7 @@ const MyResultsPage = () => {
             <AnimatePresence>
               {filteredResults.map((result, index) => {
                 const mention = getMention(result.percentage);
-                const note20Value = result.note20 || ((result.percentage / 100) * 20).toFixed(2);
+                const note20Value = result.note20;
                 const isExpanded = expandedResult === result._id;
                 
                 return (
@@ -622,11 +575,6 @@ const MyResultsPage = () => {
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.75rem' }}>
                                   <Calendar size={12} /> {result.dateFormatted}
                                 </span>
-                                {result.subject && (
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: '0.75rem' }}>
-                                    <FileText size={12} /> {result.subject}
-                                  </span>
-                                )}
                                 {result.examOption && (
                                   <span style={{
                                     padding: '2px 8px',
@@ -707,12 +655,12 @@ const MyResultsPage = () => {
                           style={{ borderTop: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}
                         >
                           <div style={{ padding: '20px 24px' }}>
-                            {/* Détails des questions */}
+                            {/* Détail des questions */}
                             {result.examQuestions && result.examQuestions.length > 0 && (
                               <div style={{ marginBottom: 20 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                   <FileText size={14} color="#8b5cf6" />
-                                  <h4 style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 600 }}>Détail des réponses</h4>
+                                  <h4 style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 600 }}>Aperçu des réponses</h4>
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
                                   {result.examQuestions.slice(0, 5).map((q, idx) => {
@@ -723,8 +671,6 @@ const MyResultsPage = () => {
                                     if (studentAnswer && q.bonOpRep !== undefined) {
                                       const selectedIndex = q.options?.findIndex(opt => opt === studentAnswer);
                                       isCorrect = selectedIndex === q.bonOpRep;
-                                    } else if (studentAnswer && q.correctAnswer) {
-                                      isCorrect = studentAnswer === q.correctAnswer;
                                     }
                                     
                                     return (
@@ -736,19 +682,13 @@ const MyResultsPage = () => {
                                       }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                           {isCorrect ? <CheckCircle size={12} color="#10b981" /> : <XCircle size={12} color="#ef4444" />}
-                                          <span style={{ color: '#e2e8f0', fontSize: '0.8rem' }}>
-                                            Q{idx + 1}. {q.libQuestion || q.questionText || 'Question sans texte'}
+                                          <span style={{ color: '#e2e8f0', fontSize: '0.75rem' }}>
+                                            Q{idx + 1}. {q.libQuestion?.substring(0, 80)}...
                                           </span>
                                         </div>
                                         <div style={{ marginLeft: 20, marginTop: 4, fontSize: '0.7rem' }}>
                                           <span style={{ color: '#64748b' }}>Votre réponse: </span>
                                           <span style={{ color: isCorrect ? '#10b981' : '#ef4444', fontWeight: 600 }}>{studentAnswer || 'Non répondu'}</span>
-                                          {!isCorrect && (
-                                            <><span style={{ color: '#64748b' }}> | Bonne réponse: </span>
-                                            <span style={{ color: '#10b981', fontWeight: 600 }}>
-                                              {q.options?.[q.bonOpRep] || q.correctAnswer || '—'}
-                                            </span></>
-                                          )}
                                         </div>
                                       </div>
                                     );
@@ -779,7 +719,7 @@ const MyResultsPage = () => {
                                   fontSize: '0.85rem'
                                 }}
                               >
-                                <Eye size={14} /> Voir le bulletin détaillé
+                                <Eye size={14} /> Voir le bulletin
                               </button>
                               <button
                                 onClick={() => window.open(`${api.defaults.baseURL}/api/bulletin/${result._id}`, '_blank')}
@@ -796,7 +736,7 @@ const MyResultsPage = () => {
                                   fontSize: '0.85rem'
                                 }}
                               >
-                                <Download size={14} /> Télécharger PDF
+                                <Download size={14} /> PDF
                               </button>
                             </div>
                           </div>
@@ -807,15 +747,6 @@ const MyResultsPage = () => {
                 );
               })}
             </AnimatePresence>
-          </div>
-        )}
-        
-        {/* Statistiques avancées */}
-        {!loading && results.length > 0 && filteredResults.length !== results.length && (
-          <div style={{ marginTop: 24, textAlign: 'center', padding: 12, background: 'rgba(59,130,246,0.05)', borderRadius: 12 }}>
-            <p style={{ color: '#64748b', fontSize: '0.8rem' }}>
-              Affichage de {filteredResults.length} sur {results.length} résultat{results.length !== 1 ? 's' : ''}
-            </p>
           </div>
         )}
       </div>

@@ -508,6 +508,8 @@ const QCMValidationPage = () => {
     }
   };
 
+
+
   const handleValidate = async (qId, approved) => {
     setValidating(prev => ({ ...prev, [qId]: true }));
     try {

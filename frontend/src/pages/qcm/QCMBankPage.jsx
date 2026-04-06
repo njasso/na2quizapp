@@ -1,4 +1,4 @@
-// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION CORRIGÉE
+// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION ROBUSTE AVEC FILTRAGE PAR ID
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,7 +21,11 @@ import DOMAIN_DATA, {
   getDomainNom,
   getSousDomaineNom,
   getLevelNom,
-  getMatiereNom
+  getMatiereNom,
+  getDomainById,
+  getSousDomaineById,
+  getLevelById,
+  getMatiereById
 } from '../../data/domainConfig';
 import { Bar, Line, Doughnut } from 'react-chartjs-2';
 import {
@@ -56,11 +60,12 @@ const QCMBankPage = () => {
 
   // ========== ÉTATS ==========
   const [questions, setQuestions] = useState([]);
+  const [allQuestions, setAllQuestions] = useState([]); // Cache toutes les questions approuvées
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dashboardView, setDashboardView] = useState('analytics');
 
-  // Filtres
+  // Filtres - Version ROBUSTE avec IDs (plus de conversion nom/ID)
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDomainId, setSelectedDomainId] = useState('');
   const [selectedSousDomaineId, setSelectedSousDomaineId] = useState('');
@@ -70,12 +75,6 @@ const QCMBankPage = () => {
   const [selectedStatus, setSelectedStatus] = useState('approved');
   const [showFilters, setShowFilters] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState(null);
-
-  // Noms (pour les filtres API)
-  const [domainNom, setDomainNom] = useState('');
-  const [sousDomaineNom, setSousDomaineNom] = useState('');
-  const [levelNom, setLevelNom] = useState('');
-  const [matiereNom, setMatiereNom] = useState('');
 
   // IA Insights (calculés dynamiquement)
   const [aiInsights, setAiInsights] = useState({
@@ -105,63 +104,65 @@ const QCMBankPage = () => {
     totalAuthors: 0
   });
 
-  // Mise à jour des noms
-  useEffect(() => {
-    if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
-  }, [selectedDomainId]);
+  // ========== FONCTION D'ENRICHISSEMENT DES QUESTIONS ==========
+  // Enrichit une question avec les noms à partir des IDs
+  const enrichQuestionWithNames = (q) => {
+    const domaineId = q.domaineId;
+    const sousDomaineId = q.sousDomaineId;
+    const niveauId = q.niveauId;
+    const matiereId = q.matiereId;
+    
+    return {
+      ...q,
+      libQuestion: q.libQuestion || q.question || q.text,
+      typeInfo: QUESTION_TYPES.find(t => t.id === q.typeQuestion) || QUESTION_TYPES[0],
+      imageUrl: q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null),
+      createdAtDate: new Date(q.createdAt),
+      approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null,
+      authorName: q.createdBy?.name || q.matriculeAuteur || 'Inconnu',
+      authorId: q.createdBy?._id || q.matriculeAuteur || 'inconnu',
+      // Enrichissement: obtenir les noms à partir des IDs
+      domaineNom: getDomainNom(domaineId) || q.domaine || 'Non classé',
+      domaineId: domaineId || null,
+      sousDomaineNom: getSousDomaineNom(domaineId, sousDomaineId) || q.sousDomaine || 'Non classé',
+      sousDomaineId: sousDomaineId || null,
+      niveauNom: getLevelNom(domaineId, sousDomaineId, niveauId) || q.niveau || 'Non classé',
+      niveauId: niveauId || null,
+      matiereNom: getMatiereNom(domaineId, sousDomaineId, matiereId) || q.matiere || 'Non classé',
+      matiereId: matiereId || null
+    };
+  };
 
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId) {
-      setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId]);
-
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
-      setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
-
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
-      setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
-
-  // Chargement des questions
+  // ========== CHARGEMENT DES QUESTIONS (UNE SEULE FOIS) ==========
   const loadQuestions = async () => {
     setLoading(true);
     setError(null);
     try {
-      const filter = {};
-      if (selectedDomainId && domainNom) filter.domaine = domainNom;
-      if (selectedSousDomaineId && sousDomaineNom) filter.sousDomaine = sousDomaineNom;
-      if (selectedLevelId && levelNom) filter.niveau = levelNom;
-      if (selectedMatiereId && matiereNom) filter.matiere = matiereNom;
-      if (selectedStatus !== 'all') filter.status = selectedStatus;
-
-      console.log('[API] Filtres envoyés:', filter);
-      const response = await getQuestions(filter);
+      // Charger TOUTES les questions approuvées une seule fois
+      console.log('[API] 🔍 Chargement de toutes les questions approuvées...');
+      const response = await getQuestions({ 
+        status: 'approved',
+        showAll: true,
+        limit: 10000 
+      });
 
       let questionsData = [];
       if (Array.isArray(response)) questionsData = response;
       else if (response?.data && Array.isArray(response.data)) questionsData = response.data;
       else if (response?.data?.data && Array.isArray(response.data.data)) questionsData = response.data.data;
       else if (response?.success && Array.isArray(response.data)) questionsData = response.data;
+      else if (response?.questions && Array.isArray(response.questions)) questionsData = response.questions;
 
-      const normalized = questionsData.map(q => ({
-        ...q,
-        libQuestion: q.libQuestion || q.question || q.text,
-        typeInfo: QUESTION_TYPES.find(t => t.id === q.typeQuestion) || QUESTION_TYPES[0],
-        imageUrl: q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null),
-        createdAtDate: new Date(q.createdAt),
-        approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null,
-        authorName: q.createdBy?.name || q.matriculeAuteur || 'Inconnu',
-        authorId: q.createdBy?._id || q.matriculeAuteur || 'inconnu'
-      }));
-
-      setQuestions(normalized);
-      calculateStatistics(normalized);
+      console.log(`[API] ✅ ${questionsData.length} questions approuvées chargées`);
+      
+      // Enrichir chaque question avec les noms à partir des IDs
+      const enriched = questionsData.map(enrichQuestionWithNames);
+      
+      // Stocker toutes les questions dans le cache
+      setAllQuestions(enriched);
+      
+      // Appliquer les filtres initiaux
+      applyFilters(enriched);
       
     } catch (err) {
       console.error('Erreur chargement questions:', err);
@@ -172,10 +173,70 @@ const QCMBankPage = () => {
     }
   };
 
-  // Calcul des statistiques complètes
-  const calculateStatistics = (normalized) => {
+  // ========== APPLICATION DES FILTRES (CÔTÉ CLIENT - ROBUSTE) ==========
+  const applyFilters = (questionsToFilter = allQuestions) => {
+    let filtered = [...questionsToFilter];
+    
+    // Filtre par domaine (comparaison directe des IDs)
+    if (selectedDomainId) {
+      filtered = filtered.filter(q => q.domaineId === selectedDomainId);
+    }
+    
+    // Filtre par sous-domaine (comparaison directe des IDs)
+    if (selectedSousDomaineId) {
+      filtered = filtered.filter(q => q.sousDomaineId === selectedSousDomaineId);
+    }
+    
+    // Filtre par niveau (comparaison directe des IDs)
+    if (selectedLevelId) {
+      filtered = filtered.filter(q => q.niveauId === selectedLevelId);
+    }
+    
+    // Filtre par matière (comparaison directe des IDs)
+    if (selectedMatiereId) {
+      filtered = filtered.filter(q => q.matiereId === selectedMatiereId);
+    }
+    
+    // Filtre par type de question
+    if (selectedType) {
+      filtered = filtered.filter(q => q.typeQuestion === parseInt(selectedType));
+    }
+    
+    // Filtre par recherche textuelle (sur les champs textuels)
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(q =>
+        q.libQuestion?.toLowerCase().includes(term) ||
+        q.matiereNom?.toLowerCase().includes(term) ||
+        q.niveauNom?.toLowerCase().includes(term) ||
+        q.domaineNom?.toLowerCase().includes(term) ||
+        q.sousDomaineNom?.toLowerCase().includes(term) ||
+        q.authorName?.toLowerCase().includes(term)
+      );
+    }
+    
+    console.log(`[FILTRE] ${filtered.length} questions après filtrage (domaine:${selectedDomainId || 'tous'}, sous-domaine:${selectedSousDomaineId || 'tous'}, niveau:${selectedLevelId || 'tous'}, matière:${selectedMatiereId || 'tous'})`);
+    
+    setQuestions(filtered);
+    calculateStatistics(filtered);
+  };
+
+  // Reappliquer les filtres quand un critère change
+  useEffect(() => {
+    if (allQuestions.length > 0) {
+      applyFilters(allQuestions);
+    }
+  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, selectedType, searchTerm]);
+
+  // Chargement initial
+  useEffect(() => {
+    loadQuestions();
+  }, []);
+
+  // ========== CALCUL DES STATISTIQUES ==========
+  const calculateStatistics = (filteredQuestions) => {
     const statsCalc = {
-      total: normalized.length,
+      total: filteredQuestions.length,
       byType: { 1: 0, 2: 0, 3: 0 },
       byStatus: { approved: 0, pending: 0, rejected: 0 },
       avgPoints: 0,
@@ -198,17 +259,27 @@ const QCMBankPage = () => {
     const monthlyData = {};
     const authorMap = new Map();
 
-    normalized.forEach(q => {
+    filteredQuestions.forEach(q => {
+      // Par type
       if (q.typeQuestion && statsCalc.byType[q.typeQuestion] !== undefined) {
         statsCalc.byType[q.typeQuestion]++;
       }
+      
+      // Par statut
       if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
-      if (q.niveau) statsCalc.byLevel[q.niveau] = (statsCalc.byLevel[q.niveau] || 0) + 1;
-      if (q.matiere) statsCalc.byMatiere[q.matiere] = (statsCalc.byMatiere[q.matiere] || 0) + 1;
+      
+      // Par niveau (utiliser le nom pour l'affichage)
+      const levelName = q.niveauNom || q.niveau || 'Non classé';
+      if (levelName) statsCalc.byLevel[levelName] = (statsCalc.byLevel[levelName] || 0) + 1;
+      
+      // Par matière (utiliser le nom pour l'affichage)
+      const matiereName = q.matiereNom || q.matiere || 'Non classé';
+      if (matiereName) statsCalc.byMatiere[matiereName] = (statsCalc.byMatiere[matiereName] || 0) + 1;
       
       totalPoints += q.points || 1;
       totalTime += q.tempsMin || 1;
       
+      // Calcul du temps de validation
       if (q.status === 'approved' && q.createdAtDate && q.approvedAtDate) {
         const days = (q.approvedAtDate - q.createdAtDate) / (1000 * 60 * 60 * 24);
         totalValidationDays += days;
@@ -216,11 +287,13 @@ const QCMBankPage = () => {
       }
       if (q.status === 'rejected') rejectedCount++;
       
+      // Croissance mensuelle
       if (q.createdAtDate) {
-        const monthKey = `${q.createdAtDate.getFullYear()}-${q.createdAtDate.getMonth() + 1}`;
+        const monthKey = `${q.createdAtDate.getFullYear()}-${String(q.createdAtDate.getMonth() + 1).padStart(2, '0')}`;
         monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
       }
       
+      // Statistiques par auteur
       const authorId = q.authorId;
       const authorName = q.authorName;
       if (!authorMap.has(authorId)) {
@@ -240,8 +313,8 @@ const QCMBankPage = () => {
       else if (q.status === 'rejected') author.rejected++;
     });
     
-    statsCalc.avgPoints = normalized.length ? (totalPoints / normalized.length).toFixed(1) : 0;
-    statsCalc.avgTime = normalized.length ? (totalTime / normalized.length).toFixed(0) : 0;
+    statsCalc.avgPoints = filteredQuestions.length ? (totalPoints / filteredQuestions.length).toFixed(1) : 0;
+    statsCalc.avgTime = filteredQuestions.length ? (totalTime / filteredQuestions.length).toFixed(0) : 0;
     statsCalc.avgValidationDays = validationCount ? (totalValidationDays / validationCount).toFixed(1) : 0;
     statsCalc.validationRate = validationCount + rejectedCount > 0 
       ? ((validationCount / (validationCount + rejectedCount)) * 100).toFixed(0) 
@@ -258,10 +331,10 @@ const QCMBankPage = () => {
     statsCalc.totalAuthors = authorMap.size;
 
     setStats(statsCalc);
-    generateAIInsights(normalized, statsCalc);
+    generateAIInsights(filteredQuestions, statsCalc);
   };
 
-  // IA : Génération des insights
+  // ========== GÉNÉRATION DES INSIGHTS IA ==========
   const generateAIInsights = (questionsData, statsCalc) => {
     const insights = {
       strengths: [],
@@ -283,6 +356,7 @@ const QCMBankPage = () => {
       return;
     }
     
+    // Forces: top matières
     const topMatieres = Object.entries(statsCalc.byMatiere)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3);
@@ -291,6 +365,7 @@ const QCMBankPage = () => {
       insights.strengths.push(`${matiere} (${count} questions, ${percentage}% du total)`);
     });
     
+    // Faiblesses: matières avec peu de questions
     const weakMatieres = Object.entries(statsCalc.byMatiere)
       .filter(([_, count]) => count < 5)
       .sort((a, b) => a[1] - b[1])
@@ -299,12 +374,14 @@ const QCMBankPage = () => {
       insights.weaknesses.push(`${matiere} (seulement ${count} question${count > 1 ? 's' : ''})`);
     });
     
+    // Équilibre des types
     const type1Percent = (statsCalc.byType[1] / total) * 100;
     const type2Percent = (statsCalc.byType[2] / total) * 100;
     const type3Percent = (statsCalc.byType[3] / total) * 100;
     
     insights.balanceScore = Math.round(100 - (Math.abs(type1Percent - 33) + Math.abs(type2Percent - 33) + Math.abs(type3Percent - 34)) / 2);
     
+    // Recommandations basées sur les types
     if (type1Percent > 50) {
       insights.recommendations.push(`📚 Trop de questions "Savoir" (${Math.round(type1Percent)}%). Ajoutez plus de "Savoir-Faire" et "Savoir-être".`);
     }
@@ -318,6 +395,7 @@ const QCMBankPage = () => {
       insights.recommendations.push("⚠️ Seulement des questions théoriques. Diversifiez avec du pratique et du comportemental.");
     }
     
+    // Qualité des questions (explications + images)
     const explanationRate = questionsData.filter(q => q.explanation && q.explanation.length > 10).length / total * 100;
     const imageRate = questionsData.filter(q => q.imageQuestion || q.imageBase64).length / total * 100;
     insights.qualityScore = Math.round((explanationRate * 0.6 + imageRate * 0.4));
@@ -329,7 +407,8 @@ const QCMBankPage = () => {
       insights.recommendations.push(`🖼️ Très peu d'illustrations (${Math.round(imageRate)}%). Ajoutez des images pour enrichir les questions.`);
     }
     
-    const uniqueLevels = new Set(questionsData.map(q => q.niveau).filter(Boolean)).size;
+    // Couverture des niveaux
+    const uniqueLevels = new Set(questionsData.map(q => q.niveauNom).filter(Boolean)).size;
     const targetLevels = Math.min(20, Math.max(5, uniqueLevels + 5));
     insights.coverageScore = Math.min(100, Math.round((uniqueLevels / targetLevels) * 100));
     
@@ -337,6 +416,7 @@ const QCMBankPage = () => {
       insights.recommendations.push(`🎓 Faible diversité des niveaux (${uniqueLevels} niveaux seulement). Élargissez votre cible pédagogique.`);
     }
     
+    // Croissance projetée
     const monthlyData = statsCalc.monthlyGrowth;
     const growthRates = [];
     for (let i = 1; i < monthlyData.length; i++) {
@@ -355,6 +435,7 @@ const QCMBankPage = () => {
       insights.recommendations.push(`📉 Baisse d'activité détectée. Relancez la création de questions.`);
     }
     
+    // Validation
     if (statsCalc.avgValidationDays > 10) {
       insights.recommendations.push(`⏳ Validation lente (${statsCalc.avgValidationDays} jours en moyenne). Accélérez le circuit de validation.`);
     }
@@ -365,6 +446,7 @@ const QCMBankPage = () => {
       insights.recommendations.push(`✅ Excellent taux de validation (${statsCalc.validationRate}%). La qualité est au rendez-vous !`);
     }
     
+    // Auteurs
     const topAuthor = statsCalc.topAuthors[0];
     if (topAuthor && topAuthor.total > 20) {
       insights.recommendations.push(`🏆 Félicitations à ${topAuthor.name} pour ses ${topAuthor.total} contributions !`);
@@ -378,23 +460,21 @@ const QCMBankPage = () => {
     setAiInsights(insights);
   };
 
-  useEffect(() => {
-    loadQuestions();
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, selectedStatus]);
-
-  // Filtrage textuel
+  // ========== FILTRAGE TEXTUEL SUPPLÉMENTAIRE ==========
   const filteredQuestions = useMemo(() => {
     if (!searchTerm) return questions;
     const term = searchTerm.toLowerCase();
     return questions.filter(q =>
       q.libQuestion?.toLowerCase().includes(term) ||
-      q.matiere?.toLowerCase().includes(term) ||
-      q.niveau?.toLowerCase().includes(term) ||
-      q.domaine?.toLowerCase().includes(term) ||
+      q.matiereNom?.toLowerCase().includes(term) ||
+      q.niveauNom?.toLowerCase().includes(term) ||
+      q.domaineNom?.toLowerCase().includes(term) ||
+      q.sousDomaineNom?.toLowerCase().includes(term) ||
       q.authorName?.toLowerCase().includes(term)
     );
   }, [questions, searchTerm]);
 
+  // ========== RÉINITIALISATION DES FILTRES ==========
   const resetFilters = () => {
     setSearchTerm('');
     setSelectedDomainId('');
@@ -407,15 +487,15 @@ const QCMBankPage = () => {
 
   const hasActiveFilters = searchTerm || selectedDomainId || selectedSousDomaineId || selectedLevelId || selectedMatiereId || selectedType || selectedStatus !== 'approved';
 
-  // Export CSV
+  // ========== EXPORT CSV ==========
   const exportToCSV = () => {
     const headers = ['N°Question', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
     const rows = filteredQuestions.map((q, idx) => [
       idx + 1,
-      q.domaine || '',
-      q.sousDomaine || '',
-      q.niveau || '',
-      q.matiere || '',
+      q.domaineNom || q.domaine || '',
+      q.sousDomaineNom || q.sousDomaine || '',
+      q.niveauNom || q.niveau || '',
+      q.matiereNom || q.matiere || '',
       q.libQuestion || '',
       q.typeInfo?.nom || '',
       q.points || 1,
@@ -437,7 +517,7 @@ const QCMBankPage = () => {
     toast.success('Export CSV réussi');
   };
 
-  // Graphiques
+  // ========== GRAPHIQUES ==========
   const typeChartData = {
     labels: QUESTION_TYPES.map(t => t.nom),
     datasets: [{
@@ -480,31 +560,21 @@ const QCMBankPage = () => {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 
-  // ========== COMPOSANT CARTE DE QUESTION AVEC FILIGRANE ==========
+  // ========== COMPOSANT CARTE DE QUESTION ==========
   const QuestionCard = ({ question, index }) => {
     const isExpanded = expandedQuestion === question._id;
     const typeInfo = question.typeInfo;
     const imageUrl = question.imageUrl;
 
-    // Fonction pour obtenir le filigrane selon le statut
     const getWatermark = () => {
       if (question.status === 'pending') {
-        return {
-          text: "⏳ En attente de validation - Non éligible à l'insertion dans une épreuve",
-          color: '#f59e0b'
-        };
+        return { text: "⏳ En attente de validation - Non éligible à l'insertion dans une épreuve", color: '#f59e0b' };
       }
       if (question.status === 'approved') {
-        return {
-          text: "✅ Validée - Éligible à l'insertion dans une épreuve",
-          color: '#10b981'
-        };
+        return { text: "✅ Validée - Éligible à l'insertion dans une épreuve", color: '#10b981' };
       }
       if (question.status === 'rejected') {
-        return {
-          text: "❌ Rejetée - Veuillez modifier et renvoyer",
-          color: '#ef4444'
-        };
+        return { text: "❌ Rejetée - Veuillez modifier et renvoyer", color: '#ef4444' };
       }
       return null;
     };
@@ -526,45 +596,22 @@ const QCMBankPage = () => {
       >
         <div
           onClick={() => setExpandedQuestion(isExpanded ? null : question._id)}
-          style={{
-            padding: '16px 20px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12,
-            transition: 'background 0.2s'
-          }}
+          style={{ padding: '16px 20px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
         >
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: `${typeInfo?.color}20`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0
-          }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: `${typeInfo?.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <FileText size={16} color={typeInfo?.color} />
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-              <span style={{
-                padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600,
-                background: `${typeInfo?.color}20`, color: typeInfo?.color
-              }}>
+              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600, background: `${typeInfo?.color}20`, color: typeInfo?.color }}>
                 {typeInfo?.nom}
               </span>
-              <span style={{
-                padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600,
-                background: question.status === 'approved' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                color: question.status === 'approved' ? '#10b981' : '#f59e0b'
-              }}>
+              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600, background: question.status === 'approved' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: question.status === 'approved' ? '#10b981' : '#f59e0b' }}>
                 {question.status === 'approved' ? '✓ Validée' : question.status === 'pending' ? '⏳ En attente' : '✗ Rejetée'}
               </span>
-              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>
-                ⭐ {question.points || 1} pt
-              </span>
-              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>
-                ⏱️ {question.tempsMin || 1} min
-              </span>
+              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>⭐ {question.points || 1} pt</span>
+              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>⏱️ {question.tempsMin || 1} min</span>
             </div>
 
             <p style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 500, lineHeight: 1.4 }}>
@@ -572,9 +619,10 @@ const QCMBankPage = () => {
             </p>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: '0.65rem', color: '#64748b', flexWrap: 'wrap' }}>
-              <span>📚 {question.domaine || '—'}</span>
-              <span>🎓 {question.niveau || '—'}</span>
-              <span>📖 {question.matiere || '—'}</span>
+              <span>📚 {question.domaineNom}</span>
+              <span>📖 {question.sousDomaineNom}</span>
+              <span>🎓 {question.niveauNom}</span>
+              <span>📘 {question.matiereNom}</span>
               <span>👤 {question.authorName}</span>
             </div>
           </div>
@@ -640,19 +688,8 @@ const QCMBankPage = () => {
                   {question.approvedAt && <span>✅ Validée: {new Date(question.approvedAt).toLocaleDateString('fr-FR')}</span>}
                 </div>
 
-                {/* ✅ FILIGRANE DE STATUT - CORRECTEMENT PLACÉ ICI */}
-                <div style={{
-                  marginTop: 12,
-                  paddingTop: 8,
-                  borderTop: '1px solid rgba(255,255,255,0.05)',
-                  textAlign: 'center'
-                }}>
-                  <span style={{
-                    fontSize: '0.65rem',
-                    color: watermark?.color || '#64748b',
-                    opacity: 0.7,
-                    fontStyle: 'italic'
-                  }}>
+                <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.65rem', color: watermark?.color || '#64748b', opacity: 0.7, fontStyle: 'italic' }}>
                     {watermark?.text}
                   </span>
                 </div>
@@ -664,12 +701,9 @@ const QCMBankPage = () => {
     );
   };
 
+  // ========== RENDU PRINCIPAL ==========
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
-      padding: '24px'
-    }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', padding: '24px' }}>
       <div style={{
         position: 'fixed', inset: 0,
         backgroundImage: 'linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px)',
@@ -677,41 +711,22 @@ const QCMBankPage = () => {
       }} />
 
       <main style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto' }}>
-        {/* Header */}
+        {/* Header - identique à l'original */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/evaluate')}
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(99,102,241,0.2)',
-              borderRadius: 12, padding: 12,
-              color: '#94a3b8', cursor: 'pointer'
-            }}
-          >
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/evaluate')} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: 12, color: '#94a3b8', cursor: 'pointer' }}>
             <ArrowLeft size={20} />
           </motion.button>
           <div>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '4px 12px', background: 'rgba(99,102,241,0.1)',
-              border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20,
-              marginBottom: 8
-            }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, marginBottom: 8 }}>
               <Library size={14} color="#6366f1" />
               <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>BANQUE DE QCM</span>
             </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>
-              Dashboard Analytique
-            </h1>
-            <p style={{ color: '#64748b' }}>
-              Analyse avancée, insights IA et recommandations pédagogiques
-            </p>
+            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>Dashboard Analytique</h1>
+            <p style={{ color: '#64748b' }}>Analyse avancée, insights IA et recommandations pédagogiques</p>
           </div>
         </div>
 
-        {/* Vue Dashboard / Liste */}
+        {/* Onglets Dashboard */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12 }}>
           <button onClick={() => setDashboardView('analytics')} style={{ padding: '8px 20px', borderRadius: 20, background: dashboardView === 'analytics' ? '#3b82f6' : 'rgba(255,255,255,0.05)', border: 'none', color: dashboardView === 'analytics' ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
             <BarChart3 size={16} /> Tableau de bord
@@ -724,7 +739,7 @@ const QCMBankPage = () => {
           </button>
         </div>
 
-        {/* DASHBOARD ANALYTIQUE */}
+        {/* Dashboard Analytics - identique à l'original */}
         {dashboardView === 'analytics' && !loading && questions.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 24 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
@@ -755,9 +770,7 @@ const QCMBankPage = () => {
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <PieChart size={16} color="#8b5cf6" /> Répartition par type
                 </h3>
-                <div style={{ height: 200 }}>
-                  <Doughnut data={typeChartData} options={typeChartOptions} />
-                </div>
+                <div style={{ height: 200 }}><Doughnut data={typeChartData} options={typeChartOptions} /></div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 16 }}>
                   {QUESTION_TYPES.map(type => (
                     <div key={type.id} style={{ textAlign: 'center' }}>
@@ -772,9 +785,7 @@ const QCMBankPage = () => {
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <LineChart size={16} color="#3b82f6" /> Croissance mensuelle
                 </h3>
-                <div style={{ height: 200 }}>
-                  <Line data={growthChartData} options={growthChartOptions} />
-                </div>
+                <div style={{ height: 200 }}><Line data={growthChartData} options={growthChartOptions} /></div>
               </div>
             </div>
 
@@ -794,7 +805,7 @@ const QCMBankPage = () => {
           </motion.div>
         )}
 
-        {/* INSIGHTS IA */}
+        {/* Insights IA */}
         {dashboardView === 'insights' && !loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -869,12 +880,7 @@ const QCMBankPage = () => {
                   {stats.topAuthors.slice(0, 5).map((author, idx) => {
                     const approvalRate = author.total ? Math.round((author.approved / author.total) * 100) : 0;
                     return (
-                      <div key={author.id} style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '10px 14px', background: 'rgba(236,72,153,0.05)',
-                        border: '1px solid rgba(236,72,153,0.15)', borderRadius: 10,
-                        flexWrap: 'wrap', gap: 8
-                      }}>
+                      <div key={author.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(236,72,153,0.05)', border: '1px solid rgba(236,72,153,0.15)', borderRadius: 10, flexWrap: 'wrap', gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                           <div style={{ width: 32, height: 32, borderRadius: 8, background: idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : 'rgba(236,72,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: idx < 3 ? '#000' : '#ec4899' }}>
                             {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
@@ -914,7 +920,7 @@ const QCMBankPage = () => {
           </motion.div>
         )}
 
-        {/* RECOMMANDATIONS IA */}
+        {/* Recommandations IA */}
         {dashboardView === 'recommendations' && !loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
             <h3 style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -972,12 +978,49 @@ const QCMBankPage = () => {
             {showFilters && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12, padding: 16, background: 'rgba(15,23,42,0.5)', borderRadius: 12, border: '1px solid rgba(99,102,241,0.15)' }}>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label><select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="">Tous</option>{getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}</select></div>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Sous-domaine</label><select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedDomainId ? 0.5 : 1 }}><option value="">Tous</option>{getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}</select></div>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Niveau</label><select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}><option value="">Tous</option>{getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}</select></div>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Matière</label><select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}><option value="">Toutes</option>{getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}</select></div>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Type</label><select value={selectedType} onChange={e => setSelectedType(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="">Tous</option>{QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}</select></div>
-                  <div><label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label><select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}><option value="approved">Validées</option><option value="pending">En attente</option><option value="all">Toutes</option></select></div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label>
+                    <select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
+                      <option value="">Tous</option>
+                      {getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Sous-domaine</label>
+                    <select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedDomainId ? 0.5 : 1 }}>
+                      <option value="">Tous</option>
+                      {getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Niveau</label>
+                    <select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
+                      <option value="">Tous</option>
+                      {getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Matière</label>
+                    <select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
+                      <option value="">Toutes</option>
+                      {getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Type</label>
+                    <select value={selectedType} onChange={e => setSelectedType(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
+                      <option value="">Tous</option>
+                      {QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label>
+                    <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
+                      <option value="approved">✅ Validées</option>
+                      <option value="pending">⏳ En attente</option>
+                      <option value="all">📊 Toutes</option>
+                    </select>
+                  </div>
                 </div>
               </motion.div>
             )}

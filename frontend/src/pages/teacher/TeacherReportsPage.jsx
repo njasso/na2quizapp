@@ -1,6 +1,6 @@
-// src/pages/teacher/TeacherReportsPage.jsx
+// src/pages/teacher/TeacherReportsPage.jsx - Version CORRIGÉE
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';  // ✅ Correction: from manquant
 import { motion } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
 import {
@@ -34,7 +34,8 @@ const TeacherReportsPage = () => {
   };
 
   const viewBulletin = (resultId) => {
-    window.open(`${api.defaults.baseURL}/api/bulletin/${resultId}`, '_blank');
+    const baseURL = api.defaults.baseURL;
+    window.open(`${baseURL}/api/bulletin/${resultId}`, '_blank');
   };
 
   const exportCSV = () => {
@@ -70,82 +71,100 @@ const TeacherReportsPage = () => {
     toast.success('Export CSV réussi');
   };
 
+  // ✅ RÉCUPÉRATION DES RÉSULTATS D'UN EXAMEN
   const fetchExamResults = async (examId) => {
-  setLoading(true);
-  setError(null);
-  try {
-    const response = await api.get(`/api/results/exam/${examId}`);
-    
-    let data = [];
-    if (Array.isArray(response)) {
-      data = response;
-    } else if (response?.data && Array.isArray(response.data)) {
-      data = response.data;
-    } else if (response?.results && Array.isArray(response.results)) {
-      data = response.results;
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('🔍 Récupération des résultats pour examen:', examId);
+      
+      const response = await api.get(`/api/results/exam/${examId}`);
+      
+      console.log('📦 Réponse brute:', response);
+      
+      let data = [];
+      if (response?.data && Array.isArray(response.data)) {
+        data = response.data;
+      } else if (response && Array.isArray(response)) {
+        data = response;
+      } else if (response?.results && Array.isArray(response.results)) {
+        data = response.results;
+      } else if (response?.success === true && response?.data && Array.isArray(response.data)) {
+        data = response.data;
+      }
+      
+      console.log('✅ Données extraites:', data.length, 'résultats');
+      
+      setResults(data);
+      setFilteredResults(data);
+      
+      if (data.length > 0) {
+        const passed = data.filter(r => r.passed).length;
+        const scores = data.map(r => r.percentage || 0);
+        const avgScore = scores.reduce((a, b) => a + b, 0) / data.length;
+        const bestScore = Math.max(...scores);
+        const worstScore = Math.min(...scores);
+        
+        setStats({
+          total: data.length,
+          passed,
+          avgScore: avgScore.toFixed(1),
+          bestScore,
+          worstScore
+        });
+      } else {
+        setStats({ total: 0, passed: 0, avgScore: 0, bestScore: 0, worstScore: 0 });
+        toast.info('Aucun résultat pour cette épreuve');
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur chargement résultats:', error);
+      let errorMsg = "Erreur chargement des résultats";
+      
+      if (error.response?.status === 401) {
+        errorMsg = "Session expirée. Veuillez vous reconnecter.";
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('userInfo');
+        setTimeout(() => navigate('/login'), 2000);
+      } else if (error.response?.status === 403) {
+        errorMsg = "Accès non autorisé. Vous n'êtes pas le propriétaire de cette épreuve.";
+      } else if (error.response?.status === 404) {
+        errorMsg = "Épreuve non trouvée";
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      setError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
     }
-    
-    setResults(data);
-    setFilteredResults(data);
-    
-    const passed = data.filter(r => r.passed).length;
-    const scores = data.map(r => r.percentage || 0);
-    const avgScore = data.length > 0 ? scores.reduce((a, b) => a + b, 0) / data.length : 0;
-    const bestScore = data.length > 0 ? Math.max(...scores) : 0;
-    const worstScore = data.length > 0 ? Math.min(...scores) : 0;
-    
-    setStats({
-      total: data.length,
-      passed,
-      avgScore: avgScore.toFixed(1),
-      bestScore,
-      worstScore
-    });
-  } catch (error) {
-    console.error('❌ Erreur chargement résultats:', error);
-    let errorMsg = "Erreur chargement des résultats";
-    if (error.response?.status === 401) {
-      errorMsg = "Session expirée. Veuillez vous reconnecter.";
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('userInfo');
-      setTimeout(() => navigate('/login'), 2000);
-    } else if (error.response?.status === 403) {
-      errorMsg = "Accès non autorisé. Rôle ENSEIGNANT requis.";
-    } else if (error.message?.includes('Network Error')) {
-      errorMsg = `Impossible de joindre le serveur à ${api.defaults.baseURL}`;
-    }
-    setError(errorMsg);
-    toast.error(errorMsg);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
+  // ✅ RÉCUPÉRATION DES ÉPREUVES DE L'ENSEIGNANT
   const fetchTeacherExams = async () => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('userToken');
-      console.log('🔍 Token présent:', !!token);
+      console.log('🔍 Récupération des épreuves de l\'enseignant...');
       console.log('👤 Utilisateur:', user?.name, 'Rôle:', user?.role);
-      
-      if (!token) {
-        throw new Error('Token non trouvé');
-      }
       
       const response = await api.get('/api/exams/teacher');
       
       console.log('📦 Réponse épreuves:', response);
       
       let examsData = [];
-      if (Array.isArray(response)) {
-        examsData = response;
-      } else if (response?.data && Array.isArray(response.data)) {
+      if (response?.data && Array.isArray(response.data)) {
         examsData = response.data;
+      } else if (Array.isArray(response)) {
+        examsData = response;
       } else if (response?.exams && Array.isArray(response.exams)) {
         examsData = response.exams;
+      } else if (response?.success === true && response?.data && Array.isArray(response.data)) {
+        examsData = response.data;
       }
       
+      console.log('✅ Épreuves extraites:', examsData.length);
       setExams(examsData);
       
       if (examsData.length === 0) {
@@ -166,8 +185,6 @@ const TeacherReportsPage = () => {
         errorMsg = "Accès non autorisé. Rôle ENSEIGNANT requis.";
         setAccessDenied(true);
         setTimeout(() => navigate('/evaluate'), 2000);
-      } else if (error.message?.includes('Network Error')) {
-        errorMsg = `Impossible de joindre le serveur à ${api.defaults.baseURL}`;
       } else if (error.message) {
         errorMsg = error.message;
       }
@@ -526,7 +543,7 @@ const TeacherReportsPage = () => {
                         <th style={{ padding: '12px 16px', textAlign: 'center', color: '#94a3b8' }}>Note/20</th>
                         <th style={{ padding: '12px 16px', textAlign: 'center', color: '#94a3b8' }}>Mention</th>
                         <th style={{ padding: '12px 16px', textAlign: 'center', color: '#94a3b8' }}>Bulletin</th>
-                       </tr>
+                      </tr>
                     </thead>
                     <tbody>
                       {filteredResults.map((result) => {
@@ -536,19 +553,19 @@ const TeacherReportsPage = () => {
                           <tr key={result._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                             <td style={{ padding: '12px 16px', color: '#f8fafc' }}>
                               {result.studentInfo?.lastName} {result.studentInfo?.firstName}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', color: '#94a3b8', fontFamily: 'monospace' }}>
                               {result.studentInfo?.matricule || '—'}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', color: '#60a5fa' }}>
                               {result.examId?.domain || result.domain || '—'}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', color: '#a78bfa' }}>
                               {result.examId?.level || result.level || '—'}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', color: '#f8fafc' }}>
                               {result.score} / {result.totalQuestions}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <span style={{
                                 padding: '2px 8px',
@@ -559,15 +576,15 @@ const TeacherReportsPage = () => {
                               }}>
                                 {result.percentage}%
                               </span>
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', color: '#8b5cf6', fontWeight: 600 }}>
                               {note20}
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <span style={{ color: mention.color, fontSize: '0.8rem' }}>
                                 {mention.label}
                               </span>
-                             </td>
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <button
                                 onClick={() => viewBulletin(result._id)}
@@ -584,12 +601,12 @@ const TeacherReportsPage = () => {
                                 <Eye size={12} style={{ display: 'inline', marginRight: 4 }} />
                                 Voir
                               </button>
-                             </td>
-                           </tr>
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>
-                   </table>
+                  </table>
                 </div>
               </div>
             )}

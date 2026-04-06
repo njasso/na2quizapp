@@ -1,4 +1,4 @@
-// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE avec affichage des images
+// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE avec affichage des images et édition fonctionnelle
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -203,8 +203,6 @@ const TeacherQuestionsPage = () => {
       }
       
       console.log('[fetchMyQuestions] userId final:', userId);
-      console.log('[fetchMyQuestions] user object:', user);
-      console.log('[fetchMyQuestions] user role:', user?.role);
       
       if (!userId) {
         console.warn('[fetchMyQuestions] Pas de userId, impossible de charger les questions');
@@ -217,26 +215,45 @@ const TeacherQuestionsPage = () => {
       console.log('[fetchMyQuestions] URL:', url);
       
       const response = await api.get(url);
-      console.log('[fetchMyQuestions] Réponse:', response);
+      console.log('[fetchMyQuestions] Réponse brute:', response);
+      console.log('[fetchMyQuestions] Type de réponse:', typeof response);
+      console.log('[fetchMyQuestions] Clés de la réponse:', Object.keys(response || {}));
       
       let data = [];
-      if (Array.isArray(response)) {
+      
+      if (response && response.data) {
+        if (Array.isArray(response.data)) {
+          data = response.data;
+          console.log('[fetchMyQuestions] Format 1: response.data est un tableau');
+        } else if (response.data && Array.isArray(response.data.data)) {
+          data = response.data.data;
+          console.log('[fetchMyQuestions] Format 2: response.data.data est un tableau');
+        } else if (response.data && Array.isArray(response.data.questions)) {
+          data = response.data.questions;
+          console.log('[fetchMyQuestions] Format 3: response.data.questions est un tableau');
+        } else if (Array.isArray(response)) {
+          data = response;
+          console.log('[fetchMyQuestions] Format 4: response est un tableau');
+        } else if (response && Array.isArray(response.questions)) {
+          data = response.questions;
+          console.log('[fetchMyQuestions] Format 5: response.questions est un tableau');
+        } else if (response && response.success && Array.isArray(response.data)) {
+          data = response.data;
+          console.log('[fetchMyQuestions] Format 6: response.data avec success');
+        }
+      } else if (Array.isArray(response)) {
         data = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        data = response.data;
-      } else if (response?.questions && Array.isArray(response.questions)) {
-        data = response.questions;
+        console.log('[fetchMyQuestions] Format 7: response direct tableau');
       }
       
-      console.log(`[fetchMyQuestions] ${data.length} questions chargées`);
+      console.log(`[fetchMyQuestions] ${data.length} questions extraites`);
       
-      // Log détaillé de la première question
       if (data.length > 0) {
-        console.log('[fetchMyQuestions] PREMIÈRE QUESTION (JSON):', JSON.stringify(data[0], null, 2));
-        console.log('[fetchMyQuestions] Clés disponibles:', Object.keys(data[0]));
-        console.log('[fetchMyQuestions] imageQuestion:', data[0].imageQuestion);
-        console.log('[fetchMyQuestions] imageBase64 présent?', !!data[0].imageBase64);
-        console.log('[fetchMyQuestions] imageBase64 length:', data[0].imageBase64?.length);
+        console.log('[fetchMyQuestions] Première question:', data[0]);
+        console.log('[fetchMyQuestions] Clés de la première question:', Object.keys(data[0]));
+      } else {
+        console.warn('[fetchMyQuestions] Aucune donnée trouvée dans la réponse');
+        console.log('[fetchMyQuestions] Contenu complet de response:', JSON.stringify(response, null, 2));
       }
       
       setQuestions(data);
@@ -319,7 +336,6 @@ const TeacherQuestionsPage = () => {
     console.log(`  - imageBase64 présent: ${!!question.imageBase64}`);
     console.log(`  - imageBase64 length: ${question.imageBase64?.length || 0}`);
     
-    // Priorité à imageQuestion (URL stockée)
     let imagePath = question.imageQuestion || question.imageBase64 || null;
     
     if (!imagePath) {
@@ -329,26 +345,22 @@ const TeacherQuestionsPage = () => {
     
     console.log('[getImageUrl] Image path brute:', imagePath.substring(0, 100));
     
-    // Déjà une URL complète
     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
       console.log('[getImageUrl] URL complète détectée');
       return imagePath;
     }
     
-    // Déjà en base64
     if (imagePath.startsWith('data:')) {
       console.log('[getImageUrl] Base64 détecté, longueur:', imagePath.length);
       return imagePath;
     }
     
-    // Chemin relatif (/uploads/...)
     if (imagePath.startsWith('/uploads/')) {
       const fullUrl = `${BACKEND_URL}${imagePath}`;
       console.log('[getImageUrl] Chemin relatif converti:', fullUrl);
       return fullUrl;
     }
     
-    // Si c'est juste un nom de fichier
     if (imagePath.includes('qcm-')) {
       const fullUrl = `${BACKEND_URL}/uploads/questions/${imagePath}`;
       console.log('[getImageUrl] Nom de fichier converti:', fullUrl);
@@ -358,6 +370,43 @@ const TeacherQuestionsPage = () => {
     console.log('[getImageUrl] Format non reconnu, retour tel quel');
     return imagePath;
   };
+
+  // ✅ FONCTION D'ÉDITION CORRIGÉE
+  // TeacherQuestionsPage.jsx - Fonction handleEditQuestion corrigée
+const handleEditQuestion = (question) => {
+  console.log('[TeacherQuestions] Édition question:', question._id);
+  console.log('[TeacherQuestions] Image:', question.imageQuestion);
+  
+  // Stocker les données complètes dans sessionStorage (fallback)
+  sessionStorage.setItem('editQuestion', JSON.stringify({
+    _id: question._id,
+    libQuestion: question.libQuestion,
+    options: question.options || [],
+    correctAnswer: question.correctAnswer || (question.options && question.options[question.bonOpRep]),
+    bonOpRep: question.bonOpRep,
+    typeQuestion: question.typeQuestion || 1,
+    points: question.points || 1,
+    tempsMin: question.tempsMin || 1,
+    explanation: question.explanation || '',
+    domaine: question.domaine,
+    niveau: question.niveau,
+    matiere: question.matiere,
+    sousDomaine: question.sousDomaine || '',
+    libChapitre: question.libChapitre || '',
+    imageQuestion: question.imageQuestion || '',
+    imageBase64: question.imageBase64 || '',
+    imageMetadata: question.imageMetadata || {},
+    status: question.status
+  }));
+  
+  // ✅ Utiliser la route existante (sans l'ID dans l'URL)
+  navigate('/create/question', { 
+    state: { 
+      editQuestion: question,
+      isEditing: true 
+    }
+  });
+};
 
   // Modal de détail avec image
   const QuestionDetailModal = ({ question, onClose }) => {
@@ -406,7 +455,6 @@ const TeacherQuestionsPage = () => {
             </button>
           </div>
           
-          {/* AFFICHAGE DE L'IMAGE */}
           {imageUrl ? (
             <div style={{ marginBottom: 16, textAlign: 'center' }}>
               <img 
@@ -494,7 +542,7 @@ const TeacherQuestionsPage = () => {
                       <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
                         {String.fromCharCode(65 + i)}.
                       </span>
-                      <span style={{ color: '#94a3b8' }}>{opt}</span>
+                      <span style={{ color: '#94a3b8', flex: 1 }}>{opt}</span>
                       {isCorrect && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
                     </div>
                   );
@@ -541,7 +589,7 @@ const TeacherQuestionsPage = () => {
                   <button
                     onClick={() => {
                       onClose();
-                      navigate('/create/question', { state: { editQuestion: question } });
+                      handleEditQuestion(question);
                     }}
                     style={{ padding: '8px 16px', background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, color: '#f59e0b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                   >
@@ -894,11 +942,9 @@ const TeacherQuestionsPage = () => {
                       <button onClick={() => viewQuestionDetail(q)} style={{ padding: 6, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, color: '#3b82f6', cursor: 'pointer' }}>
                         <Eye size={14} />
                       </button>
-                      {q.status === 'pending' && (
-                        <button onClick={() => navigate('/create/question', { state: { editQuestion: q } })} style={{ padding: 6, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, color: '#f59e0b', cursor: 'pointer' }}>
-                          <Edit size={14} />
-                        </button>
-                      )}
+                      <button onClick={() => handleEditQuestion(q)} style={{ padding: 6, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, color: '#f59e0b', cursor: 'pointer' }}>
+                        <Edit size={14} />
+                      </button>
                       {(q.status === 'pending' || q.status === 'rejected') && (
                         <button onClick={() => deleteQuestion(q._id)} style={{ padding: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: '#ef4444', cursor: 'pointer' }}>
                           <Trash2 size={14} />

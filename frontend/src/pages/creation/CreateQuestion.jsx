@@ -1,16 +1,15 @@
-// src/pages/creation/CreateQuestion.jsx - VERSION FINALE AVEC LOGS COMPLETS
+// src/pages/creation/CreateQuestion.jsx - VERSION COMPLÈTE avec chargement d'édition
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Save, ArrowLeft, BookOpen, Layers, Tag, Clock, Award, 
   HelpCircle, PlusCircle, Trash2, AlertCircle, Loader, 
-  XCircle, Eye, CheckCircle, Image as ImageIcon  // ← Ajoutez ImageIcon ici
+  XCircle, Eye, CheckCircle, Image as ImageIcon
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { saveQuestions } from '../../services/api';
-import ImageUploader from '../../components/ImageUploader';
+import api, { saveQuestions } from '../../services/api';import ImageUploader from '../../components/ImageUploader';
 import DOMAIN_DATA, { 
   getAllDomaines, 
   getAllSousDomaines, 
@@ -35,7 +34,7 @@ const QUESTION_TYPES = [
   { id: 3, nom: "Savoir-être", description: "Évaluation du potentiel psychologique" }
 ];
 
-// ✅ Composant d'aperçu de la question avec logs
+// Composant d'aperçu de la question avec logs
 const QuestionPreviewModal = ({ question, onClose }) => {
   console.log('[PreviewModal] 🖼️ Question reçue:', question);
   
@@ -44,14 +43,12 @@ const QuestionPreviewModal = ({ question, onClose }) => {
     return null;
   }
   
-  // Fonction pour obtenir l'URL complète de l'image
   const getFullImageUrl = () => {
     console.log('[PreviewModal] 🔍 Recherche de l\'image...');
     console.log('[PreviewModal] - imageQuestion:', question.imageQuestion);
     console.log('[PreviewModal] - imageBase64:', question.imageBase64 ? '(présent)' : '(absent)');
     console.log('[PreviewModal] - imageMetadata:', question.imageMetadata);
     
-    // Priorité à imageQuestion (URL)
     let imagePath = question.imageQuestion || question.imageBase64 || null;
     
     if (!imagePath) {
@@ -61,26 +58,22 @@ const QuestionPreviewModal = ({ question, onClose }) => {
     
     console.log('[PreviewModal] 📷 Image path brute:', imagePath.substring(0, 100));
     
-    // Déjà une URL complète
     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
       console.log('[PreviewModal] ✅ URL complète détectée');
       return imagePath;
     }
     
-    // Déjà en base64
     if (imagePath.startsWith('data:')) {
       console.log('[PreviewModal] ✅ Base64 détecté, longueur:', imagePath.length);
       return imagePath;
     }
     
-    // Chemin relatif
     if (imagePath.startsWith('/uploads/')) {
       const fullUrl = `${BACKEND_URL}${imagePath}`;
       console.log('[PreviewModal] ✅ Chemin relatif converti:', fullUrl);
       return fullUrl;
     }
     
-    // Nom de fichier seul
     if (imagePath.includes('qcm-')) {
       const fullUrl = `${BACKEND_URL}/uploads/questions/${imagePath}`;
       console.log('[PreviewModal] ✅ Nom de fichier converti:', fullUrl);
@@ -133,7 +126,6 @@ const QuestionPreviewModal = ({ question, onClose }) => {
           </button>
         </div>
         
-        {/* AFFICHAGE DE L'IMAGE */}
         {imageSrc ? (
           <div style={{ marginBottom: 16, textAlign: 'center' }}>
             <img 
@@ -254,9 +246,11 @@ const CreateQuestion = () => {
   console.log('[CreateQuestion] 🚀 Composant monté');
   
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
 
   console.log('[CreateQuestion] 👤 Utilisateur:', user?.name, user?.role);
+  console.log('[CreateQuestion] 📍 Location state:', location.state);
 
   // Référentiel
   const [selectedDomainId, setSelectedDomainId] = useState('');
@@ -289,6 +283,8 @@ const CreateQuestion = () => {
   // États UI
   const [isLoading, setIsLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [validationErrors, setValidationErrors] = useState({
     libQuestion: false,
     options: false,
@@ -298,6 +294,79 @@ const CreateQuestion = () => {
     matiere: false,
     libChapitre: false,
   });
+
+  // ✅ RÉCUPÉRATION DES DONNÉES D'ÉDITION
+  useEffect(() => {
+    console.log('[CreateQuestion] 🔍 Vérification des données d\'édition...');
+    
+    // 1. Vérifier dans location.state
+    if (location.state?.editQuestion) {
+      const q = location.state.editQuestion;
+      console.log('[CreateQuestion] 📝 Édition depuis location.state:', q);
+      loadQuestionForEditing(q);
+    } 
+    // 2. Vérifier dans sessionStorage (fallback)
+    else {
+      const storedQuestion = sessionStorage.getItem('editQuestion');
+      if (storedQuestion) {
+        console.log('[CreateQuestion] 📝 Édition depuis sessionStorage');
+        const q = JSON.parse(storedQuestion);
+        loadQuestionForEditing(q);
+        // Nettoyer après chargement
+        sessionStorage.removeItem('editQuestion');
+      }
+    }
+  }, [location]);
+
+  // Fonction pour charger les données dans le formulaire
+  const loadQuestionForEditing = (q) => {
+    console.log('[CreateQuestion] 📥 Chargement des données pour édition:', q);
+    console.log('[CreateQuestion] 🖼️ Image reçue:', q.imageQuestion);
+    console.log('[CreateQuestion] 🖼️ ImageBase64 reçue:', q.imageBase64 ? '(présent, longueur: ' + q.imageBase64.length + ')' : '(absent)');
+    
+    setIsEditing(true);
+    setEditingQuestionId(q._id);
+    
+    // Référentiel - on garde les noms affichés
+    setLibQuestion(q.libQuestion || '');
+    
+    // Options
+    if (q.options && Array.isArray(q.options)) {
+      setOptions(q.options);
+    } else {
+      setOptions(['', '', '']);
+    }
+    
+    setTypeQuestion(q.typeQuestion || 1);
+    setPoints(q.points || 1);
+    setTempsMin(q.tempsMin || 1);
+    setExplanation(q.explanation || '');
+    setLibChapitre(q.libChapitre || '');
+    
+    // Image
+    setImageQuestion(q.imageQuestion || '');
+    setImageBase64(q.imageBase64 || '');
+    setImageMetadata(q.imageMetadata || {});
+    
+    // Réponse correcte
+    if (q.typeQuestion === 1) {
+      const correctOpt = q.correctAnswer || (q.options && q.options[q.bonOpRep]);
+      setCorrectAnswer(correctOpt || '');
+    } else {
+      setCorrectAnswers(q.correctAnswers || []);
+    }
+    
+    // Pour les IDs des référentiels (si vous avez des fonctions de mapping nom -> ID)
+    // À implémenter si nécessaire
+    if (q.domaine) {
+      // Chercher l'ID correspondant au nom
+      const domaines = getAllDomaines();
+      const found = domaines.find(d => d.nom === q.domaine);
+      if (found) setSelectedDomainId(found.id);
+    }
+    
+    toast.success('Question chargée pour modification');
+  };
 
   // Mise à jour des noms
   useEffect(() => {
@@ -375,7 +444,7 @@ const CreateQuestion = () => {
     }
   };
 
-  // ✅ Gestion du changement d'image avec logs
+  // Gestion du changement d'image avec logs
   const handleImageChange = (url, base64, metadata) => {
     console.log('[CreateQuestion] ========== IMAGE CHANGE RECEIVED ==========');
     console.log('[CreateQuestion] 📷 url:', url);
@@ -509,16 +578,27 @@ const CreateQuestion = () => {
       imageQuestion: questionData.imageQuestion,
       imageBase64: questionData.imageBase64 ? '(présent, longueur: ' + questionData.imageBase64.length + ')' : '(absent)',
       optionsCount: questionData.options.length,
-      bonOpRep: questionData.bonOpRep
+      bonOpRep: questionData.bonOpRep,
+      isEditing: isEditing
     });
     
     setIsLoading(true);
     try {
-      const response = await saveQuestions({ questions: [questionData] });
+      let response;
+      
+      if (isEditing && editingQuestionId) {
+        // Mise à jour d'une question existante
+        console.log('[CreateQuestion] Mise à jour question:', editingQuestionId);
+        response = await api.put(`/api/questions/${editingQuestionId}`, questionData);
+      } else {
+        // Création d'une nouvelle question
+        response = await saveQuestions({ questions: [questionData] });
+      }
+      
       console.log('[CreateQuestion] ✅ Réponse serveur:', response);
 
       if (response.success) {
-        toast.success('Question créée et envoyée en validation !');
+        toast.success(isEditing ? 'Question modifiée et renvoyée en validation !' : 'Question créée et envoyée en validation !');
         navigate('/teacher/questions');
       } else {
         throw new Error(response.error || 'Erreur lors de la création');
@@ -581,14 +661,14 @@ const CreateQuestion = () => {
             }}>
               <HelpCircle size={14} color="#6366f1" />
               <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>
-                CRÉATION DE QCM
+                {isEditing ? 'MODIFICATION DE QCM' : 'CRÉATION DE QCM'}
               </span>
             </div>
             <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>
-              Créer une question
+              {isEditing ? 'Modifier la question' : 'Créer une question'}
             </h1>
             <p style={{ color: '#64748b' }}>
-              La question sera soumise à validation avant d'être disponible dans la base
+              {isEditing ? 'Modifiez votre question et renvoyez-la en validation' : 'La question sera soumise à validation avant d\'être disponible dans la base'}
             </p>
           </div>
         </div>
@@ -813,7 +893,7 @@ const CreateQuestion = () => {
                 cursor: isLoading ? 'not-allowed' : 'pointer' 
               }}
             >
-              {isLoading ? <><Loader size={16} className="animate-spin" /> Enregistrement...</> : <><Save size={16} /> Envoyer en validation</>}
+              {isLoading ? <><Loader size={16} className="animate-spin" /> Enregistrement...</> : <><Save size={16} /> {isEditing ? 'Mettre à jour' : 'Envoyer en validation'}</>}
             </motion.button>
             
             <motion.button 

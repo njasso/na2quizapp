@@ -1,4 +1,4 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION FINALE COMPLÈTE AVEC NAVIGATION CORRIGÉE
+// src/pages/composition/QuizCompositionPage.jsx - VERSION FINALE AVEC CONFIGURATIONS A à K
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -52,7 +52,6 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
     };
   }, [isActive, onTimeEnd, onTick]);
 
-  // Notification d'affichage pour les modes once/twice/fourTimes
   useEffect(() => {
     if (isActive && !hasShown && onDisplayShown) {
       setHasShown(true);
@@ -66,7 +65,6 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Ne pas afficher si le mode est 'once' et déjà affiché
   if (displayMode === 'once' && hasShown) return null;
   if (!isActive) return null;
 
@@ -116,6 +114,12 @@ const QuizCompositionPage = () => {
   const [timerDisplayStep, setTimerDisplayStep] = useState(0);
   const [timerHasShown, setTimerHasShown] = useState(false);
 
+  // ✅ NOUVEAUX ÉTATS POUR LES CONFIGURATIONS A à K
+  const [requiredQuestions, setRequiredQuestions] = useState(0);
+  const [openRangeMode, setOpenRangeMode] = useState(false);
+  const [selectedQuestions, setSelectedQuestions] = useState([]);
+  const [plageOuverteSeuil, setPlageOuverteSeuil] = useState(0);
+
   // Refs
   const socketRef = useRef(null);
   const submittingRef = useRef(false);
@@ -146,7 +150,7 @@ const QuizCompositionPage = () => {
   useEffect(() => { examRef.current = exam; }, [exam]);
   useEffect(() => { studentInfoRef.current = studentInfo; }, [studentInfo]);
 
-  // Fonction pour déterminer si le timer doit être affiché selon timerDisplayMode
+  // Fonction pour déterminer si le timer doit être affiché
   const shouldShowTimer = useCallback(() => {
     const mode = config?.timerDisplayMode || 'permanent';
     const progress = (currentQuestionIndex + 1) / (questions.length || 1);
@@ -168,7 +172,6 @@ const QuizCompositionPage = () => {
     }
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, quizFinished, timerHasShown, timerDisplayStep]);
 
-  // Callback quand le timer est affiché
   const onTimerDisplayShown = useCallback(() => {
     if (!timerHasShown) {
       setTimerHasShown(true);
@@ -182,7 +185,6 @@ const QuizCompositionPage = () => {
     }
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, timerDisplayStep, timerHasShown]);
 
-  // Fonction de mélange
   const shuffleArray = (array) => {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -191,7 +193,6 @@ const QuizCompositionPage = () => {
     return array;
   };
 
-  // Normaliser une question
   const normalizeQuestion = (q) => {
     let options = [];
     if (q.options && q.options.length > 0) {
@@ -213,9 +214,9 @@ const QuizCompositionPage = () => {
     }
 
     let imageUrl = q.imageQuestion || '';
-if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
-  imageUrl = q.imageBase64;
-}
+    if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
+      imageUrl = q.imageBase64;
+    }
 
     return {
       _id: q._id || uuidv4(),
@@ -242,47 +243,40 @@ if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
     };
   };
 
-  // Obtenir l'URL de l'image
-  // Remplacer la fonction getImageUrl actuelle par :
-
-const getImageUrl = (question) => {
-  if (!question) return null;
-  
-  // Priorité à imageQuestion (URL stockée)
-  let imagePath = question.imageQuestion || question.imageBase64 || null;
-  
-  if (!imagePath) return null;
-  
-  // Déjà une URL complète
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+  const getImageUrl = (question) => {
+    if (!question) return null;
+    let imagePath = question.imageQuestion || question.imageBase64 || null;
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+    if (imagePath.startsWith('data:')) return imagePath;
+    if (imagePath.startsWith('/uploads/')) return `${NODE_BACKEND_URL}${imagePath}`;
+    if (imagePath.includes('qcm-')) return `${NODE_BACKEND_URL}/uploads/questions/${imagePath}`;
     return imagePath;
-  }
-  
-  // Déjà en base64
-  if (imagePath.startsWith('data:')) {
-    return imagePath;
-  }
-  
-  // Chemin relatif (/uploads/...)
-  if (imagePath.startsWith('/uploads/')) {
-    return `${NODE_BACKEND_URL}${imagePath}`;
-  }
-  
-  // Nom de fichier seul
-  if (imagePath.includes('qcm-')) {
-    return `${NODE_BACKEND_URL}/uploads/questions/${imagePath}`;
-  }
-  
-  return imagePath;
-};
+  };
 
-  // Obtenir les points à afficher (selon pointsType)
   const getDisplayPoints = useCallback((question) => {
     if (config?.pointsType === 'uniform') {
       return config?.globalPoints || 1;
     }
     return question.points || 1;
   }, [config?.pointsType, config?.globalPoints]);
+
+  // ✅ Fonction pour gérer la plage ouverte (sélection des questions)
+  const handleSelectQuestionForOpenRange = useCallback((questionIndex) => {
+    if (quizFinished || submittingRef.current) return;
+    
+    setSelectedQuestions(prev => {
+      if (prev.includes(questionIndex)) {
+        return prev.filter(i => i !== questionIndex);
+      } else {
+        if (prev.length < requiredQuestions) {
+          return [...prev, questionIndex];
+        }
+        toast.warning(`Vous devez répondre à ${requiredQuestions} questions maximum`);
+        return prev;
+      }
+    });
+  }, [quizFinished, requiredQuestions]);
 
   // ═══════════════════════════════════════════════════════════════
   // SAUVEGARDE AUTOMATIQUE
@@ -369,23 +363,23 @@ const getImageUrl = (question) => {
   }, []);
 
   const sendProgressUpdate = useCallback((index) => {
-  if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
-  const total = examRef.current.questions.length;
-  const progress = Math.round(((index + 1) / total) * 100);
-  const answeredCount = Object.keys(answersRef.current).length;
-  const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
-  
-  socketRef.current.emit('updateStudentProgress', {
-    examId: examRef.current._id,
-    progress,
-    currentQuestion: index + 1,
-    totalQuestions: total,
-    score: answeredCount,
-    percentage: percentage
-  });
-}, []);
+    if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
+    const total = examRef.current.questions.length;
+    const progress = Math.round(((index + 1) / total) * 100);
+    const answeredCount = Object.keys(answersRef.current).length;
+    const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+    
+    socketRef.current.emit('updateStudentProgress', {
+      examId: examRef.current._id,
+      progress,
+      currentQuestion: index + 1,
+      totalQuestions: total,
+      score: answeredCount,
+      percentage: percentage
+    });
+  }, []);
 
-  // ✅ Anti-triche : Détection changement de fenêtre/onglet
+  // Anti-triche
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden && !quizFinished && !submittingRef.current && !waitingForStartRef.current) {
@@ -409,7 +403,6 @@ const getImageUrl = (question) => {
       }
     };
     
-    // ✅ Blocage des raccourcis clavier sensibles
     const blockShortcuts = (e) => {
       if (e.key === 'PrintScreen') {
         e.preventDefault();
@@ -493,38 +486,25 @@ const getImageUrl = (question) => {
       };
 
       const currentQuestionsList = examRef.current.questions || [];
-const formattedAnswers = {};
+      const formattedAnswers = {};
 
-currentQuestionsList.forEach((question, idx) => {
-  // ✅ CORRECTION: Utiliser l'index de la question pour récupérer la réponse
-  // Ne pas utiliser question._id car les IDs peuvent ne pas correspondre
-  let answer = answersRef.current[idx];  // ← Utiliser l'index
-  
-  // Fallback si pas trouvé par index
-  if (answer === undefined) {
-    answer = answersRef.current[question._id];
-  }
-  
-  // Si answer est un objet (cas multiple), prendre la valeur
-  if (answer && typeof answer === 'object') {
-    answer = answer.value || answer.text || null;
-  }
-  
-  formattedAnswers[idx] = answer || null;
-  
-  console.log(`[Soumission] Question ${idx}: réponse = "${answer}"`);
-});
+      // ✅ Pour la plage ouverte, ne soumettre que les questions sélectionnées
+      let questionsToSubmit = currentQuestionsList;
+      let answersToSubmit = {};
 
-console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers);
+      if (configRef.current?.openRange && selectedQuestions.length > 0) {
+        questionsToSubmit = selectedQuestions.map(idx => currentQuestionsList[idx]);
+        selectedQuestions.forEach(idx => {
+          answersToSubmit[idx] = answersRef.current[idx] || null;
+        });
+      } else {
+        answersToSubmit = answersRef.current;
+      }
 
       currentQuestionsList.forEach((question, idx) => {
-        let answer = answersRef.current[question._id];
-        if (answer === undefined && answersRef.current[idx] !== undefined) {
-          answer = answersRef.current[idx];
-          answersRef.current[question._id] = answer;
-          setAnswers(prev => ({ ...prev, [question._id]: answer }));
-        }
-        
+        let answer = answersRef.current[idx];
+        if (answer === undefined) answer = answersRef.current[question._id];
+        if (answer && typeof answer === 'object') answer = answer.value || answer.text || null;
         formattedAnswers[idx] = answer || null;
       });
 
@@ -532,13 +512,19 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
         examId: examRef.current._id,
         answersCount: Object.keys(formattedAnswers).filter(k => formattedAnswers[k] !== null).length,
         totalQuestions: currentQuestionsList.length,
-        formattedAnswers
+        openRange: configRef.current?.openRange,
+        selectedQuestions
       });
 
       const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         examId: examRef.current._id,
         studentInfo: studentData,
-        answers: formattedAnswers
+        answers: formattedAnswers,
+        config: {
+          openRange: configRef.current?.openRange || false,
+          requiredQuestions: configRef.current?.requiredQuestions || 0,
+          selectedQuestions: configRef.current?.openRange ? selectedQuestions : undefined
+        }
       }, {
         timeout: 10000,
         ...axiosConfig
@@ -573,6 +559,21 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
       }
 
       setTimeout(() => {
+        const opt = configRef.current?.examOption;
+        // ── C, F, K : pas d'affichage de résultat → page "épreuve terminée" simple ──
+        const noResultOptions = ['C', 'F', 'K'];
+        if (noResultOptions.includes(opt)) {
+          navigate(`/exam/completed/${examRef.current._id}`, {
+            state: {
+              studentInfo: studentData,
+              examTitle: examRef.current.title,
+              examOption: opt,
+              terminalSessionId: terminalSessionIdRef.current
+            },
+            replace: true
+          });
+          return;
+        }
         navigate(`/results/${examRef.current._id}`, {
           state: {
             resultId: result._id,
@@ -592,8 +593,10 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
               category: result.category || examRef.current.category,
               duration: result.duration || examRef.current.duration,
               passingScore: result.passingScore || examRef.current.passingScore,
-              examOption: result.examOption || configRef.current?.examOption,
+              examOption: result.examOption || opt,
               examQuestions: result.examQuestions || [],
+              // ✅ Config complète transmise pour que ResultsPage respecte les règles
+              config: configRef.current || null,
             },
             terminalSessionId: terminalSessionIdRef.current
           },
@@ -616,7 +619,7 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
         toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
       }
     }
-  }, [navigate, clearAutoSave]);
+  }, [navigate, clearAutoSave, selectedQuestions]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -629,6 +632,7 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
       return;
     }
 
+    // ── A & D : séquentiel figé par question — avancer ou soumettre ──
     if (opt === 'A' || opt === 'D') {
       if (idx < total - 1) {
         const nextIndex = idx + 1;
@@ -644,19 +648,19 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
       } else {
         handleSubmitExam(false);
       }
-    } else if (opt === 'C') {
-      toast("Temps global écoulé! Soumission automatique...", {
+    } else {
+      // ── B, C, E, F : plage fermée timer global — soumettre automatiquement ──
+      // ── G, H, I, J, K : plage ouverte — soumettre automatiquement si timer défini ──
+      toast("Temps global écoulé ! Soumission automatique…", {
         style: { background: '#ef4444', color: '#fff' }, icon: '⏱️', duration: 3000
       });
       handleSubmitExam(false);
     }
   }, [handleSubmitExam, sendProgressUpdate]);
 
-  // ✅ Navigation - Précédent
   const handlePrevQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
     if (examRef.current && idx > 0) {
-      // Sauvegarder avant de changer
       localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
       localStorage.setItem(`exam_${examId}_index`, idx - 1);
       
@@ -670,11 +674,9 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
     }
   }, [examId, sendProgressUpdate]);
 
-  // ✅ Navigation - Suivant
   const handleNextQuestion = useCallback(() => {
     const idx = currentQuestionIndexRef.current;
     if (examRef.current && idx < examRef.current.questions.length - 1) {
-      // Sauvegarder avant de changer
       localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
       localStorage.setItem(`exam_${examId}_index`, idx + 1);
       
@@ -690,121 +692,120 @@ console.log('[QuizCompositionPage] 📤 Soumission corrigée:', formattedAnswers
 
   const handleManualSubmit = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
-    if (configRef.current?.examOption === 'C') {
+    // ── C, F, K : confirmer avant soumission (pas de résultat affiché après) ──
+    const noResultOptions = ['C', 'F', 'K'];
+    if (noResultOptions.includes(configRef.current?.examOption)) {
       setShowSubmitConfirm(true);
       return;
     }
     handleSubmitExam(true);
   }, [handleSubmitExam]);
 
-   // ✅ Feedback selon la configuration (3 types seulement)
-const handleOptionChange = (questionId, selectedOption, questionIndex) => {
-  if (quizFinishedRef.current || submittingRef.current) return;
+  // ✅ Feedback selon la configuration (A à K)
+  const handleOptionChange = useCallback((questionId, selectedOption, questionIndex) => {
+    if (quizFinishedRef.current || submittingRef.current) return;
 
-  const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
-  if (!currentQ) return;
+    const currentQ = examRef.current?.questions?.find(q => q._id === questionId);
+    if (!currentQ) return;
 
-  const currentAttempts = attemptsRef.current[questionId] || 0;
+    const currentAttempts = attemptsRef.current[questionId] || 0;
 
-  // Vérifier la limite de tentatives si reprise autorisée
-  if (configRef.current?.allowRetry && currentAttempts >= 1) {
-    toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
-    return;
-  }
-
-  // Vérifier si la réponse est correcte
-  let isCorrect = false;
-  if (typeof currentQ.bonOpRep === 'number') {
-    const selectedIndex = currentQ.options.findIndex(opt => opt === selectedOption);
-    isCorrect = selectedIndex === currentQ.bonOpRep;
-  } else {
-    isCorrect = selectedOption === currentQ.correctAnswer;
-  }
-
-  // Stocker la réponse (avec UUID ET index pour compatibilité)
-  const newAnswers = {
-    ...answersRef.current,
-    [questionIndex]: selectedOption,  // ← Priorité à l'index
-    [questionId]: selectedOption      // ← Backup par ID
-  };
-  
-  answersRef.current = newAnswers;
-  setAnswers(newAnswers);
-
-  // Mettre à jour les tentatives
-  const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
-  attemptsRef.current = newAttempts;
-  setAttempts(newAttempts);
-
-  // ═══════════════════════════════════════════════════════════════
-  // FEEDBACK SELON LA CONFIGURATION (3 TYPES SEULEMENT)
-  // ═══════════════════════════════════════════════════════════════
-  
-  if (configRef.current?.showBinaryResult) {
-    // Type 2 ou 3 : Afficher le résultat binaire
-    toast[isCorrect ? 'success' : 'error'](
-      isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
-      { duration: 2000 }
-    );
-    setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
-    
-    // Type 3 : Afficher également la bonne réponse (uniquement si erreur)
-    if (configRef.current?.showCorrectAnswer && !isCorrect) {
-      const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
-      toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
+    // ── Vérifier la limite de tentatives si reprise autorisée (G, I) ──
+    // allowRetry=true signifie UNE reprise autorisée → bloquer après la 2e tentative
+    if (configRef.current?.allowRetry && currentAttempts >= 2) {
+      toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
+      return;
     }
-  } else {
-    // Type 1 : Aucun résultat immédiat
-    setShowResult(prev => ({ ...prev, [questionId]: null }));
-    // Pas de toast, pas de feedback visuel
-  }
+    // Sans reprise : bloquer si déjà répondu (1 tentative max)
+    if (!configRef.current?.allowRetry && currentAttempts >= 1) {
+      return;
+    }
 
-  // ═══════════════════════════════════════════════════════════════
-  // AVANCEMENT AUTOMATIQUE POUR OPTION A ET D
-  // ═══════════════════════════════════════════════════════════════
-  
-  const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
-  
-  // Ne pas avancer si la réponse est incorrecte ET qu'une reprise est possible
-  const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1;
-  if (!isCorrect && hasRetryLeft) {
-    // L'utilisateur a droit à une seconde chance, ne pas avancer
-    return;
-  }
+    // Vérifier si la réponse est correcte
+    let isCorrect = false;
+    if (typeof currentQ.bonOpRep === 'number') {
+      const selectedIndex = currentQ.options.findIndex(opt => opt === selectedOption);
+      isCorrect = selectedIndex === currentQ.bonOpRep;
+    } else {
+      isCorrect = selectedOption === currentQ.correctAnswer;
+    }
 
-  if (shouldAutoAdvance) {
-    const currentIdx = currentQuestionIndexRef.current;
-    const totalQuestions = examRef.current?.questions?.length || 0;
-    const isLastQuestion = currentIdx >= totalQuestions - 1;
+    // Stocker la réponse
+    const newAnswers = {
+      ...answersRef.current,
+      [questionIndex]: selectedOption,
+      [questionId]: selectedOption
+    };
     
-    if (!isLastQuestion) {
-      // Avancer à la question suivante
-      const nextIndex = currentIdx + 1;
-      currentQuestionIndexRef.current = nextIndex;
-      setCurrentQuestionIndex(nextIndex);
+    answersRef.current = newAnswers;
+    setAnswers(newAnswers);
+
+    // Mettre à jour les tentatives
+    const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
+    attemptsRef.current = newAttempts;
+    setAttempts(newAttempts);
+
+    // ═══════════════════════════════════════════════════════════════
+    // FEEDBACK SELON LA CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════
+    
+    if (configRef.current?.showBinaryResult) {
+      toast[isCorrect ? 'success' : 'error'](
+        isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
+        { duration: 2000 }
+      );
+      setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
       
-      // Mettre à jour le timer pour la nouvelle question
-      const timeForNextQuestion = examRef.current?.questions[nextIndex]?.tempsMinParQuestion 
-        || (configRef.current?.timePerQuestion || 60) * 60;
-      setRemainingTime(timeForNextQuestion);
-      setTimerResetTrigger(prev => prev + 1);
-      
-      // Notifier le superviseur de la progression
-      setTimeout(() => sendProgressUpdate(nextIndex), 500);
-      
-      // Message optionnel pour l'utilisateur
-      if (configRef.current?.examOption === 'D') {
-        toast.info(`Question suivante (${nextIndex + 1}/${totalQuestions})`, { 
-          duration: 1500,
-          icon: '⏩'
-        });
+      if (configRef.current?.showCorrectAnswer && !isCorrect) {
+        const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
+        toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
       }
     } else {
-      // Dernière question → soumettre l'examen automatiquement
-      handleSubmitExam(false);
+      setShowResult(prev => ({ ...prev, [questionId]: null }));
     }
-  }
-};
+
+    // ═══════════════════════════════════════════════════════════════
+    // AVANCEMENT AUTOMATIQUE — A et D uniquement (séquentiel figé piloté par réponse)
+    // B, E : l'étudiant navigue manuellement (feedback binaire mais pas d'auto-avance)
+    // G–K  : plage ouverte, pas d'ordre forcé
+    // ═══════════════════════════════════════════════════════════════
+    const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
+    
+    // Ne pas avancer si la réponse est incorrecte ET qu'il reste une reprise (1ère tentative avec allowRetry)
+    const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1 && !isCorrect;
+    if (hasRetryLeft) {
+      toast.info('💡 Vous pouvez réessayer cette question une fois.', { duration: 3000 });
+      return;
+    }
+
+    if (shouldAutoAdvance) {
+      const currentIdx = currentQuestionIndexRef.current;
+      const totalQuestions = examRef.current?.questions?.length || 0;
+      const isLastQuestion = currentIdx >= totalQuestions - 1;
+      
+      if (!isLastQuestion) {
+        const nextIndex = currentIdx + 1;
+        currentQuestionIndexRef.current = nextIndex;
+        setCurrentQuestionIndex(nextIndex);
+        
+        const timeForNextQuestion = examRef.current?.questions[nextIndex]?.tempsMinParQuestion 
+          || (configRef.current?.timePerQuestion || 60) * 60;
+        setRemainingTime(timeForNextQuestion);
+        setTimerResetTrigger(prev => prev + 1);
+        
+        setTimeout(() => sendProgressUpdate(nextIndex), 500);
+        
+        if (configRef.current?.examOption === 'D') {
+          toast.info(`Question suivante (${nextIndex + 1}/${totalQuestions})`, { 
+            duration: 1500,
+            icon: '⏩'
+          });
+        }
+      } else {
+        handleSubmitExam(false);
+      }
+    }
+  }, [handleSubmitExam, sendProgressUpdate]);
 
   // Chargement de l'examen
   useEffect(() => {
@@ -822,6 +823,13 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
     setConfig(parsed.config);
     configRef.current = parsed.config;
     terminalSessionIdRef.current = parsed.terminalSessionId || null;
+    
+    // ✅ Récupérer les paramètres de plage ouverte
+    if (parsed.config?.openRange) {
+      setOpenRangeMode(true);
+      setRequiredQuestions(parsed.config.requiredQuestions || 0);
+      setPlageOuverteSeuil(parsed.config.requiredQuestions || 0);
+    }
 
     const fetchExam = async () => {
       try {
@@ -851,13 +859,19 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
 
         const safeConfig = parsed.config || {};
 
+        // ✅ Gestion de la plage ouverte
         if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
           const shuffled = shuffleArray([...fetchedQuestions]);
           fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
+          toast.info(`Mode plage ouverte: ${safeConfig.requiredQuestions} questions à traiter sur ${examData.questions.length}`, {
+            duration: 4000,
+            icon: '📖'
+          });
         }
 
         if (safeConfig.sequencing === 'randomPerStudent') {
           fetchedQuestions = shuffleArray(fetchedQuestions);
+          toast.info("L'ordre des questions est aléatoire", { duration: 2000, icon: '🎲' });
         }
 
         if (parsed.examOption === 'D' && safeConfig.sequencing !== 'randomPerStudent') {
@@ -1032,7 +1046,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
     return () => clearInterval(interval);
   }, [quizStarted, quizFinished, waitingForStart, remainingTime, handleTimeEnd]);
 
-  // Réinitialisation du timerHasShown quand la question change
+  // Réinitialisation du timerHasShown
   useEffect(() => {
     setTimerHasShown(false);
     setTimerDisplayStep(0);
@@ -1044,9 +1058,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
       <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
         <Toaster />
-        <style>{`
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -1120,7 +1132,15 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
                 <span style={styles.optionBadge(config?.examOption)}>
                   {config?.examOption === 'A' ? 'COLLECTIVE FIGÉE' :
                    config?.examOption === 'B' ? 'COLLECTIVE SOUPLE' :
-                   config?.examOption === 'C' ? 'PERSONNALISÉE' : 'ALÉATOIRE'}
+                   config?.examOption === 'C' ? 'PERSONNALISÉE' : 
+                   config?.examOption === 'D' ? 'ALÉATOIRE' :
+                   config?.examOption === 'E' ? 'ALÉATOIRE+' :
+                   config?.examOption === 'F' ? 'ALÉATOIRE LIBRE' :
+                   config?.examOption === 'G' ? 'PLAGE OUVERTE + REPRISE' :
+                   config?.examOption === 'H' ? 'PLAGE OUVERTE' :
+                   config?.examOption === 'I' ? 'PLAGE OUVERTE+' :
+                   config?.examOption === 'J' ? 'PLAGE OUVERTE++' :
+                   config?.examOption === 'K' ? 'PLAGE OUVERTE LIBRE' : 'CONFIGURATION'}
                 </span>
               </div>
               <p style={styles.studentInfo}>{studentInfo.firstName} {studentInfo.lastName} · {studentInfo.matricule}</p>
@@ -1157,6 +1177,16 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
             </div>
           )}
 
+          {/* Indicateur pour Plage ouverte */}
+          {openRangeMode && plageOuverteSeuil > 0 && (
+            <div style={{ ...styles.currentQuestionIndicator, background: 'rgba(16,185,129,0.1)', border: '1px solid #10b98133', marginBottom: 16 }}>
+              <span>📖 Plage ouverte: {selectedQuestions.length} / {plageOuverteSeuil} questions sélectionnées</span>
+              <span style={{ color: '#10b981', fontSize: '0.7rem', marginLeft: 12 }}>
+                (Vous devez traiter exactement {plageOuverteSeuil} questions)
+              </span>
+            </div>
+          )}
+
           <div style={styles.progressArea}>
             <div style={styles.progressLabels}>
               <span>Progression</span>
@@ -1167,8 +1197,8 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
             </div>
           </div>
 
-          {/* Navigation grille pour Option C */}
-          {config?.examOption === 'C' && (
+          {/* Navigation grille pour Option C et configurations à navigation libre */}
+          {(config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K') && (
             <div style={styles.navGrid}>
               <h3>Navigation des questions</h3>
               <div style={styles.questionButtons}>
@@ -1184,9 +1214,14 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
                       sendProgressUpdate(idx);
                     }}
                     disabled={quizFinished}
-                    style={styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx])}
+                    style={{
+                      ...styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]),
+                      background: openRangeMode && selectedQuestions.includes(idx) ? 'rgba(16,185,129,0.3)' : styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]).background,
+                      border: openRangeMode && selectedQuestions.includes(idx) ? '1px solid #10b981' : styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]).border
+                    }}
                   >
                     {idx + 1}
+                    {openRangeMode && selectedQuestions.includes(idx) && <span style={{ fontSize: '0.6rem', marginLeft: 2 }}>✓</span>}
                   </button>
                 ))}
               </div>
@@ -1208,6 +1243,23 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
                     <span style={{ ...styles.resultBadge, background: showResult[currentQuestion._id] ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: showResult[currentQuestion._id] ? '#10b981' : '#ef4444' }}>
                       {showResult[currentQuestion._id] ? '✓ Bonne réponse' : '✗ Mauvaise réponse'}
                     </span>
+                  )}
+                  {openRangeMode && (
+                    <button
+                      onClick={() => handleSelectQuestionForOpenRange(currentQuestionIndex)}
+                      style={{
+                        marginLeft: 'auto',
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        background: selectedQuestions.includes(currentQuestionIndex) ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.1)',
+                        border: `1px solid ${selectedQuestions.includes(currentQuestionIndex) ? '#10b981' : 'rgba(255,255,255,0.2)'}`,
+                        color: selectedQuestions.includes(currentQuestionIndex) ? '#10b981' : '#94a3b8',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {selectedQuestions.includes(currentQuestionIndex) ? '✓ Sélectionnée' : '☐ Sélectionner'}
+                    </button>
                   )}
                 </div>
 
@@ -1237,7 +1289,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
                       : opt === currentQuestion.correctAnswer;
 
                     const isOptionDisabled = quizFinished || submittingRef.current ||
-                      (config?.examOption !== 'C' && currentAnswer &&
+                      (config?.examOption !== 'C' && config?.examOption !== 'F' && config?.examOption !== 'K' && currentAnswer &&
                        !(config?.allowRetry && attempts[currentQuestion._id] === 0));
 
                     const canRetry = config?.allowRetry && attempts[currentQuestion._id] === 1;
@@ -1272,7 +1324,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
             </motion.div>
           </AnimatePresence>
 
-          {/* ✅ ACTIONS - Navigation corrigée pour toutes les options */}
+          {/* ACTIONS - Navigation corrigée pour toutes les options */}
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
               {config?.examOption === 'A' ? (
@@ -1297,7 +1349,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
                 {isSubmitting ? (
                   <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Soumission...</>
                 ) : (
-                  <><Send size={16} /> {config?.examOption === 'C' ? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
+                  <><Send size={16} /> {config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K' ? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
                 )}
               </button>
             )}
@@ -1338,7 +1390,7 @@ const handleOptionChange = (questionId, selectedOption, questionIndex) => {
   );
 };
 
-// Styles complets
+// Styles complets (inchangés)
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },
@@ -1347,12 +1399,20 @@ const styles = {
   quizCard: { background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '24px', padding: '32px' },
   header: { marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 },
   titleRow: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  optionBadge: (opt) => ({
-    padding: '3px 10px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em',
-    background: opt === 'A' ? 'rgba(239,68,68,0.15)' : opt === 'B' ? 'rgba(59,130,246,0.15)' : opt === 'C' ? 'rgba(139,92,246,0.15)' : 'rgba(245,158,11,0.15)',
-    border: `1px solid ${opt === 'A' ? '#ef4444' : opt === 'B' ? '#3b82f6' : opt === 'C' ? '#8b5cf6' : '#f59e0b'}44`,
-    color: opt === 'A' ? '#ef4444' : opt === 'B' ? '#3b82f6' : opt === 'C' ? '#8b5cf6' : '#f59e0b',
-  }),
+  optionBadge: (opt) => {
+    const optColors = {
+      'A': '#ef4444', 'B': '#ef4444', 'C': '#ef4444',
+      'D': '#f59e0b', 'E': '#f59e0b', 'F': '#f59e0b',
+      'G': '#10b981', 'H': '#10b981', 'I': '#10b981', 'J': '#10b981', 'K': '#10b981'
+    };
+    const color = optColors[opt] || '#3b82f6';
+    return {
+      padding: '3px 10px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em',
+      background: `${color}25`,
+      border: `1px solid ${color}44`,
+      color: color,
+    };
+  },
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
   globalTimerHint: { display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.1em', color: '#475569', marginTop: 4, textAlign: 'center' },
   currentQuestionIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', fontSize: '0.8rem', color: '#f8fafc' },

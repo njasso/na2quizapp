@@ -1,5 +1,5 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
-// Version avec support complet pour SAISISEUR
+// Version avec support complet pour SAISISEUR, assignation des épreuves et VALIDATION DES QUESTIONS
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +10,8 @@ import {
   ClipboardList, Award, BarChart3, Terminal, TrendingUp,
   Library, LayoutDashboard, User, LogOutIcon, HomeIcon,
   FileQuestion, GraduationCap, Activity, PenTool,
-  Clock, CheckCircle
+  Clock, CheckCircle, Radio, UserCheck, FileCheck, Video,
+  ShieldCheck, ClipboardCheck
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import ENV_CONFIG from '../../config/env';
@@ -45,6 +46,7 @@ console.log('[EvaluationSummative] Terminal URL:', TERMINAL_URL);
 
 // ========== MODULES AVEC RÔLES CORRIGÉS ==========
 const ALL_MODULES = [
+  // ========== MODULES SAISISEUR ==========
   {
     id: 'create_question_saisisseur',
     path: '/create/question',
@@ -110,12 +112,12 @@ const ALL_MODULES = [
   {
     id: 'qcm_validation',
     path: '/admin/qcm-validation',
-    icon: CheckSquare,
-    title: 'Validation pédagogique',
+    icon: ClipboardCheck,
+    title: 'Valider les questions',
     subtitle: 'Questions en attente',
-    desc: 'Examiner et statuer sur les questions proposées par les enseignants',
-    color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+    desc: 'Examiner, approuver ou rejeter les questions proposées par les enseignants et saisisseurs',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
     tag: 'Validation',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
@@ -141,10 +143,10 @@ const ALL_MODULES = [
     color: COLORS.info,
     gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
     tag: 'Suivi',
-    roles: ['ENSEIGNANT']
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
 
-  // ========== MODULES GESTION DES ÉPREUVES (avec Banque QCM déplacée ici) ==========
+  // ========== MODULES GESTION DES ÉPREUVES ==========
   {
     id: 'database',
     path: '/create/database',
@@ -167,7 +169,7 @@ const ALL_MODULES = [
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)',
     tag: 'Épreuves',
-    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
     id: 'qcm_bank',
@@ -179,19 +181,7 @@ const ALL_MODULES = [
     color: COLORS.info,
     gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
     tag: 'Analyse',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'surveillance',
-    path: '/surveillance',
-    icon: Monitor,
-    title: 'Surveillance temps réel',
-    subtitle: 'Sessions actives',
-    desc: 'Piloter et surveiller le déroulement des évaluations en cours',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
-    tag: 'Live',
-    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
     id: 'reports',
@@ -203,7 +193,7 @@ const ALL_MODULES = [
     color: COLORS.gray,
     gradient: 'linear-gradient(135deg, #475569, #64748b)',
     tag: 'Analytics',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
   {
     id: 'teacher_reports',
@@ -228,6 +218,48 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
     tag: 'Admin',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  
+  // ========== ASSIGNATION DES ÉPREUVES ==========
+  {
+    id: 'assign_exams',
+    path: '/admin/assign-exams',
+    icon: UserCheck,
+    title: 'Assigner des épreuves',
+    subtitle: 'Opérateurs',
+    desc: 'Assigner des épreuves aux opérateurs pour les sessions d\'examen',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    tag: 'Assignation',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+
+  // ========== MODULES OPÉRATEUR ==========
+  {
+    id: 'assigned_exams_operator',
+    path: '/assigned-exams',
+    icon: FileCheck,
+    title: 'Épreuves assignées',
+    subtitle: 'Mes sessions',
+    desc: 'Consulter et gérer les épreuves qui vous ont été assignées',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+    tag: 'Assignées',
+    roles: ['OPERATEUR_EVALUATION']
+  },
+
+  // ========== MODULES SURVEILLANCE ==========
+  {
+    id: 'surveillance',
+    path: '/surveillance',
+    icon: Video,
+    title: 'Surveillance temps réel',
+    subtitle: 'Sessions actives',
+    desc: 'Piloter, surveiller les sessions en cours et consulter les rapports de session',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
+    tag: 'Live',
+    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   },
 
   // ========== MODULES APPRENANT ==========
@@ -270,7 +302,7 @@ const ALL_MODULES = [
   }
 ];
 
-// ========== GROUPES FONCTIONNELS (CORRIGÉ) ==========
+// ========== GROUPES FONCTIONNELS ==========
 const INTEREST_GROUPS = [
   {
     id: 'saisisseur',
@@ -283,35 +315,62 @@ const INTEREST_GROUPS = [
   },
   {
     id: 'qcm',
-    title: 'Gestion des questions',
-    subtitle: 'Création · Validation · Import · Analyse · Suivi',
+    title: '📋 Gestion des questions',
+    subtitle: 'Création · Import · Analyse · Suivi',
     icon: FileQuestion,
-    modules: ['create_question', 'ai', 'qcm_validation', 'qcm_import', 'qcm_bank', 'my_questions'],  // ✅ qcm_bank RESTE ici
+    modules: ['create_question', 'ai', 'qcm_import', 'qcm_bank', 'my_questions'],
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
   },
   {
+    id: 'validation',
+    title: '✅ Validation pédagogique',
+    subtitle: 'Approbation · Rejet · Contrôle qualité',
+    icon: ShieldCheck,
+    modules: ['qcm_validation'],
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)'
+  },
+  {
     id: 'exam',
-    title: 'Gestion des épreuves',
-    subtitle: 'Composition · Banque QCM · Distribution',
+    title: '📚 Gestion des épreuves',
+    subtitle: 'Création · Bibliothèque',
     icon: GraduationCap,
-    modules: ['database', 'exams'],  // ✅ Seulement 'database' (création depuis la banque)
+    modules: ['database', 'exams'],
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)'
   },
   {
+    id: 'assignment',
+    title: '🎯 Assignation des épreuves',
+    subtitle: 'Distribution aux opérateurs',
+    icon: UserCheck,
+    modules: ['assign_exams'],
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)'
+  },
+  {
+    id: 'operator',
+    title: '📋 Espace Opérateur',
+    subtitle: 'Épreuves assignées',
+    icon: UserCheck,
+    modules: ['assigned_exams_operator'],
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)'
+  },
+  {
     id: 'evaluation',
-    title: 'Évaluation opérationnelle',
-    subtitle: 'Supervision · Analyse · Rapports',
+    title: '📊 Surveillance & Rapports',
+    subtitle: 'Sessions · Supervision · Analyses',
     icon: Activity,
     modules: ['surveillance', 'reports', 'teacher_reports'],
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #d97706, #f59e0b)'
   },
   {
-    id: 'users',
-    title: 'Administration',
-    subtitle: 'Comptes · Sécurité · Rôles',
+    id: 'admin',
+    title: '⚙️ Administration',
+    subtitle: 'Comptes · Sécurité',
     icon: Shield,
     modules: ['user_management'],
     color: COLORS.danger,
@@ -319,7 +378,7 @@ const INTEREST_GROUPS = [
   },
   {
     id: 'apprenant',
-    title: 'Espace Apprenant',
+    title: '🎓 Espace Apprenant',
     subtitle: 'Évaluations · Résultats · Terminal',
     icon: GraduationCap,
     modules: ['available_exams', 'my_results', 'terminal'],
@@ -396,13 +455,13 @@ const EvaluationSummative = () => {
       case 'APPRENANT':
         return 'Accédez à vos épreuves, consultez vos résultats et utilisez le terminal d\'examen';
       case 'OPERATEUR_EVALUATION':
-        return 'Pilotez et supervisez les sessions d\'examen en temps réel';
+        return 'Consultez les épreuves assignées et supervisez les sessions d\'examen';
       case 'ENSEIGNANT':
         return 'Concevez, gérez et analysez vos évaluations pédagogiques';
       case 'ADMIN_DELEGUE':
-        return 'Validez les QCM, gérez les épreuves et consultez les rapports';
+        return 'Validez les QCM, assignez les épreuves et consultez les rapports';
       case 'ADMIN_SYSTEME':
-        return 'Administration complète du système';
+        return 'Administration complète du système - Vous avez accès à la validation des questions et à l\'assignation des épreuves';
       default:
         return 'Tableau de bord NA²QUIZ';
     }
@@ -416,17 +475,19 @@ const EvaluationSummative = () => {
       case 'ENSEIGNANT':
         return 'Création et gestion pédagogique';
       case 'ADMIN_DELEGUE':
-        return 'Supervision et validation';
+        return 'Supervision, validation, assignation et rapports';
       case 'OPERATEUR_EVALUATION':
-        return 'Distribution et surveillance';
+        return 'Épreuves assignées et surveillance';
       case 'ADMIN_SYSTEME':
-        return 'Configuration et administration';
+        return 'Configuration, administration, validation et assignation';
       default:
         return 'Plateforme d\'évaluation';
     }
   };
 
   const isSaisisseur = user?.role === 'SAISISEUR';
+  const isOperator = user?.role === 'OPERATEUR_EVALUATION';
+  const isAdmin = user?.role === 'ADMIN_SYSTEME' || user?.role === 'ADMIN_DELEGUE';
 
   return (
     <div style={styles.app}>
@@ -444,7 +505,7 @@ const EvaluationSummative = () => {
             <div style={styles.userBadge}>
               <User size={12} style={{ marginRight: 6 }} />
               {user.name?.split(' ')[0] || user.email?.split('@')[0]} · 
-              <span style={{ color: isSaisisseur ? COLORS.success : COLORS.primaryLight, marginLeft: 4 }}>
+              <span style={{ color: isOperator ? COLORS.info : (isSaisisseur ? COLORS.success : (isAdmin ? COLORS.warning : COLORS.primaryLight)), marginLeft: 4 }}>
                 {user.role === 'SAISISEUR' ? 'SAISISSEUR' : user.role}
               </span>
             </div>
@@ -471,7 +532,7 @@ const EvaluationSummative = () => {
             <span style={styles.badgeText}>Tableau de bord</span>
           </div>
           <h1 style={styles.title}>
-            {isSaisisseur ? 'ESPACE SAISISEUR' : 'ÉVALUATION SOMMATIVE'}
+            {isSaisisseur ? 'ESPACE SAISISEUR' : (isOperator ? 'ESPACE OPÉRATEUR' : 'ÉVALUATION SOMMATIVE')}
           </h1>
           <p style={styles.subtitle}>{getWelcomeMessage()}</p>
           <p style={{ fontSize: '0.7rem', color: COLORS.textMuted, marginTop: 8 }}>
@@ -591,7 +652,7 @@ const EvaluationSummative = () => {
                   <Clock size={20} color="#a5b4fc" />
                 </div>
                 <p style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>2. Validation</p>
-                <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>Le CPS examine la question</p>
+                <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>L'administrateur examine la question</p>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{
@@ -604,6 +665,47 @@ const EvaluationSummative = () => {
                 </div>
                 <p style={{ color: '#10b981', fontSize: '0.7rem', fontWeight: 600 }}>3. Intégration</p>
                 <p style={{ color: COLORS.textMuted, fontSize: '0.6rem' }}>Question disponible dans la banque</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Information pour ADMIN sur la validation et l'assignation */}
+        {isAdmin && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            style={{
+              marginTop: 48,
+              padding: 20,
+              background: 'rgba(245,158,11,0.1)',
+              borderRadius: 16,
+              border: '1px solid rgba(245,158,11,0.3)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <ShieldCheck size={20} color={COLORS.warning} />
+              <h3 style={{ color: COLORS.text, fontSize: '0.9rem', fontWeight: 600 }}>
+                Administration - Actions disponibles
+              </h3>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div>
+                <p style={{ color: COLORS.textDim, fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>📋 Validation pédagogique</p>
+                <ul style={{ color: COLORS.textMuted, fontSize: '0.7rem', marginLeft: 20, lineHeight: 1.8 }}>
+                  <li>✓ Examiner les questions soumises</li>
+                  <li>✓ Approuver les questions conformes</li>
+                  <li>✓ Rejeter avec commentaire explicatif</li>
+                </ul>
+              </div>
+              <div>
+                <p style={{ color: COLORS.textDim, fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>🎯 Assignation des épreuves</p>
+                <ul style={{ color: COLORS.textMuted, fontSize: '0.7rem', marginLeft: 20, lineHeight: 1.8 }}>
+                  <li>✓ Assigner des épreuves aux opérateurs</li>
+                  <li>✓ Planifier les sessions d'examen</li>
+                  <li>✓ Configurer les salles et horaires</li>
+                </ul>
               </div>
             </div>
           </motion.div>
@@ -624,11 +726,11 @@ const EvaluationSummative = () => {
         }
         ::-webkit-scrollbar-track {
           background: rgba(15, 23, 42, 0.5);
-          border-radius: 10px;
+          borderRadius: 10px;
         }
         ::-webkit-scrollbar-thumb {
           background: rgba(99, 102, 241, 0.3);
-          border-radius: 10px;
+          borderRadius: 10px;
         }
       `}</style>
     </div>

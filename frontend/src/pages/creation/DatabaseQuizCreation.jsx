@@ -1,4 +1,4 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - Version complète avec gestion des images
+// src/pages/creation/DatabaseQuizCreation.jsx - Version complète corrigée
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +16,7 @@ import DOMAIN_DATA, {
   getDomainNom,
   getSousDomaineNom,
   getLevelNom,
-  getMatiereNom, 
+  getMatiereNom
 } from '../../data/domainConfig';
 import { getQuestions, createExam } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -73,7 +73,7 @@ const QuestionPreview = ({ question, onClose }) => {
       <p style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 16 }}>{question.libQuestion}</p>
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {question.options.filter(opt => opt.trim()).map((opt, i) => {
+        {question.options.filter(opt => opt && opt.trim()).map((opt, i) => {
           const isCorrect = typeof question.bonOpRep === 'number' 
             ? i === question.bonOpRep 
             : (Array.isArray(question.correctAnswer) ? question.correctAnswer.includes(opt) : opt === question.correctAnswer);
@@ -101,13 +101,13 @@ const QuestionPreview = ({ question, onClose }) => {
       )}
       
       <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', flexWrap: 'wrap', gap: 8 }}>
-        <span>📚 Domaine: {question.domaine}</span>
-        <span>📁 Sous-domaine: {question.sousDomaine}</span>
-        <span>🎓 Niveau: {question.niveau}</span>
-        <span>📖 Matière: {question.matiere}</span>
+        <span>📚 Domaine: {question.domaineNom || question.domaine}</span>
+        <span>📁 Sous-domaine: {question.sousDomaineNom || question.sousDomaine}</span>
+        <span>🎓 Niveau: {question.niveauNom || question.niveau}</span>
+        <span>📖 Matière: {question.matiereNom || question.matiere}</span>
         {question.libChapitre && <span>📑 Chapitre: {question.libChapitre}</span>}
-        <span>⏱️ {question.tempsMin} min</span>
-        <span>⭐ {question.points} pts</span>
+        <span>⏱️ {question.tempsMin || 1} min</span>
+        <span>⭐ {question.points || 1} pts</span>
       </div>
       
       <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -119,7 +119,7 @@ const QuestionPreview = ({ question, onClose }) => {
   );
 };
 
-// Composant QuestionCard avec image
+// Composant QuestionCard
 const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) => {
   const imageSrc = getImageUrl(question);
   
@@ -158,7 +158,7 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
       )}
       
       <p style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 8 }}>
-        {question.libQuestion.length > 100 ? question.libQuestion.substring(0, 100) + '...' : question.libQuestion}
+        {question.libQuestion?.length > 100 ? question.libQuestion.substring(0, 100) + '...' : question.libQuestion}
         {question.typeQuestion === 2 && (
           <span style={{ color: '#f59e0b', marginLeft: 6 }}>(Multiple)</span>
         )}
@@ -177,7 +177,7 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
       )}
       
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-        {question.options.filter(opt => opt.trim()).slice(0, 4).map((opt, i) => {
+        {question.options?.filter(opt => opt && opt.trim()).slice(0, 4).map((opt, i) => {
           const isCorrect = typeof question.bonOpRep === 'number' 
             ? i === question.bonOpRep 
             : (Array.isArray(question.correctAnswer) && question.correctAnswer.includes(opt));
@@ -189,20 +189,20 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
               color: isCorrect ? '#10b981' : '#94a3b8',
               fontSize: '0.7rem'
             }}>
-              {String.fromCharCode(65 + i)}: {opt.length > 15 ? opt.substring(0, 15) + '...' : opt}
+              {String.fromCharCode(65 + i)}: {opt?.length > 15 ? opt.substring(0, 15) + '...' : opt}
             </span>
           );
         })}
-        {question.options.filter(opt => opt.trim()).length > 4 && (
-          <span style={{ fontSize: '0.6rem', color: '#64748b' }}>+{question.options.filter(opt => opt.trim()).length - 4}</span>
+        {question.options?.filter(opt => opt && opt.trim()).length > 4 && (
+          <span style={{ fontSize: '0.6rem', color: '#64748b' }}>+{question.options.filter(opt => opt && opt.trim()).length - 4}</span>
         )}
       </div>
       
       <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: '0.6rem', color: '#64748b', flexWrap: 'wrap' }}>
-        <span>🎓 {question.niveau}</span>
-        <span>📖 {question.matiere}</span>
+        <span>🎓 {question.niveauNom || question.niveau}</span>
+        <span>📖 {question.matiereNom || question.matiere}</span>
         <span>⭐ {question.points} pts</span>
-        <span>⏱️ {question.tempsMinParQuestion}s</span>
+        <span>⏱️ {question.tempsMinParQuestion || 60}s</span>
       </div>
       
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -293,21 +293,34 @@ const DatabaseQuizCreation = () => {
   const [totalPointsWarning, setTotalPointsWarning] = useState(false);
   const [totalTimeWarning, setTotalTimeWarning] = useState(false);
 
-  // Mise à jour des noms
+  // Mise à jour des noms à partir des IDs
   useEffect(() => {
     if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
+    else setDomainNom('');
   }, [selectedDomainId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId) setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
+    if (selectedDomainId && selectedSousDomaineId) {
+      setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
+    } else {
+      setSousDomaineNom('');
+    }
   }, [selectedDomainId, selectedSousDomaineId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
+    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
+      setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
+    } else {
+      setLevelNom('');
+    }
   }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
 
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
+    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
+      setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
+    } else {
+      setMatiereNom('');
+    }
   }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
 
   // Calcul des totaux
@@ -359,44 +372,94 @@ const DatabaseQuizCreation = () => {
     }
   };
 
+  // Chargement des questions - Version corrigée
   const loadAvailableQuestions = async () => {
-    if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
-      toast.error('Veuillez sélectionner tous les critères');
-      return;
+  if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
+    toast.error('Veuillez sélectionner tous les critères');
+    return;
+  }
+
+  setFetchingQuestions(true);
+  try {
+    console.log('🔍 Recherche avec les IDs:', {
+      domaineId: selectedDomainId,
+      sousDomaineId: selectedSousDomaineId,
+      niveauId: selectedLevelId,
+      matiereId: selectedMatiereId,
+      libChapitre: searchChapitre
+    });
+    
+    // ✅ Utiliser getQuestions directement
+    const response = await getQuestions({
+      domaineId: selectedDomainId,
+      sousDomaineId: selectedSousDomaineId,
+      niveauId: selectedLevelId,
+      matiereId: selectedMatiereId,
+      libChapitre: searchChapitre || undefined,
+      status: 'approved',
+      showAll: true,
+      limit: 1000
+    });
+
+    console.log('📦 Réponse brute de l\'API:', response);
+    
+    // ✅ CORRECTION: Parser correctement la réponse
+    let allQuestions = [];
+    
+    // Cas 1: La réponse est directement un tableau
+    if (Array.isArray(response)) {
+      allQuestions = response;
+      console.log('✅ Cas 1: Tableau direct,', allQuestions.length, 'questions');
+    }
+    // Cas 2: La réponse a une propriété 'data' qui est un tableau
+    else if (response?.data && Array.isArray(response.data)) {
+      allQuestions = response.data;
+      console.log('✅ Cas 2: response.data est un tableau,', allQuestions.length, 'questions');
+    }
+    // Cas 3: La réponse a une propriété 'questions' qui est un tableau
+    else if (response?.questions && Array.isArray(response.questions)) {
+      allQuestions = response.questions;
+      console.log('✅ Cas 3: response.questions est un tableau,', allQuestions.length, 'questions');
+    }
+    // Cas 4: La réponse a une structure imbriquée response.data.questions
+    else if (response?.data?.questions && Array.isArray(response.data.questions)) {
+      allQuestions = response.data.questions;
+      console.log('✅ Cas 4: response.data.questions est un tableau,', allQuestions.length, 'questions');
+    }
+    // Cas 5: La réponse a une structure response.data.data
+    else if (response?.data?.data && Array.isArray(response.data.data)) {
+      allQuestions = response.data.data;
+      console.log('✅ Cas 5: response.data.data est un tableau,', allQuestions.length, 'questions');
+    }
+    // Cas 6: Vérifier si la réponse a une propriété 'success' et 'data'
+    else if (response?.success && response?.data && Array.isArray(response.data)) {
+      allQuestions = response.data;
+      console.log('✅ Cas 6: response.success avec data tableau,', allQuestions.length, 'questions');
+    }
+    else {
+      console.error('❌ Structure de réponse non reconnue:', Object.keys(response || {}));
     }
 
-    setFetchingQuestions(true);
-    try {
-      const resolvedDomainNom = domainNom || getDomainNom(selectedDomainId);
-      const resolvedSousDomNom = sousDomaineNom || getSousDomaineNom(selectedDomainId, selectedSousDomaineId);
-      const resolvedLevelNom = levelNom || getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId);
-      const resolvedMatiereNom = matiereNom || getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId);
+    console.log(`📊 Total questions trouvées: ${allQuestions.length}`);
+    
+    if (allQuestions.length === 0) {
+      toast.error(`Aucune question trouvée pour ${matiereNom || 'cette matière'} (niveau ${levelNom || 'ce niveau'})`);
+      setAvailableQuestions([]);
+      setFetchingQuestions(false);
+      return;
+    }
+    
+    // Enrichir les questions avec les noms
+    const normalized = allQuestions.map((q, idx) => {
+      const qDomaineId = q.domaineId || selectedDomainId;
+      const qSousDomaineId = q.sousDomaineId || selectedSousDomaineId;
+      const qNiveauId = q.niveauId || selectedLevelId;
+      const qMatiereId = q.matiereId || selectedMatiereId;
       
-      console.log('🔍 Recherche avec les noms:', {
-        domaine: resolvedDomainNom,
-        sousDomaine: resolvedSousDomNom,
-        niveau: resolvedLevelNom,
-        matiere: resolvedMatiereNom
-      });
-      
-      const response = await getQuestions({
-        domaine: resolvedDomainNom,
-        sousDomaine: resolvedSousDomNom,
-        niveau: resolvedLevelNom,
-        matiere: resolvedMatiereNom,
-        libChapitre: searchChapitre,
-        status: 'approved',
-        limit: 1000
-      });
-
-      let allQuestions = [];
-      if (Array.isArray(response)) allQuestions = response;
-      else if (response?.data && Array.isArray(response.data)) allQuestions = response.data;
-      else if (response?.questions && Array.isArray(response.questions)) allQuestions = response.questions;
-
-      const normalized = allQuestions.map((q, idx) => ({
+      return {
         id: q._id || q.id || idx,
-        libQuestion: q.libQuestion || q.question || q.text,
+        _id: q._id,
+        libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
         text: q.libQuestion || q.question || q.text,
         question: q.libQuestion || q.question || q.text,
         options: q.options || [],
@@ -407,41 +470,56 @@ const DatabaseQuizCreation = () => {
         typeQuestion: q.typeQuestion || (Array.isArray(q.correctAnswer) ? 2 : 1),
         tempsMinParQuestion: q.tempsMinParQuestion || 60,
         tempsMin: q.tempsMin || 1,
-        domaine: q.domaine || resolvedDomainNom,
-        sousDomaine: q.sousDomaine || resolvedSousDomNom,
-        niveau: q.niveau || resolvedLevelNom,
-        matiere: q.matiere || resolvedMatiereNom,
+        domaineId: qDomaineId,
+        sousDomaineId: qSousDomaineId,
+        niveauId: qNiveauId,
+        matiereId: qMatiereId,
+        domaineNom: getDomainNom(qDomaineId) || q.domaine || domainNom,
+        sousDomaineNom: getSousDomaineNom(qDomaineId, qSousDomaineId) || q.sousDomaine || sousDomaineNom,
+        niveauNom: getLevelNom(qDomaineId, qSousDomaineId, qNiveauId) || q.niveau || levelNom,
+        matiereNom: getMatiereNom(qDomaineId, qSousDomaineId, qMatiereId) || q.matiere || matiereNom,
         libChapitre: q.libChapitre || '',
         imageQuestion: q.imageQuestion || '',
         imageBase64: q.imageBase64 || '',
         imageMetadata: q.imageMetadata || {},
         matriculeAuteur: q.matriculeAuteur || '',
         dateCrea: q.dateCrea || new Date().toISOString(),
-      }));
+        status: q.status
+      };
+    });
 
-      setAvailableQuestions(normalized);
-      if (normalized.length === 0) {
-        toast.error(`Aucune question trouvée pour ${resolvedMatiereNom} (niveau ${resolvedLevelNom})`);
-      } else {
-        toast.success(`${normalized.length} questions trouvées`);
-      }
-    } catch (error) {
-      console.error('Erreur chargement questions:', error);
-      toast.error('Impossible de charger les questions');
-    } finally {
-      setFetchingQuestions(false);
+    console.log(`✅ ${normalized.length} questions normalisées`);
+    if (normalized.length > 0) {
+      console.log('📝 Exemple de question normalisée:', {
+        libQuestion: normalized[0].libQuestion?.substring(0, 50),
+        matiereNom: normalized[0].matiereNom,
+        niveauNom: normalized[0].niveauNom
+      });
     }
-  };
+    
+    setAvailableQuestions(normalized);
+    toast.success(`${normalized.length} questions trouvées`);
+    
+  } catch (error) {
+    console.error('Erreur chargement questions:', error);
+    toast.error('Impossible de charger les questions: ' + error.message);
+    setAvailableQuestions([]);
+  } finally {
+    setFetchingQuestions(false);
+  }
+};
 
+  // Recharger quand les critères changent
   useEffect(() => {
     if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId) {
       loadAvailableQuestions();
     } else {
       setAvailableQuestions([]);
     }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId]);
+  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, searchChapitre]);
 
   const filteredQuestions = availableQuestions.filter(q =>
+    !searchTerm || 
     q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     q.libChapitre?.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -599,134 +677,6 @@ const DatabaseQuizCreation = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Composant QuestionCard avec affichage du chapitre
-  const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) => {
-    const imageSrc = question.imageQuestion || (question.imageBase64?.startsWith('data:') ? question.imageBase64 : null);
-    
-    return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.9 }}
-        whileHover={{ y: -2 }}
-        style={{
-          background: isSelected ? 'rgba(16,185,129,0.1)' : 'rgba(15,23,42,0.7)',
-          backdropFilter: 'blur(12px)',
-          border: `1px solid ${isSelected ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
-          borderRadius: 16,
-          padding: 16,
-          marginBottom: 12,
-          position: 'relative'
-        }}
-      >
-        {isSelected && (
-          <div style={{
-            position: 'absolute', top: 8, right: 8,
-            background: '#10b981', borderRadius: '50%',
-            width: 20, height: 20, display: 'flex',
-            alignItems: 'center', justifyContent: 'center'
-          }}>
-            <CheckCircle size={12} color="white" />
-          </div>
-        )}
-        
-        {imageSrc && (
-          <div style={{ marginBottom: 8 }}>
-            <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 60, borderRadius: 4, objectFit: 'contain' }} />
-          </div>
-        )}
-        
-        <p style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 8 }}>
-          {question.libQuestion.length > 100 ? question.libQuestion.substring(0, 100) + '...' : question.libQuestion}
-          {question.typeQuestion === 2 && (
-            <span style={{ color: '#f59e0b', marginLeft: 6 }}>(Multiple)</span>
-          )}
-        </p>
-        
-        {/* ✅ Affichage du chapitre */}
-        {question.libChapitre && (
-          <div style={{ marginBottom: 8 }}>
-            <span style={{
-              fontSize: '0.6rem', padding: '2px 8px',
-              background: 'rgba(139,92,246,0.15)', borderRadius: 4,
-              color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: 4
-            }}>
-              📑 {question.libChapitre}
-            </span>
-          </div>
-        )}
-        
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-          {question.options.filter(opt => opt.trim()).slice(0, 4).map((opt, i) => {
-            const isCorrect = typeof question.bonOpRep === 'number' 
-              ? i === question.bonOpRep 
-              : (Array.isArray(question.correctAnswer) && question.correctAnswer.includes(opt));
-            return (
-              <span key={i} style={{
-                padding: '2px 6px',
-                background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
-                borderRadius: 4,
-                color: isCorrect ? '#10b981' : '#94a3b8',
-                fontSize: '0.7rem'
-              }}>
-                {String.fromCharCode(65 + i)}: {opt.length > 15 ? opt.substring(0, 15) + '...' : opt}
-              </span>
-            );
-          })}
-          {question.options.filter(opt => opt.trim()).length > 4 && (
-            <span style={{ fontSize: '0.6rem', color: '#64748b' }}>+{question.options.filter(opt => opt.trim()).length - 4}</span>
-          )}
-        </div>
-        
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: '0.6rem', color: '#64748b', flexWrap: 'wrap' }}>
-          <span>🎓 {question.niveau}</span>
-          <span>📖 {question.matiere}</span>
-          <span>⭐ {question.points} pts</span>
-          <span>⏱️ {question.tempsMinParQuestion}s</span>
-        </div>
-        
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); onPreview(question); }}
-            style={{
-              padding: '4px 8px',
-              background: 'rgba(59,130,246,0.2)',
-              border: 'none',
-              borderRadius: 4,
-              color: '#3b82f6',
-              cursor: 'pointer',
-              fontSize: '0.7rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4
-            }}
-          >
-            <Eye size={12} /> Aperçu
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onSelect(question); }}
-            style={{
-              padding: '4px 8px',
-              background: isSelected ? '#ef4444' : '#10b981',
-              border: 'none',
-              borderRadius: 4,
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '0.7rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4
-            }}
-          >
-            {isSelected ? <Trash2 size={12} /> : <Plus size={12} />}
-            {isSelected ? 'Retirer' : 'Ajouter'}
-          </button>
-        </div>
-      </motion.div>
-    );
   };
 
   return (
@@ -934,7 +884,27 @@ const DatabaseQuizCreation = () => {
               </div>
             )}
 
-            {/* Paramètres avancés */}
+            {/* Filtre par chapitre */}
+            <div style={{ marginTop: 16 }}>
+              <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
+                <BookMarked size={14} style={{ display: 'inline', marginRight: 4 }} />
+                Filtrer par chapitre (optionnel)
+              </label>
+              <input
+                type="text"
+                value={searchChapitre}
+                onChange={(e) => setSearchChapitre(e.target.value)}
+                placeholder="Ex: Chapitre 1, Introduction, ..."
+                style={{
+                  width: '100%', padding: 12,
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
+                  color: '#f8fafc', outline: 'none'
+                }}
+              />
+            </div>
+
+            {/* Paramètres avancés (garder le même code que l'original) */}
             <div style={{ marginTop: 16, borderTop: '1px solid rgba(99,102,241,0.2)', paddingTop: 16 }}>
               <button
                 onClick={() => setAdvancedOpen(!advancedOpen)}
@@ -1036,54 +1006,51 @@ const DatabaseQuizCreation = () => {
                   </div>
 
                   <div style={{ marginBottom: 12 }}>
-  <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-    Feedback après chaque question
-  </label>
-  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <input
-        type="radio"
-        name="feedbackType"
-        checked={!config.showBinaryResult && !config.showCorrectAnswer}
-        onChange={() => setConfig({
-          ...config, 
-          showBinaryResult: false, 
-          showCorrectAnswer: false
-        })}
-      />
-      <span style={{ fontSize: '0.7rem' }}>Aucun résultat immédiat</span>
-    </label>
-    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <input
-        type="radio"
-        name="feedbackType"
-        checked={config.showBinaryResult && !config.showCorrectAnswer}
-        onChange={() => setConfig({
-          ...config, 
-          showBinaryResult: true, 
-          showCorrectAnswer: false
-        })}
-      />
-      <span style={{ fontSize: '0.7rem' }}>Résultat binaire (bon/mauvais)</span>
-    </label>
-    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <input
-        type="radio"
-        name="feedbackType"
-        checked={config.showBinaryResult && config.showCorrectAnswer}
-        onChange={() => setConfig({
-          ...config, 
-          showBinaryResult: true, 
-          showCorrectAnswer: true
-        })}
-      />
-      <span style={{ fontSize: '0.7rem' }}>Résultat binaire + Bonne réponse</span>
-    </label>
-  </div>
-  <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: 6 }}>
-    💡 L'explication détaillée sera disponible dans la version Didacticiel
-  </p>
-</div>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      Feedback après chaque question
+                    </label>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="feedbackType"
+                          checked={!config.showBinaryResult && !config.showCorrectAnswer}
+                          onChange={() => setConfig({
+                            ...config, 
+                            showBinaryResult: false, 
+                            showCorrectAnswer: false
+                          })}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Aucun résultat immédiat</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="feedbackType"
+                          checked={config.showBinaryResult && !config.showCorrectAnswer}
+                          onChange={() => setConfig({
+                            ...config, 
+                            showBinaryResult: true, 
+                            showCorrectAnswer: false
+                          })}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Résultat binaire (bon/mauvais)</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="feedbackType"
+                          checked={config.showBinaryResult && config.showCorrectAnswer}
+                          onChange={() => setConfig({
+                            ...config, 
+                            showBinaryResult: true, 
+                            showCorrectAnswer: true
+                          })}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Résultat binaire + Bonne réponse</span>
+                      </label>
+                    </div>
+                  </div>
 
                   {/* Chronomètre */}
                   <div style={{ marginBottom: 12 }}>
@@ -1199,7 +1166,7 @@ const DatabaseQuizCreation = () => {
               )}
             </div>
 
-            {/* Résumé de la configuration avec avertissements */}
+            {/* Résumé de la configuration */}
             <div style={{ marginTop: 16, padding: 12, background: 'rgba(99,102,241,0.05)', borderRadius: 8 }}>
               <p style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: 4 }}>
                 📋 Résumé de la configuration
@@ -1212,7 +1179,7 @@ const DatabaseQuizCreation = () => {
               </div>
             </div>
 
-            {/* ✅ Avertissements points et temps */}
+            {/* Avertissements points et temps */}
             {totalPointsWarning && (
               <div style={{ marginTop: 12, padding: 10, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
                 <p style={{ color: '#f59e0b', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1369,7 +1336,7 @@ const DatabaseQuizCreation = () => {
             ) : (
               <div style={{ maxHeight: 500, overflowY: 'auto', paddingRight: 8 }}>
                 {selectedQuestions.map((q, idx) => {
-                  const imageSrc = q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null);
+                  const imageSrc = getImageUrl(q);
                   return (
                     <div key={q.id} style={{
                       background: 'rgba(16,185,129,0.05)',
@@ -1402,7 +1369,7 @@ const DatabaseQuizCreation = () => {
                             <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 40, borderRadius: 4, objectFit: 'contain', marginBottom: 4 }} />
                           )}
                           <p style={{ color: '#f8fafc', fontSize: '0.85rem' }}>
-                            <strong style={{ color: '#f59e0b' }}>{idx + 1}.</strong> {q.libQuestion.length > 60 ? q.libQuestion.substring(0, 60) + '...' : q.libQuestion}
+                            <strong style={{ color: '#f59e0b' }}>{idx + 1}.</strong> {q.libQuestion?.length > 60 ? q.libQuestion.substring(0, 60) + '...' : q.libQuestion}
                             {q.typeQuestion === 2 && <span style={{ color: '#f59e0b' }}> (Multiple)</span>}
                           </p>
                           {q.libChapitre && (
@@ -1414,7 +1381,7 @@ const DatabaseQuizCreation = () => {
                           )}
                           <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: '0.6rem', color: '#64748b' }}>
                             <span>⭐ {config.pointsType === 'uniform' ? config.globalPoints : q.points} pts</span>
-                            <span>⏱️ {q.tempsMinParQuestion}s</span>
+                            <span>⏱️ {q.tempsMinParQuestion || 60}s</span>
                           </div>
                         </div>
                         <button
@@ -1442,7 +1409,7 @@ const DatabaseQuizCreation = () => {
                   );
                 })}
                 
-                {/* Résumé avec points variables/uniformes et avertissements */}
+                {/* Résumé */}
                 <div style={{
                   marginTop: 16, padding: 12, background: 'rgba(255,255,255,0.02)',
                   borderRadius: 12, border: '1px solid rgba(99,102,241,0.1)'
@@ -1468,11 +1435,6 @@ const DatabaseQuizCreation = () => {
                   {config.pointsType === 'variable' && (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)', fontSize: '0.65rem', color: '#64748b' }}>
                       ℹ️ Points variables : chaque question a son propre coefficient
-                    </div>
-                  )}
-                  {(totalPointsWarning || totalTimeWarning) && (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)', fontSize: '0.6rem', color: '#f59e0b' }}>
-                      ⚠️ Des ajustements sont recommandés (voir panneau de configuration)
                     </div>
                   )}
                 </div>

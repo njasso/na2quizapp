@@ -23,6 +23,7 @@ import { generateQuestionsAI, saveQuestions } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import ImageUploader from '../../components/ImageUploader';
 import toast, { Toaster } from 'react-hot-toast';
+import ENV_CONFIG from '../../config/env';
 
 const ALLOWED_ROLES = ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'];
 
@@ -320,57 +321,85 @@ const AIQuizCreation = () => {
   };
 
   // Sauvegarde des questions dans la base (status: pending)
-  const saveToBase = async () => {
-    if (generatedQuestions.length === 0) {
-      toast.error('Aucune question à sauvegarder');
-      return;
-    }
+  // AIQuizCreation.jsx - Fonction saveToBase corrigée
+// AIQuizCreation.jsx - Fonction saveToBase corrigée
+// AIQuizCreation.jsx - Fonction saveToBase corrigée
+const saveToBase = async () => {
+  if (generatedQuestions.length === 0) {
+    toast.error('Aucune question à sauvegarder');
+    return;
+  }
 
-    const resolvedDomainNom = domainNom || getDomainNom(selectedDomainId) || selectedDomainId;
-    const resolvedSousDomNom = sousDomaineNom || getSousDomaineNom(selectedDomainId, selectedSousDomaineId) || selectedSousDomaineId;
-    const resolvedLevelNom = levelNom || getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId) || selectedLevelId;
-    const resolvedMatiereNom = matiereNom || getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId) || selectedMatiereId;
+  const resolvedDomainNom = domainNom || getDomainNom(selectedDomainId) || selectedDomainId;
+  const resolvedSousDomNom = sousDomaineNom || getSousDomaineNom(selectedDomainId, selectedSousDomaineId) || selectedSousDomaineId;
+  const resolvedLevelNom = levelNom || getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId) || selectedLevelId;
+  const resolvedMatiereNom = matiereNom || getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId) || selectedMatiereId;
 
-    setIsLoading(true);
-    try {
-      const questionsToSave = generatedQuestions.map(q => ({
-        libQuestion: q.libQuestion?.trim() || 'Question sans libellé',
-        options: q.options.filter(opt => opt && opt.trim() !== ''),
-        correctAnswer: q.correctAnswer?.trim() || (q.options[0]?.trim() || 'A'),
-        typeQuestion: q.typeQuestion || 1,
-        points: pointsType === 'uniform' ? globalPoints : (q.points || 1),
-        tempsMin: q.tempsMin || 1,
-        explanation: q.explanation?.trim() || '',
-        domaine: resolvedDomainNom?.trim() || 'Non spécifié',
-        sousDomaine: resolvedSousDomNom?.trim() || 'Non spécifié',
-        niveau: resolvedLevelNom?.trim() || 'Non spécifié',
-        matiere: resolvedMatiereNom?.trim() || 'Non spécifié',
-        libChapitre: q.libChapitre || libChapitre, // ✅ Ajout du chapitre
-        imageQuestion: q.imageQuestion || '',
-        imageBase64: q.imageBase64 || '',
-        imageMetadata: q.imageMetadata || {},
-        matriculeAuteur: user?.matricule || user?.email || 'inconnu',
-        status: 'pending'
-      }));
+  setIsLoading(true);
+  
+  try {
+    // Construire les données avec les IDs du référentiel
+    const questionsToSave = generatedQuestions.map(q => ({
+      libQuestion: q.libQuestion?.trim() || 'Question sans libellé',
+      options: q.options.filter(opt => opt && opt.trim() !== ''),
+      correctAnswer: q.correctAnswer?.trim() || (q.options[0]?.trim() || 'A'),
+      bonOpRep: q.bonOpRep !== undefined ? q.bonOpRep : 0,
+      typeQuestion: q.typeQuestion || 1,
+      points: pointsType === 'uniform' ? globalPoints : (q.points || 1),
+      tempsMin: q.tempsMin || 1,
+      explanation: q.explanation?.trim() || '',
+      // ✅ RÉFÉRENTIEL AVEC IDs
+      domaineId: selectedDomainId,
+      domaine: resolvedDomainNom,
+      sousDomaineId: selectedSousDomaineId,
+      sousDomaine: resolvedSousDomNom,
+      niveauId: selectedLevelId,
+      niveau: resolvedLevelNom,
+      matiereId: selectedMatiereId,
+      matiere: resolvedMatiereNom,
+      libChapitre: q.libChapitre || libChapitre || 'Chapitre 1',
+      imageQuestion: q.imageQuestion || '',
+      imageBase64: q.imageBase64 || '',
+      imageMetadata: q.imageMetadata || {},
+      matriculeAuteur: user?.matricule || user?.email?.split('@')[0] || 'inconnu',
+      status: 'pending'
+    }));
 
-      const response = await saveQuestions({ questions: questionsToSave });
+    console.log('[Save] Envoi de', questionsToSave.length, 'questions');
+    console.log('[Save] Première question:', questionsToSave[0]);
 
-      if (response.success) {
-        toast.success(`${questionsToSave.length} questions envoyées en validation!`);
-        setGeneratedQuestions([]);
-        setLibChapitre(''); // ✅ Réinitialiser le chapitre
+    // ✅ UTILISER ENV_CONFIG AU LIEU DE URL FIXE
+    const token = localStorage.getItem('token') || localStorage.getItem('userToken');
+    const response = await fetch(`${ENV_CONFIG.BACKEND_URL}/api/questions/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ questions: questionsToSave })
+    });
+
+    const data = await response.json();
+    console.log('[Save] Réponse:', data);
+
+    if (data.success) {
+      toast.success(`${questionsToSave.length} questions envoyées en validation!`);
+      setGeneratedQuestions([]);
+      setLibChapitre('');
+      setTimeout(() => {
         navigate('/teacher/questions');
-      } else {
-        throw new Error(response.error || 'Erreur lors de la sauvegarde');
-      }
-    } catch (error) {
-      console.error('❌ Erreur sauvegarde:', error);
-      toast.error(error.message || 'Erreur lors de la sauvegarde');
-    } finally {
-      setIsLoading(false);
+      }, 1500);
+    } else {
+      throw new Error(data.message || data.error || 'Erreur lors de la sauvegarde');
     }
-  };
-
+    
+  } catch (error) {
+    console.error('❌ Erreur sauvegarde:', error);
+    toast.error(error.message || 'Erreur lors de la sauvegarde');
+  } finally {
+    setIsLoading(false);
+  }
+};
   // Supprimer une question
   const removeQuestion = (index) => {
     if (window.confirm(`Supprimer la question ${index + 1} ?`)) {
