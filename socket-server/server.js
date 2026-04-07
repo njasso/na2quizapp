@@ -283,6 +283,8 @@ examSchema.index({ assignedTo: 1, status: 1 });
 examSchema.index({ createdBy: 1, createdAt: -1 });
 
 // === Result Schema ===
+
+// === Result Schema - VERSION CORRIGÉE (TOUS LES CHAMPS À L'INTÉRIEUR) ===
 const resultSchema = new mongoose.Schema({
   examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   studentInfo: {
@@ -325,9 +327,20 @@ const resultSchema = new mongoose.Schema({
     timerDisplayMode: { type: String, enum: ['once', 'twice', 'fourTimes', 'permanent'], default: 'permanent' }
   },
   
-  questionDetails: { type: Array, default: [] }
+  questionDetails: { type: Array, default: [] },
+  
+  // ✅ Champs de sécurité (DOIVENT ÊTRE À L'INTÉRIEUR du schema)
+  qrCodeHash: { type: String, unique: true, sparse: true },
+  bulletinUrl: { type: String, default: '' },
+  generatedAt: { type: Date, default: Date.now },
+  generatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  emailSent: { type: Boolean, default: false },
+  emailSentAt: { type: Date },
+  ipAddress: { type: String },
+  userAgent: { type: String }
 }, { timestamps: true });
 
+// ✅ Virtual fields (après le schema)
 resultSchema.virtual('fullName').get(function() {
   return `${this.studentInfo.firstName} ${this.studentInfo.lastName}`;
 });
@@ -353,12 +366,14 @@ resultSchema.virtual('correctCount').get(function() {
   return this.questionDetails.filter(q => q.isCorrect === true).length;
 });
 
+// ✅ Indexes (après les virtuals)
 resultSchema.index({ examId: 1, createdAt: -1 });
 resultSchema.index({ 'studentInfo.matricule': 1 });
 resultSchema.index({ createdAt: -1 });
 resultSchema.index({ percentage: -1 });
 resultSchema.index({ userId: 1 });
-
+resultSchema.index({ userId: 1, createdAt: -1 });
+resultSchema.index({ qrCodeHash: 1 });
 // === Domain Schema (MongoDB) ===
 const subDomainSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -1380,9 +1395,10 @@ app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
 });
 
 // ✅ POST /api/results
+
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
-    const { examId, studentInfo, answers } = req.body;
+    const { examId, studentInfo, answers, config: clientConfig } = req.body;
     
     if (!examId) return res.status(400).json({ success: false, message: 'examId requis' });
     if (!studentInfo || !studentInfo.firstName || !studentInfo.lastName) {
@@ -1395,7 +1411,7 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     const exam = await Exam.findById(examId);
     if (!exam) return res.status(404).json({ success: false, message: 'Examen non trouvé' });
     
-    const config = exam.config || {};
+    const config = exam.config || clientConfig || {};
     const pointsType = config.pointsType || 'uniform';
     const globalPoints = config.globalPoints || 1;
     const openRange = config.openRange || false;
@@ -1412,13 +1428,21 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     };
     
     let questionsToGrade = exam.questions;
+    let selectedIndices = [];
+    
     if (openRange && requiredQuestions > 0) {
       const answeredQuestions = [];
       exam.questions.forEach((q, idx) => {
         const hasAnswer = answers[idx] !== undefined && answers[idx] !== null && answers[idx] !== '';
-        if (hasAnswer) answeredQuestions.push({ question: q, originalIndex: idx });
+        if (hasAnswer) {
+          answeredQuestions.push({ question: q, originalIndex: idx });
+          selectedIndices.push(idx);
+        }
       });
       questionsToGrade = answeredQuestions.slice(0, requiredQuestions).map(item => item.question);
+      selectedIndices = selectedIndices.slice(0, requiredQuestions);
+    } else {
+      selectedIndices = exam.questions.map((_, idx) => idx);
     }
     
     let score = 0;
@@ -1432,8 +1456,10 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
       totalPoints += points;
       
       let studentAnswer = null;
-      if (answers[idx] !== undefined) studentAnswer = answers[idx];
-      else if (answers[String(idx)] !== undefined) studentAnswer = answers[String(idx)];
+      const originalIdx = openRange ? selectedIndices[idx] : idx;
+      
+      if (answers[originalIdx] !== undefined) studentAnswer = answers[originalIdx];
+      else if (answers[String(originalIdx)] !== undefined) studentAnswer = answers[String(originalIdx)];
       else if (q._id && answers[q._id.toString()] !== undefined) studentAnswer = answers[q._id.toString()];
       
       const options = getQuestionOptions(q);
@@ -1462,6 +1488,13 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     }
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
+    
+    // ✅ Générer un hash unique pour le QR code
+    const crypto = await import('crypto');
+    const qrCodeHash = crypto.createHash('sha256')
+      .update(`${examId}_${studentInfo.matricule}_${Date.now()}_${Math.random()}`)
+      .digest('hex')
+      .substring(0, 16);
     
     const result = new Result({
       examId,
@@ -1501,10 +1534,18 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         globalPoints: globalPoints,
         timerDisplayMode: config.timerDisplayMode || 'permanent'
       },
-      questionDetails: questionResults
+      questionDetails: questionResults,
+      // ✅ Nouveaux champs de sécurité
+      qrCodeHash: qrCodeHash,
+      generatedAt: new Date(),
+      generatedBy: req.user?._id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent']
     });
     
     await result.save();
+    
+    console.log(`[API] ✅ Résultat enregistré: ${result._id} - ${studentInfo.firstName} ${studentInfo.lastName} - ${percentage}%`);
     
     res.status(201).json({ 
       success: true, 
@@ -1514,7 +1555,8 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         percentage: result.percentage,
         passed: result.passed,
         examTitle: result.examTitle,
-        totalQuestions: result.totalQuestions
+        totalQuestions: result.totalQuestions,
+        qrCodeHash: result.qrCodeHash
       },
       details: questionResults
     });
@@ -1546,11 +1588,59 @@ app.get('/api/results/my-results', protect, authorize('APPRENANT', 'ADMIN_SYSTEM
   }
 });
 
+// Dans server.js - Remplacer la route GET /api/results
+
 app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
-    const results = await Result.find({}).populate('examId', 'title domain subject level passingScore').sort({ createdAt: -1 });
+    const userRole = req.user.role;
+    const userId = req.user._id;
+    const { examId, startDate, endDate, status, search } = req.query;
+    
+    let filter = {};
+    
+    // Filtres communs
+    if (examId) filter.examId = examId;
+    if (status === 'passed') filter.passed = true;
+    if (status === 'failed') filter.passed = false;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+    
+    if (search) {
+      filter.$or = [
+        { 'studentInfo.firstName': { $regex: search, $options: 'i' } },
+        { 'studentInfo.lastName': { $regex: search, $options: 'i' } },
+        { 'studentInfo.matricule': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // ✅ Filtrage par rôle
+    if (userRole === 'ENSEIGNANT') {
+      // L'enseignant ne voit que les résultats de ses épreuves
+      const teacherExams = await Exam.find({ createdBy: userId }).select('_id');
+      const examIds = teacherExams.map(e => e._id);
+      filter.examId = { $in: examIds };
+      if (examId) filter.examId = examId;
+    } else if (userRole === 'OPERATEUR_EVALUATION') {
+      // L'opérateur voit les résultats des épreuves qu'il a supervisées
+      // (à implémenter selon votre logique de supervision)
+      filter = { ...filter };
+    }
+    // ADMIN_SYSTEME et ADMIN_DELEGUE voient tout
+    
+    const results = await Result.find(filter)
+      .populate('examId', 'title domain subject level passingScore examOption')
+      .populate('userId', 'name email matricule')
+      .sort({ createdAt: -1 });
+    
+    console.log(`[API] 📊 ${results.length} résultats trouvés pour ${userRole}`);
+    
     res.json({ success: true, data: results, count: results.length });
   } catch (err) { 
+    console.error('[API] Erreur GET /api/results:', err);
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
@@ -1923,11 +2013,49 @@ function escapeHtml(text) {
   });
 }
 
+// Dans server.js - Remplacer la route /api/bulletin/:resultId
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
-    const result = await Result.findById(req.params.resultId);
-    if (!result) return res.status(404).send('<h1>Résultat introuvable</h1>');
-    const exam = await Exam.findById(result.examId);
+    const result = await Result.findById(req.params.resultId).populate('examId');
+    if (!result) return res.status(404).send('<!DOCTYPE html><html><head><title>Erreur</title></head><body><h1>Résultat introuvable</h1></body></html>');
+    
+    const exam = result.examId;
+    
+    // ✅ Récupérer le token
+    let token = req.headers.authorization?.split(' ')[1];
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
+    
+    let user = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        user = await User.findById(decoded.id);
+      } catch(e) {
+        console.log('[Bulletin] Token invalide:', e.message);
+      }
+    }
+    
+    // ✅ Niveaux d'accès
+    const isAdmin = user && (user.role === 'ADMIN_SYSTEME' || user.role === 'ADMIN_DELEGUE');
+    const isOwner = result.userId?.toString() === user?._id?.toString();
+    const isStudent = result.studentInfo?.matricule === user?.matricule;
+    
+    // Si pas admin et pas propriétaire, accès restreint ou refusé
+    if (!isAdmin && !isOwner && !isStudent && user) {
+      return res.status(403).send('<!DOCTYPE html><html><head><title>Accès non autorisé</title></head><body><h1>Accès non autorisé</h1></body></html>');
+    }
+    
+    // ✅ Générer un hash unique pour le QR code
+    const crypto = await import('crypto');
+    const qrHash = crypto.createHash('sha256')
+      .update(`${result._id}${process.env.JWT_SECRET}${result.createdAt}`)
+      .digest('hex')
+      .substring(0, 16);
+    
+    // ✅ URL de vérification sécurisée
+    const verifyUrl = `${FRONTEND_URL}/verify/${qrHash}`;
     
     const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
     const answers = result.answers instanceof Map ? Object.fromEntries(result.answers) : result.answers || {};
@@ -1978,84 +2106,116 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
               <\/tr>`;
     });
     
-    const qrData = encodeURIComponent(`NA2QUIZ|ID:${result._id}|MAT:${result.studentInfo?.matricule||''}|SC:${result.score}/${totalPoints}|PCT:${result.percentage}%|DATE:${new Date(result.createdAt||Date.now()).toLocaleDateString('fr-FR')}`);
+    // ✅ QR code
+    const qrData = encodeURIComponent(`${verifyUrl}|ID:${result._id}|MAT:${result.studentInfo?.matricule||''}|PCT:${result.percentage}%`);
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}&bgcolor=ffffff&color=1e293b`;
-    const scoreDisplay = `${result.score} / ${totalPoints}`;
-    const correctDisplay = `${correctCount} bonne(s) réponse(s) sur ${questions.length}`;
-    const generatedAt = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Douala' });
     
+    // ✅ HTML avec DOCTYPE au tout début
     const html = `<!DOCTYPE html>
-    <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Bulletin NA²QUIZ — ${escapeHtml(result.studentInfo?.lastName||'Candidat')}</title>
-    <style>
-      *{margin:0;padding:0;box-sizing:border-box;}
-      body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:20px;}
-      .page{max-width:860px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.12);}
-      .header{background:linear-gradient(135deg,#0f172a,#1e293b);color:white;padding:24px 32px;display:flex;justify-content:space-between;align-items:center;}
-      .logo-block .logo{font-size:2.2rem;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#f59e0b,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent;}
-      .badge{padding:8px 20px;border-radius:999px;font-weight:700;font-size:0.9rem;border:2px solid;}
-      .badge.pass{background:rgba(16,185,129,.15);color:#10b981;border-color:#10b981;}
-      .badge.fail{background:rgba(239,68,68,.15);color:#ef4444;border-color:#ef4444;}
-      .qr-block{text-align:center;font-size:0.6rem;color:#94a3b8;}
-      .score-bar{background:linear-gradient(135deg,#3b82f6,#6366f1);padding:20px 32px;display:flex;justify-content:space-between;align-items:center;}
-      .score-pct{font-size:3rem;font-weight:900;color:white;line-height:1;}
-      .score-meta{text-align:right;color:rgba(255,255,255,.85);}
-      .score-meta .note{font-size:1.4rem;font-weight:700;color:white;}
-      .mention-badge{display:inline-block;background:rgba(255,255,255,.2);padding:4px 12px;border-radius:999px;font-size:0.75rem;margin-top:4px;}
-      .body{padding:24px 32px;}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
-      .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0;}
-      .card-lbl{font-size:0.65rem;text-transform:uppercase;color:#64748b;letter-spacing:.06em;margin-bottom:4px;}
-      .card-val{font-size:0.92rem;font-weight:600;color:#0f172a;}
-      .section-title{font-size:0.75rem;text-transform:uppercase;color:#64748b;letter-spacing:.08em;margin:16px 0 8px;font-weight:600;}
-      table{width:100%;border-collapse:collapse;font-size:0.82rem;}
-      thead tr{background:#0f172a;}
-      thead th{padding:10px 8px;text-align:left;color:white;font-weight:600;}
-      tbody tr:nth-child(even){background:#f8fafc;}
-      .footer{background:#0f172a;padding:14px 32px;display:flex;justify-content:space-between;align-items:center;}
-      .footer-text{font-size:0.65rem;color:#64748b;}
-      .btn{background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.85rem;margin-top:16px;}
-      .no-print{text-align:center;}
-      @media print{.no-print{display:none;}body{padding:0;}@page{size:A4;margin:10mm;}}
-    </style></head><body>
-    <div class="page">
-      <div class="header">
-        <div class="logo-block"><div class="logo">NA²QUIZ</div><div class="subtitle">Bulletin de Résultats Officiel</div></div>
-        <div class="badge ${result.passed?'pass':'fail'}">${result.passed?'✓ REÇU':'✗ AJOURNÉ'}</div>
-        <div class="qr-block"><img src="${qrUrl}" alt="QR Sécurité" width="80" height="80" style="border-radius:6px;border:2px solid #334155;"/><div style="margin-top:3px;">Vérif. sécurité</div></div>
-      </div>
-      <div class="score-bar">
-        <div><div class="score-pct">${result.percentage}%</div><div style="color:rgba(255,255,255,.8);font-size:0.8rem;margin-top:2px;">${correctDisplay}</div></div>
-        <div class="score-meta"><div class="note">Note : ${noteOn20} / 20</div><div class="mention-badge">${mention}</div><div style="font-size:0.75rem;margin-top:4px;">Score : ${scoreDisplay} pts</div></div>
-      </div>
-      <div class="body">
-        <div class="grid2">
-          <div class="card"><div class="card-lbl">Candidat</div><div class="card-val">${escapeHtml((result.studentInfo?.lastName||'').toUpperCase())} ${escapeHtml(result.studentInfo?.firstName||'')}</div></div>
-          <div class="card"><div class="card-lbl">Matricule</div><div class="card-val" style="font-family:monospace">${escapeHtml(result.studentInfo?.matricule||'—')}</div></div>
-          <div class="card"><div class="card-lbl">Épreuve</div><div class="card-val">${escapeHtml(result.examTitle||exam?.title||'—')}</div></div>
-          <div class="card"><div class="card-lbl">Niveau / Matière</div><div class="card-val">${escapeHtml(result.examLevel||'')} ${result.subject?'· '+escapeHtml(result.subject):''}</div></div>
-          <div class="card"><div class="card-lbl">Seuil de réussite</div><div class="card-val">${result.passingScore||70}%</div></div>
-          <div class="card"><div class="card-lbl">Date de composition</div><div class="card-val">${generatedAt}</div></div>
-        </div>
-        <div class="section-title">Détail des réponses</div>
-        <table><thead><tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Bonne réponse</th><th>Résultat</th><th>Pts</th></tr></thead><tbody>${rows}</tbody></table>
-        <div class="no-print"><button class="btn" onclick="window.print()">🖨️ Imprimer / Enregistrer PDF</button></div>
-      </div>
-      <div class="footer">
-        <div class="footer-text"><div>NA²QUIZ · Système d'Évaluation Numérique</div><div>Africanut Industry · Ebolowa, Cameroun</div></div>
-        <div class="footer-text" style="text-align:right;"><div>Réf. bulletin : ${result._id}</div><div>Généré le ${generatedAt}</div></div>
-      </div>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulletin NA²QUIZ — ${escapeHtml(result.studentInfo?.lastName||'Candidat')}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:20px;}
+    .page{max-width:860px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.12);}
+    .header{background:linear-gradient(135deg,#0f172a,#1e293b);color:white;padding:24px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+    .logo-block .logo{font-size:2.2rem;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#f59e0b,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent;}
+    .badge{padding:8px 20px;border-radius:999px;font-weight:700;font-size:0.9rem;border:2px solid;}
+    .badge.pass{background:rgba(16,185,129,.15);color:#10b981;border-color:#10b981;}
+    .badge.fail{background:rgba(239,68,68,.15);color:#ef4444;border-color:#ef4444;}
+    .qr-block{text-align:center;font-size:0.6rem;color:#94a3b8;}
+    .score-bar{background:linear-gradient(135deg,#3b82f6,#6366f1);padding:20px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+    .score-pct{font-size:3rem;font-weight:900;color:white;line-height:1;}
+    .score-meta{text-align:right;}
+    .score-meta .note{font-size:1.4rem;font-weight:700;color:white;}
+    .mention-badge{display:inline-block;background:rgba(255,255,255,.2);padding:4px 12px;border-radius:999px;font-size:0.75rem;margin-top:4px;}
+    .body{padding:24px 32px;}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+    .card{background:#f8fafc;border-radius:10px;padding:14px;border:1px solid #e2e8f0;}
+    .card-lbl{font-size:0.65rem;text-transform:uppercase;color:#64748b;letter-spacing:.06em;margin-bottom:4px;}
+    .card-val{font-size:0.92rem;font-weight:600;color:#0f172a;}
+    .section-title{font-size:0.75rem;text-transform:uppercase;color:#64748b;letter-spacing:.08em;margin:16px 0 8px;font-weight:600;}
+    table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+    thead tr{background:#0f172a;}
+    thead th{padding:10px 8px;text-align:left;color:white;font-weight:600;}
+    tbody tr:nth-child(even){background:#f8fafc;}
+    .footer{background:#0f172a;padding:14px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+    .footer-text{font-size:0.65rem;color:#64748b;}
+    .btn{background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.85rem;margin-top:16px;}
+    .no-print{text-align:center;}
+    .watermark{position:fixed;bottom:20px;right:20px;opacity:0.05;font-size:5rem;pointer-events:none;}
+    @media print{.no-print{display:none;}body{padding:0;}@page{size:A4;margin:10mm;}}
+  </style>
+</head>
+<body>
+<div class="watermark">NA²QUIZ</div>
+<div class="page">
+  <div class="header">
+    <div class="logo-block">
+      <div class="logo">NA²QUIZ</div>
+      <div class="subtitle">Bulletin de Résultats Officiel</div>
     </div>
-    </body></html>`;
+    <div class="badge ${result.passed?'pass':'fail'}">${result.passed?'✓ REÇU':'✗ AJOURNÉ'}</div>
+    <div class="qr-block">
+      <img src="${qrUrl}" alt="QR Sécurité" width="80" height="80" style="border-radius:6px;border:2px solid #334155;"/>
+      <div style="margin-top:3px;">Vérif. sécurité</div>
+    </div>
+  </div>
+  <div class="score-bar">
+    <div>
+      <div class="score-pct">${result.percentage}%</div>
+      <div style="color:rgba(255,255,255,.8);font-size:0.8rem;margin-top:2px;">${correctCount} bonne(s) réponse(s) sur ${questions.length}</div>
+    </div>
+    <div class="score-meta">
+      <div class="note">Note : ${noteOn20} / 20</div>
+      <div class="mention-badge">${mention}</div>
+      <div style="font-size:0.75rem;margin-top:4px;">Score : ${result.score} / ${totalPoints} pts</div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="grid2">
+      <div class="card"><div class="card-lbl">Candidat</div><div class="card-val">${escapeHtml((result.studentInfo?.lastName||'').toUpperCase())} ${escapeHtml(result.studentInfo?.firstName||'')}</div></div>
+      <div class="card"><div class="card-lbl">Matricule</div><div class="card-val" style="font-family:monospace">${escapeHtml(result.studentInfo?.matricule||'—')}</div></div>
+      <div class="card"><div class="card-lbl">Épreuve</div><div class="card-val">${escapeHtml(result.examTitle||exam?.title||'—')}</div></div>
+      <div class="card"><div class="card-lbl">Niveau / Matière</div><div class="card-val">${escapeHtml(result.examLevel||'')} ${result.subject?'· '+escapeHtml(result.subject):''}</div></div>
+      <div class="card"><div class="card-lbl">Seuil de réussite</div><div class="card-val">${result.passingScore||70}%</div></div>
+      <div class="card"><div class="card-lbl">Date de composition</div><div class="card-val">${new Date(result.createdAt).toLocaleString('fr-FR', { timeZone: 'Africa/Douala' })}</div></div>
+    </div>
+    <div class="section-title">Détail des réponses</div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Question</th><th>Votre réponse</th><th>Bonne réponse</th><th>Résultat</th><th>Pts</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="no-print">
+      <button class="btn" onclick="window.print()">🖨️ Imprimer / Enregistrer PDF</button>
+    </div>
+  </div>
+  <div class="footer">
+    <div class="footer-text">
+      <div>NA²QUIZ · Système d'Évaluation Numérique</div>
+      <div>Africanut Industry · Ebolowa, Cameroun</div>
+    </div>
+    <div class="footer-text" style="text-align:right;">
+      <div>Réf. bulletin : ${result._id}</div>
+      <div>Hash: ${qrHash}</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
     console.error('[API] Erreur bulletin:', err);
-    res.status(500).send('<h1>Erreur lors de la génération du bulletin</h1>');
+    res.status(500).send('<!DOCTYPE html><html><head><title>Erreur</title></head><body><h1>Erreur lors de la génération du bulletin</h1></body></html>');
   }
 });
-
 app.get('/api/bulletin/verify/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId).select('studentInfo score percentage passed examTitle createdAt');
@@ -2091,21 +2251,21 @@ const rateLimitSocket = (ip) => {
 // ✅ 1. CRÉER io D'ABORD
 const io = new Server(server, {
   cors: { 
-    origin: true, 
+    origin: 'http://localhost:3000',  // URL exacte du frontend
     credentials: true, 
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization']
   },
-  transports: ['websocket', 'polling'],
+  transports: ['polling'],  // 🔴 UNIQUEMENT polling
   pingTimeout: 60000,
   pingInterval: 25000,
   allowEIO3: true,
   cookie: false,
-  allowUpgrades: true,
+  allowUpgrades: false,  // 🔴 Désactiver les upgrades
   perMessageDeflate: false,
   maxHttpBufferSize: 1e6,
   path: '/socket.io/',
-  serveClient: true,   // ✅ CORRIGÉ: sert /socket.io/socket.io.js au terminal.html
+  serveClient: true,
   connectTimeout: 45000
 });
 

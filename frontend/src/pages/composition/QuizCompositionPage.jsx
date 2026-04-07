@@ -516,19 +516,13 @@ const QuizCompositionPage = () => {
         selectedQuestions
       });
 
-      const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
-        examId: examRef.current._id,
-        studentInfo: studentData,
-        answers: formattedAnswers,
-        config: {
-          openRange: configRef.current?.openRange || false,
-          requiredQuestions: configRef.current?.requiredQuestions || 0,
-          selectedQuestions: configRef.current?.openRange ? selectedQuestions : undefined
-        }
-      }, {
-        timeout: 10000,
-        ...axiosConfig
-      });
+      // Dans handleSubmitExam
+const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
+  examId: examRef.current._id,
+  studentInfo: studentData,
+  answers: formattedAnswers,
+  config: configRef.current
+}, { timeout: 10000, ...axiosConfig });
 
       const result = res.data?.data || res.data?.result;
       const correctionDetails = res.data?.details || null;

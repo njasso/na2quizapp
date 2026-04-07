@@ -421,24 +421,49 @@ const ReportsPage = () => {
   const load = useCallback(async () => {
   setLoading(true);
   try {
-    const [resResp, examResp] = await Promise.all([
-      api.get('/api/results'),
-      api.get('/api/exams'),
-    ]);
+    // Récupérer les résultats
+    const resResp = await api.get('/api/results');
+    console.log('📦 Réponse brute résultats:', resResp);
     
-    // ✅ Extraction robuste des résultats
+    // ✅ Extraction robuste - plusieurs structures possibles
     let r = [];
-    if (resResp?.data && Array.isArray(resResp.data)) {
+    
+    // Cas 1: response.data.data (structure axios typique)
+    if (resResp?.data?.data && Array.isArray(resResp.data.data)) {
+      r = resResp.data.data;
+      console.log('✅ Cas 1: resResp.data.data');
+    }
+    // Cas 2: response.data (tableau direct)
+    else if (resResp?.data && Array.isArray(resResp.data)) {
       r = resResp.data;
-    } else if (resResp?.results && Array.isArray(resResp.results)) {
+      console.log('✅ Cas 2: resResp.data');
+    }
+    // Cas 3: response.results
+    else if (resResp?.results && Array.isArray(resResp.results)) {
       r = resResp.results;
-    } else if (Array.isArray(resResp)) {
+      console.log('✅ Cas 3: resResp.results');
+    }
+    // Cas 4: response.data.success avec data
+    else if (resResp?.data?.success && resResp?.data?.data && Array.isArray(resResp.data.data)) {
+      r = resResp.data.data;
+      console.log('✅ Cas 4: resResp.data.success.data');
+    }
+    // Cas 5: response directement un tableau
+    else if (Array.isArray(resResp)) {
       r = resResp;
+      console.log('✅ Cas 5: resResp direct');
     }
     
-    // ✅ Extraction robuste des examens
+    console.log('📊 Résultats extraits:', r.length);
+    
+    // Récupérer les examens
+    const examResp = await api.get('/api/exams');
+    console.log('📦 Réponse brute examens:', examResp);
+    
     let e = [];
-    if (examResp?.data && Array.isArray(examResp.data)) {
+    if (examResp?.data?.data && Array.isArray(examResp.data.data)) {
+      e = examResp.data.data;
+    } else if (examResp?.data && Array.isArray(examResp.data)) {
       e = examResp.data;
     } else if (examResp?.exams && Array.isArray(examResp.exams)) {
       e = examResp.exams;
@@ -446,11 +471,17 @@ const ReportsPage = () => {
       e = examResp;
     }
     
-    console.log('📊 Résultats chargés:', r.length);
-    console.log('📚 Examens chargés:', e.length);
+    console.log('📚 Examens extraits:', e.length);
     
     setResults(r);
     setExams(e);
+    
+    if (r.length === 0) {
+      toast.info('Aucun résultat trouvé');
+    } else {
+      toast.success(`${r.length} résultat(s) chargé(s)`);
+    }
+    
   } catch (err) {
     console.error('❌ Erreur chargement:', err);
     toast.error('Erreur chargement : ' + err.message);
@@ -458,7 +489,6 @@ const ReportsPage = () => {
     setLoading(false);
   }
 }, []);
-
  useEffect(() => { 
   load(); 
 }, [load]);

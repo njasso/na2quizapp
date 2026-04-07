@@ -198,14 +198,14 @@ const SurveillancePage = () => {
 
     console.log('[Surveillance] 🔌 Connexion socket avec sessionId:', sessionId);
 
-   const socket = io(SOCKET_URL, { 
-  transports: ['websocket', 'polling'], // ✅ WebSocket d'abord, puis polling
+  const socket = io(SOCKET_URL, { 
+  transports: ['polling'],  // 🔴 Uniquement polling
   reconnection: true, 
-  reconnectionAttempts: 5,  // Réduit de 20 à 5
-  reconnectionDelay: 1000,
+  reconnectionAttempts: 3,  // 🔴 Réduire les tentatives
+  reconnectionDelay: 2000,
   reconnectionDelayMax: 5000,
-  timeout: 20000,
-  forceNew: false,
+  timeout: 30000,
+  forceNew: true,
   path: '/socket.io/'
 })
     socketRef.current = socket;
@@ -419,21 +419,33 @@ const fetchRankings = useCallback(async (examId) => {
   }
   setIsLoadingRankings(true);
   try {
-    // ✅ Utilisation de la fonction API qui gère automatiquement le token
+    console.log('[Rankings] 🔍 Chargement classement pour examId:', examId);
     const response = await getRankings(examId);
-    // La réponse peut être dans response.rankings ou response.data.rankings
-    const rankings = response?.rankings || response?.data?.rankings || [];
+    console.log('[Rankings] 📦 Réponse:', response);
+    
+    // ✅ Extraction correcte des rankings
+    let rankings = [];
+    if (response?.rankings && Array.isArray(response.rankings)) {
+      rankings = response.rankings;
+    } else if (response?.data?.rankings && Array.isArray(response.data.rankings)) {
+      rankings = response.data.rankings;
+    } else if (Array.isArray(response)) {
+      rankings = response;
+    }
+    
+    console.log('[Rankings] ✅ Classement chargé:', rankings.length, 'entrées');
     setRankingsData(rankings);
     
     if (rankings.length === 0) {
-      // ✅ Remplacer toast.info par toast.success ou toast.error
-      toast.success('Aucun résultat pour cette épreuve', { icon: 'ℹ️' });
+      toast.info('Aucun résultat pour cette épreuve', { icon: 'ℹ️' });
     }
   } catch (err) { 
-    console.error('[Rankings] Erreur:', err);
+    console.error('[Rankings] ❌ Erreur:', err);
     setRankingsData([]); 
     if (err.response?.status === 401) {
       toast.error('Session expirée, veuillez vous reconnecter');
+    } else if (err.response?.status === 404) {
+      toast.info('Aucun résultat pour cette épreuve');
     } else {
       toast.error('Impossible de charger le classement'); 
     }
@@ -441,6 +453,14 @@ const fetchRankings = useCallback(async (examId) => {
     setIsLoadingRankings(false); 
   }
 }, []);
+
+// ✅ Ajoutez ce useEffect pour charger automatiquement le classement
+// quand une épreuve est sélectionnée
+useEffect(() => {
+  if (rankingExamId) {
+    fetchRankings(rankingExamId);
+  }
+}, [rankingExamId, fetchRankings])
 
   // ── Impression classement ────────────────────────────────────
   const printRankings = useCallback(() => {

@@ -71,126 +71,144 @@ const MyResultsPage = () => {
   }, [results, searchTerm, filterExam, filterStatus, filterSubject, filterDomain, sortBy]);
 
   useEffect(() => {
-    const fetchResults = async () => {
-      if (authLoading) return;
-      
-      if (!isAuthenticated || !user) {
-        toast.error('Veuillez vous connecter');
-        navigate('/login');
-        return;
-      }
-      
-      // ✅ Vérifier que l'utilisateur est bien un apprenant
-      if (!isApprenant) {
-        console.log('⚠️ Utilisateur non apprenant, accès refusé');
-        setError('Cette page est réservée aux apprenants');
-        setLoading(false);
-        return;
-      }
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const token = localStorage.getItem('userToken');
-        console.log('🔍 Token présent:', !!token);
-        console.log('👤 Utilisateur:', user);
-        
-        if (!token) {
-          throw new Error('Token non trouvé');
-        }
-        
-        // ✅ DIRECTEMENT la route /api/results/student - PAS besoin de fallback
-        const response = await api.get('/api/results/student');
-        console.log('📦 Réponse /api/results/student:', response);
-        
-        // ✅ Extraction des données
-        let data = [];
-        if (response?.data && Array.isArray(response.data)) {
-          data = response.data;
-        } else if (response && Array.isArray(response)) {
-          data = response;
-        } else if (response?.results && Array.isArray(response.results)) {
-          data = response.results;
-        }
-        
-        console.log('📊 Données brutes extraites:', data.length);
-        
-        // ✅ Normaliser les résultats
-        const normalizedResults = data.map(r => ({
-          _id: r._id,
-          examId: r.examId,
-          examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
-          studentInfo: r.studentInfo || {
-            firstName: user?.name?.split(' ')[1] || '',
-            lastName: user?.name?.split(' ')[0] || '',
-            matricule: user?.matricule || ''
-          },
-          score: r.score || 0,
-          percentage: r.percentage || 0,
-          passed: r.passed || false,
-          totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
-          correctAnswers: r.questionDetails?.filter(q => q.isCorrect === true).length || 0,
-          createdAt: r.createdAt,
-          domain: r.domain || r.examId?.domain || '',
-          subject: r.matiere || r.subject || r.examId?.subject || '',
-          level: r.level || r.examId?.level || '',
-          examOption: r.examOption || '',
-          examQuestions: r.examQuestions || [],
-          answers: r.answers || {},
-          note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
-          dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
-            day: '2-digit', 
-            month: 'long', 
-            year: 'numeric' 
-          }) : 'Date inconnue'
-        }));
-        
-        console.log('✅ Résultats normalisés:', normalizedResults.length);
-        setResults(normalizedResults);
-        
-        // ✅ Calculer les statistiques
-        const passed = normalizedResults.filter(r => r.passed).length;
-        const scores = normalizedResults.map(r => r.percentage || 0);
-        const avgScore = normalizedResults.length > 0 
-          ? scores.reduce((a, b) => a + b, 0) / normalizedResults.length 
-          : 0;
-        const bestScore = normalizedResults.length > 0 ? Math.max(...scores) : 0;
-        const worstScore = normalizedResults.length > 0 ? Math.min(...scores) : 0;
-        
-        setStats({
-          total: normalizedResults.length,
-          passed,
-          avgScore: avgScore.toFixed(1),
-          bestScore,
-          worstScore
-        });
-        
-        if (normalizedResults.length === 0) {
-          toast('Aucun résultat trouvé', { icon: 'ℹ️' });
-        }
-        
-      } catch (error) {
-        console.error('❌ Erreur chargement résultats:', error);
-        
-        let errorMsg = "Erreur chargement des résultats";
-        if (error.response?.status === 401) {
-          errorMsg = "Session expirée. Veuillez vous reconnecter.";
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('userInfo');
-          setTimeout(() => navigate('/login'), 2000);
-        } else if (error.response?.status === 403) {
-          errorMsg = "Accès non autorisé. Rôle APPRENANT requis.";
-        } else if (error.message) {
-          errorMsg = error.message;
-        }
-        
-        setError(errorMsg);
-        toast.error(errorMsg);
-      } finally {
-        setLoading(false);
-      }
-    };
+   const fetchResults = async () => {
+  if (authLoading) return;
+  
+  if (!isAuthenticated || !user) {
+    toast.error('Veuillez vous connecter');
+    navigate('/login');
+    return;
+  }
+  
+  // ✅ Vérifier que l'utilisateur est bien un apprenant
+  if (!isApprenant) {
+    console.log('⚠️ Utilisateur non apprenant, accès refusé');
+    setError('Cette page est réservée aux apprenants');
+    setLoading(false);
+    return;
+  }
+  
+  setLoading(true);
+  setError(null);
+  
+  try {
+    const token = localStorage.getItem('userToken');
+    console.log('🔍 Token présent:', !!token);
+    console.log('👤 Utilisateur:', user);
+    
+    if (!token) {
+      throw new Error('Token non trouvé');
+    }
+    
+    const response = await api.get('/api/results/my-results');
+    console.log('📦 Réponse /api/results/my-results:', response);
+    
+    // ✅ CORRECTION: Extraction avec la bonne structure
+    let data = [];
+    
+    // Structure correcte: response.data.data
+    if (response?.data?.data && Array.isArray(response.data.data)) {
+      data = response.data.data;
+      console.log('✅ Cas 1: response.data.data,', data.length, 'éléments');
+    }
+    // Fallback: response.data
+    else if (response?.data && Array.isArray(response.data)) {
+      data = response.data;
+      console.log('✅ Cas 2: response.data,', data.length, 'éléments');
+    }
+    // Fallback: response.results
+    else if (response?.results && Array.isArray(response.results)) {
+      data = response.results;
+      console.log('✅ Cas 3: response.results,', data.length, 'éléments');
+    }
+    // Fallback: response direct
+    else if (Array.isArray(response)) {
+      data = response;
+      console.log('✅ Cas 4: response direct,', data.length, 'éléments');
+    }
+    
+    console.log('📊 Données brutes extraites:', data.length);
+    
+    // Afficher un exemple pour déboguer
+    if (data.length > 0) {
+      console.log('📝 Exemple de résultat:', data[0]);
+    }
+    
+    // ✅ Normaliser les résultats
+    const normalizedResults = data.map(r => ({
+      _id: r._id,
+      examId: r.examId,
+      examTitle: r.examTitle || r.examId?.title || 'Épreuve sans titre',
+      studentInfo: r.studentInfo || {
+        firstName: user?.name?.split(' ')[1] || '',
+        lastName: user?.name?.split(' ')[0] || '',
+        matricule: user?.matricule || ''
+      },
+      score: r.score || 0,
+      percentage: r.percentage || 0,
+      passed: r.passed || false,
+      totalQuestions: r.totalQuestions || r.examQuestions?.length || 0,
+      correctAnswers: r.questionDetails?.filter(q => q.isCorrect === true).length || 0,
+      createdAt: r.createdAt,
+      domain: r.domain || r.examId?.domain || '',
+      subject: r.matiere || r.subject || r.examId?.subject || '',
+      level: r.level || r.examId?.level || '',
+      examOption: r.examOption || '',
+      examQuestions: r.examQuestions || [],
+      answers: r.answers || {},
+      note20: ((r.percentage || 0) / 100 * 20).toFixed(2),
+      dateFormatted: r.createdAt ? new Date(r.createdAt).toLocaleDateString('fr-FR', { 
+        day: '2-digit', 
+        month: 'long', 
+        year: 'numeric' 
+      }) : 'Date inconnue'
+    }));
+    
+    console.log('✅ Résultats normalisés:', normalizedResults.length);
+    setResults(normalizedResults);
+    
+    // ✅ Calculer les statistiques
+    const passed = normalizedResults.filter(r => r.passed).length;
+    const scores = normalizedResults.map(r => r.percentage || 0);
+    const avgScore = normalizedResults.length > 0 
+      ? scores.reduce((a, b) => a + b, 0) / normalizedResults.length 
+      : 0;
+    const bestScore = normalizedResults.length > 0 ? Math.max(...scores) : 0;
+    const worstScore = normalizedResults.length > 0 ? Math.min(...scores) : 0;
+    
+    setStats({
+      total: normalizedResults.length,
+      passed,
+      avgScore: avgScore.toFixed(1),
+      bestScore,
+      worstScore
+    });
+    
+    if (normalizedResults.length === 0) {
+      toast('Aucun résultat trouvé', { icon: 'ℹ️' });
+    }
+    
+  } catch (error) {
+    console.error('❌ Erreur chargement résultats:', error);
+    
+    let errorMsg = "Erreur chargement des résultats";
+    if (error.response?.status === 401) {
+      errorMsg = "Session expirée. Veuillez vous reconnecter.";
+      localStorage.removeItem('userToken');
+      localStorage.removeItem('userInfo');
+      setTimeout(() => navigate('/login'), 2000);
+    } else if (error.response?.status === 403) {
+      errorMsg = "Accès non autorisé. Rôle APPRENANT requis.";
+    } else if (error.message) {
+      errorMsg = error.message;
+    }
+    
+    setError(errorMsg);
+    toast.error(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
     
     fetchResults();
   }, [user, isAuthenticated, authLoading, navigate, isApprenant]);
