@@ -1,4 +1,4 @@
-// src/pages/admin/ImportQuestions.jsx - Version avec validation des chapitres
+// src/pages/admin/ImportQuestions.jsx - Version avec validation des chapitres et compatibilité backend
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { saveQuestions } from '../../services/api';
 import toast from 'react-hot-toast';
+import DOMAIN_DATA from '../../data/domainConfig';
 
 const ImportQuestions = () => {
   const navigate = useNavigate();
@@ -48,6 +49,63 @@ const ImportQuestions = () => {
     );
   }
 
+  // ==================== FONCTIONS DE RECHERCHE DES IDs ====================
+  
+  const findDomainId = (domaineNom) => {
+    if (!domaineNom) return '';
+    const domain = Object.values(DOMAIN_DATA).find(d => 
+      d.nom?.toLowerCase() === domaineNom.toLowerCase() ||
+      d.code?.toLowerCase() === domaineNom.toLowerCase()
+    );
+    return domain ? String(domain.id) : '';
+  };
+
+  const findSousDomaineId = (domainId, sousDomaineNom) => {
+    if (!domainId || !sousDomaineNom) return '';
+    const domain = DOMAIN_DATA[domainId];
+    if (!domain) return '';
+    const sousDomaine = Object.values(domain.sousDomaines).find(sd => 
+      sd.nom?.toLowerCase() === sousDomaineNom.toLowerCase() ||
+      sd.code?.toLowerCase() === sousDomaineNom.toLowerCase()
+    );
+    return sousDomaine ? String(sousDomaine.id) : '';
+  };
+
+  const findLevelId = (domainId, sousDomaineId, levelNom) => {
+    if (!domainId || !sousDomaineId || !levelNom) return '';
+    const domain = DOMAIN_DATA[domainId];
+    if (!domain) return '';
+    const sousDomaine = domain.sousDomaines[sousDomaineId];
+    if (!sousDomaine || !sousDomaine.levels) return '';
+    const level = sousDomaine.levels.find(l => 
+      l.nom?.toLowerCase() === levelNom.toLowerCase()
+    );
+    return level ? String(level.id) : '';
+  };
+
+  const findMatiereId = (domainId, sousDomaineId, matiereNom) => {
+    if (!domainId || !sousDomaineId || !matiereNom) return '';
+    const domain = DOMAIN_DATA[domainId];
+    if (!domain) return '';
+    const sousDomaine = domain.sousDomaines[sousDomaineId];
+    if (!sousDomaine || !sousDomaine.matieres) return '';
+    const matiere = sousDomaine.matieres.find(m => 
+      m.nom?.toLowerCase() === matiereNom.toLowerCase() ||
+      m.code?.toLowerCase() === matiereNom.toLowerCase()
+    );
+    return matiere ? String(matiere.id) : '';
+  };
+
+  const getMatiereCode = (domainId, sousDomaineId, matiereId) => {
+    if (!domainId || !sousDomaineId || !matiereId) return '';
+    const domain = DOMAIN_DATA[domainId];
+    if (!domain) return '';
+    const sousDomaine = domain.sousDomaines[sousDomaineId];
+    if (!sousDomaine || !sousDomaine.matieres) return '';
+    const matiere = sousDomaine.matieres.find(m => String(m.id) === matiereId);
+    return matiere?.code || '';
+  };
+
   // Modèle de question (nouvelle structure avec chapitre)
   const questionTemplate = {
     // Référentiel
@@ -55,18 +113,18 @@ const ImportQuestions = () => {
     sousDomaine: "Secondaire Général",
     niveau: "3e",
     matiere: "Géographie",
-    libChapitre: "Chapitre 1: Introduction", // ✅ Ajout du chapitre
+    libChapitre: "Chapitre 1: Introduction",
     // Contenu
     libQuestion: "Question exemple ?",
     options: ["Option A", "Option B", "Option C", "Option D"],
     correctAnswer: "Option A",
-    bonOpRep: 0, // index de la bonne réponse (calculé automatiquement)
+    bonOpRep: 0,
     // Métadonnées
-    typeQuestion: 1, // 1 = unique, 2 = multiple
+    typeQuestion: 1,
     points: 1,
     explanation: "Explication de la réponse",
-    tempsMin: 1, // minutes
-    tempsMinParQuestion: 60, // secondes
+    tempsMin: 1,
+    tempsMinParQuestion: 60,
     difficulty: "moyen",
     tags: [],
     // Auteur
@@ -172,54 +230,32 @@ const ImportQuestions = () => {
   const validateQuestionData = (q, index) => {
     const errors = [];
     
-    // Validation du libellé
     if (!q.libQuestion || q.libQuestion.trim().length < 5) {
       errors.push('Libellé de question trop court (min 5 caractères)');
     }
-    
-    // Validation des options
     if (!q.options || q.options.length < 2) {
       errors.push('Au moins 2 options requises');
     }
-    
-    // Validation de la réponse correcte
     if (!q.correctAnswer) {
       errors.push('Réponse correcte manquante');
     } else if (q.options && !q.options.includes(q.correctAnswer)) {
       errors.push('La réponse correcte n\'existe pas dans les options');
     }
-    
-    // Validation de la matière
     if (!q.matiere || q.matiere.trim().length < 2) {
       errors.push('Matière requise (min 2 caractères)');
     }
-    
-    // Validation du niveau
     if (!q.niveau || q.niveau.trim().length < 1) {
       errors.push('Niveau requis');
     }
-    
-    // ✅ Validation du chapitre (optionnel mais recommandé)
-    if (q.libChapitre && q.libChapitre.length > 100) {
-      errors.push('Le nom du chapitre est trop long (max 100 caractères)');
-    }
-    
-    // Validation du domaine
     if (!q.domaine || q.domaine.trim().length < 2) {
       errors.push('Domaine requis');
     }
-    
-    // Validation des points
     if (q.points && (q.points < 0.5 || q.points > 10)) {
       errors.push('Les points doivent être entre 0.5 et 10');
     }
-    
-    // Validation du temps
     if (q.tempsMin && (q.tempsMin < 0.5 || q.tempsMin > 10)) {
       errors.push('Le temps doit être entre 0.5 et 10 minutes');
     }
-    
-    // Validation de la difficulté
     const validDifficulties = ['facile', 'moyen', 'difficile', 'très difficile'];
     if (q.difficulty && !validDifficulties.includes(q.difficulty.toLowerCase())) {
       errors.push(`Difficulté invalide. Utilisez: ${validDifficulties.join(', ')}`);
@@ -228,7 +264,7 @@ const ImportQuestions = () => {
     return errors;
   };
 
-  // Normaliser une question au format attendu par le backend
+  // ✅ Normaliser une question au format attendu par le backend (avec IDs)
   const normalizeQuestion = (q) => {
     // Calculer bonOpRep si correctAnswer est fourni
     let bonOpRep = q.bonOpRep;
@@ -236,7 +272,7 @@ const ImportQuestions = () => {
       bonOpRep = q.options.findIndex(opt => opt === q.correctAnswer);
     }
     
-    // Convertir typeQuestion (1 = unique, 2 = multiple)
+    // Convertir typeQuestion
     let typeQuestion = q.typeQuestion;
     if (typeQuestion === undefined) {
       if (q.type === 'multiple') typeQuestion = 2;
@@ -260,19 +296,38 @@ const ImportQuestions = () => {
       tempsMinParQuestion = 60;
     }
     
+    // ✅ Récupérer les IDs depuis DOMAIN_DATA
+    const domaineId = findDomainId(q.domaine);
+    const sousDomaineId = findSousDomaineId(domaineId, q.sousDomaine);
+    const niveauId = findLevelId(domaineId, sousDomaineId, q.niveau);
+    const matiereId = findMatiereId(domaineId, sousDomaineId, q.matiere);
+    
+    // Récupérer les codes
+    const domaineCode = DOMAIN_DATA[domaineId]?.code || '';
+    const sousDomaineCode = DOMAIN_DATA[domaineId]?.sousDomaines[sousDomaineId]?.code || '';
+    const matiereCode = getMatiereCode(domaineId, sousDomaineId, matiereId);
+    
     return {
-      // Référentiel
+      // ✅ Référentiel avec IDs (compatible avec le backend)
+      domaineId: domaineId,
       domaine: q.domaine || q.domain || '',
+      domaineCode: domaineCode,
+      sousDomaineId: sousDomaineId,
       sousDomaine: q.sousDomaine || q.subDomain || q.category || '',
+      sousDomaineCode: sousDomaineCode,
+      niveauId: niveauId,
       niveau: q.niveau || q.level || '',
+      matiereId: matiereId,
       matiere: q.matiere || q.subject || '',
-      // ✅ Ajout validation du chapitre
+      matiereCode: matiereCode,
       libChapitre: q.libChapitre || q.chapitre || q.chapter || '',
+      
       // Contenu
       libQuestion: q.libQuestion || q.question || q.text || '',
       options: Array.isArray(q.options) ? q.options : (q.options ? q.options.split('|') : []),
       correctAnswer: q.correctAnswer || q.answer || '',
-      bonOpRep: bonOpRep,
+      bonOpRep: bonOpRep >= 0 ? bonOpRep : 0,
+      
       // Métadonnées
       typeQuestion: typeQuestion,
       type: typeQuestion === 2 ? 'multiple' : 'single',
@@ -280,19 +335,18 @@ const ImportQuestions = () => {
       explanation: q.explanation || '',
       tempsMin: parseFloat(tempsMin) || 1,
       tempsMinParQuestion: parseInt(tempsMinParQuestion) || 60,
-      // ✅ Ajout niveau de difficulté par défaut
       difficulty: q.difficulty || 'moyen',
-      // ✅ Ajout validation des tags
       tags: Array.isArray(q.tags) ? q.tags : (q.tags ? q.tags.split(',').map(t => t.trim()) : []),
+      
       // Auteur
       matriculeAuteur: user?.matricule || user?.email || '',
-      status: 'pending' // en attente de validation
+      createdBy: user?._id,
+      status: 'pending'
     };
   };
 
-  // Lire le fichier CSV (nouvelle structure)
+  // Lire le fichier CSV
   const parseCSV = (text) => {
-    // Supprimer le BOM si présent
     if (text.charCodeAt(0) === 0xFEFF) {
       text = text.substring(1);
     }
@@ -300,14 +354,12 @@ const ImportQuestions = () => {
     const lines = text.split('\n').filter(line => line.trim());
     if (lines.length === 0) return [];
     
-    // Extraire les en-têtes
     const headers = lines[0].split(',').map(h => h.replace(/^["']|["']$/g, '').trim());
     
     const data = [];
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       
-      // Gérer les valeurs entre guillemets
       const values = [];
       let inQuote = false;
       let currentValue = '';
@@ -340,15 +392,8 @@ const ImportQuestions = () => {
           }
         });
         
-        // S'assurer que libQuestion est utilisé
-        if (obj.question && !obj.libQuestion) {
-          obj.libQuestion = obj.question;
-        }
-        
-        // S'assurer que libChapitre est utilisé
-        if (obj.chapitre && !obj.libChapitre) {
-          obj.libChapitre = obj.chapitre;
-        }
+        if (obj.question && !obj.libQuestion) obj.libQuestion = obj.question;
+        if (obj.chapitre && !obj.libChapitre) obj.libChapitre = obj.chapitre;
         
         data.push(obj);
       }
@@ -388,7 +433,7 @@ const ImportQuestions = () => {
         // Normaliser chaque question
         const normalizedData = rawData.map(q => normalizeQuestion(q));
         
-        // ✅ Valider les données et collecter les erreurs
+        // Valider les données
         const validationErrors = [];
         const validData = [];
         
@@ -401,31 +446,46 @@ const ImportQuestions = () => {
               errors
             });
           } else {
-            // Vérifier les champs obligatoires supplémentaires
-            const hasRequired = q.libQuestion && 
-                                q.options && q.options.length >= 2 && 
-                                q.correctAnswer && 
-                                q.matiere && 
-                                q.niveau && 
-                                q.domaine;
-            
-            if (hasRequired) {
-              validData.push(q);
-            } else {
+            // Vérifier les IDs
+            if (!q.domaineId) {
               validationErrors.push({
                 index: idx,
                 question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
-                errors: ['Champs obligatoires manquants (libQuestion, options, correctAnswer, matiere, niveau, domaine)']
+                errors: [`Domaine "${q.domaine}" non trouvé dans le référentiel`]
               });
+            } else if (!q.sousDomaineId) {
+              validationErrors.push({
+                index: idx,
+                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
+                errors: [`Sous-domaine "${q.sousDomaine}" non trouvé dans le référentiel`]
+              });
+            } else if (!q.niveauId) {
+              validationErrors.push({
+                index: idx,
+                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
+                errors: [`Niveau "${q.niveau}" non trouvé dans le référentiel`]
+              });
+            } else if (!q.matiereId) {
+              validationErrors.push({
+                index: idx,
+                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
+                errors: [`Matière "${q.matiere}" non trouvée dans le référentiel`]
+              });
+            } else {
+              validData.push(q);
             }
           }
         });
         
         if (validationErrors.length > 0) {
-          setInvalidQuestions(validationErrors);
-          console.warn('Questions invalides:', validationErrors);
-          toast.warning(`${validationErrors.length} question(s) ignorée(s)`, { duration: 5000 });
-        }
+  setInvalidQuestions(validationErrors);
+  console.warn('Questions invalides:', validationErrors);
+  // ✅ Remplacer toast.warning par toast (avec icône)
+  toast(`${validationErrors.length} question(s) ignorée(s)`, { 
+    duration: 5000,
+    icon: '⚠️'
+  });
+}
         
         if (validData.length === 0) {
           throw new Error('Aucune question valide trouvée. Vérifiez le format et les champs obligatoires.');
@@ -451,7 +511,6 @@ const ImportQuestions = () => {
     
     setImporting(true);
     try {
-      // Ajouter le matricule de l'auteur
       const questionsWithAuthor = previewData.map(q => ({
         ...q,
         matriculeAuteur: user?.matricule || user?.email || '',
@@ -485,11 +544,13 @@ const ImportQuestions = () => {
 
   // Vider la prévisualisation
   const clearPreview = () => {
-    setPreviewData([]);
-    setFile(null);
-    setInvalidQuestions([]);
-    toast.info('Liste vidée');
-  };
+  setPreviewData([]);
+  setFile(null);
+  setInvalidQuestions([]);
+  toast.success('Liste vidée');  // ✅ Option 1
+  // OU
+  toast('Liste vidée', { icon: '🗑️' });  // ✅ Option 2
+};
 
   // Obtenir l'affichage des options limité
   const getOptionsPreview = (options) => {
@@ -505,7 +566,6 @@ const ImportQuestions = () => {
       background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
       padding: '24px'
     }}>
-      {/* Grille de fond */}
       <div style={{
         position: 'fixed', inset: 0,
         backgroundImage: 'linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px)',
@@ -806,7 +866,6 @@ const ImportQuestions = () => {
                           {q.sousDomaine}
                         </span>
                       )}
-                      {/* ✅ Affichage du chapitre */}
                       {q.libChapitre && (
                         <span style={{
                           background: 'rgba(16,185,129,0.15)', color: '#10b981',
@@ -832,7 +891,6 @@ const ImportQuestions = () => {
                       }}>
                         {q.typeQuestion === 2 ? 'Multiple' : 'Unique'}
                       </span>
-                      {/* ✅ Affichage des tags */}
                       {q.tags && q.tags.length > 0 && (
                         <span style={{
                           background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
@@ -865,6 +923,13 @@ const ImportQuestions = () => {
                     <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: 6 }}>
                       {q.points} point{q.points > 1 ? 's' : ''} • {q.difficulty}
                     </div>
+                    
+                    {/* IDs (débogage) - affiché seulement en développement */}
+                    {process.env.NODE_ENV === 'development' && (
+                      <div style={{ fontSize: '0.6rem', color: '#475569', marginTop: 4, fontFamily: 'monospace' }}>
+                        IDs: {q.domaineId}/{q.sousDomaineId}/{q.niveauId}/{q.matiereId}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
