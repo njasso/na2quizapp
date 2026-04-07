@@ -198,15 +198,16 @@ const SurveillancePage = () => {
 
     console.log('[Surveillance] 🔌 Connexion socket avec sessionId:', sessionId);
 
-  const socket = io(SOCKET_URL, { 
-  transports: ['polling'],  // 🔴 Uniquement polling
+ const socket = io(SOCKET_URL, { 
+  transports: ['polling'],     // ✅ Uniquement polling
   reconnection: true, 
-  reconnectionAttempts: 3,  // 🔴 Réduire les tentatives
+  reconnectionAttempts: 10,    // ✅ Augmenter les tentatives
   reconnectionDelay: 2000,
-  reconnectionDelayMax: 5000,
-  timeout: 30000,
-  forceNew: true,
-  path: '/socket.io/'
+  reconnectionDelayMax: 10000,
+  timeout: 60000,              // ✅ Augmenter le timeout
+  forceNew: false,
+  path: '/socket.io/',
+  withCredentials: true        // ✅ Important pour CORS
 })
     socketRef.current = socket;
 

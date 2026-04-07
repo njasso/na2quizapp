@@ -2251,22 +2251,46 @@ const rateLimitSocket = (ip) => {
 // ✅ 1. CRÉER io D'ABORD
 const io = new Server(server, {
   cors: { 
-    origin: 'http://localhost:3000',  // URL exacte du frontend
+    origin: (origin, callback) => {
+      // ✅ Accepter toutes les origines nécessaires pour le polling
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'https://na2quizapp.netlify.app',
+        'https://na2quizapp.onrender.com'
+      ];
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      if (origin?.endsWith('.netlify.app')) {
+        return callback(null, true);
+      }
+      if (origin?.endsWith('.onrender.com')) {
+        return callback(null, true);
+      }
+      
+      // ⚠️ En production, on accepte quand même pour dépannage
+      console.warn(`[Socket] ⚠️ Origine non standard mais acceptée: ${origin}`);
+      callback(null, true);
+    },
     credentials: true, 
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
   },
-  transports: ['polling'],  // 🔴 UNIQUEMENT polling
+  transports: ['polling'],     // ✅ UNIQUEMENT polling
+  allowUpgrades: false,        // ✅ Désactiver les upgrades
   pingTimeout: 60000,
   pingInterval: 25000,
-  allowEIO3: true,
   cookie: false,
-  allowUpgrades: false,  // 🔴 Désactiver les upgrades
-  perMessageDeflate: false,
-  maxHttpBufferSize: 1e6,
   path: '/socket.io/',
   serveClient: true,
-  connectTimeout: 45000
+  connectTimeout: 45000,
+  allowEIO3: true,
+  perMessageDeflate: false,
+  maxHttpBufferSize: 1e6
 });
 
 // ✅ 2. ENSUITE AJOUTER LE MIDDLEWARE io.use()
