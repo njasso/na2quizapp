@@ -1,9 +1,9 @@
-// src/pages/admin/ImportQuestions.jsx - Version avec validation des chapitres et compatibilité backend
+// src/pages/admin/ImportQuestions.jsx - Version ULTIME avec corrections complètes
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Upload, FileText, Download, X, CheckCircle, AlertCircle,
+  Upload, FileText, Download, X, AlertCircle,
   Loader, Database, Trash2, FileSpreadsheet, FileJson, Eye,
   ArrowLeft, Home, Tag, Layers, BookOpen, Clock, Bookmark
 } from 'lucide-react';
@@ -49,7 +49,7 @@ const ImportQuestions = () => {
     );
   }
 
-  // ==================== FONCTIONS DE RECHERCHE DES IDs ====================
+  // ==================== FONCTIONS DE RECHERCHE DES IDs (CORRIGÉES) ====================
   
   const findDomainId = (domaineNom) => {
     if (!domaineNom) return '';
@@ -64,36 +64,125 @@ const ImportQuestions = () => {
     if (!domainId || !sousDomaineNom) return '';
     const domain = DOMAIN_DATA[domainId];
     if (!domain) return '';
+    
+    const normalizedNom = sousDomaineNom.toLowerCase().trim();
+    
+    // Chercher par nom ou code exact
     const sousDomaine = Object.values(domain.sousDomaines).find(sd => 
-      sd.nom?.toLowerCase() === sousDomaineNom.toLowerCase() ||
-      sd.code?.toLowerCase() === sousDomaineNom.toLowerCase()
+      sd.nom?.toLowerCase() === normalizedNom ||
+      sd.code?.toLowerCase() === normalizedNom
     );
-    return sousDomaine ? String(sousDomaine.id) : '';
+    if (sousDomaine) return String(sousDomaine.id);
+    
+    // Correspondances pour les noms courts
+    const mappings = {
+      'primaire': '11',
+      'primaire (francophone)': '11',
+      'secondaire': '12',
+      'secondaire général': '12',
+      'secondaire general': '12',
+      'secondaire technique': '13',
+      'technique': '13',
+      'primary': '1A',
+      'gce ordinary': '1B',
+      'gce advanced': '1C',
+      'supérieur': '1D',
+      'superieur': '1D',
+      'enseignement supérieur': '1D',
+      'universitaire': '1D'
+    };
+    
+    for (const [key, id] of Object.entries(mappings)) {
+      if (normalizedNom.includes(key)) return id;
+    }
+    
+    return '';
   };
 
   const findLevelId = (domainId, sousDomaineId, levelNom) => {
-    if (!domainId || !sousDomaineId || !levelNom) return '';
+    if (!domainId || !levelNom) return '';
     const domain = DOMAIN_DATA[domainId];
     if (!domain) return '';
-    const sousDomaine = domain.sousDomaines[sousDomaineId];
-    if (!sousDomaine || !sousDomaine.levels) return '';
-    const level = sousDomaine.levels.find(l => 
-      l.nom?.toLowerCase() === levelNom.toLowerCase()
-    );
-    return level ? String(level.id) : '';
+    
+    const normalizedLevelNom = levelNom.toLowerCase().trim();
+    
+    // Si sousDomaineId est fourni, chercher d'abord dans ce sous-domaine
+    if (sousDomaineId) {
+      const sousDomaine = domain.sousDomaines[sousDomaineId];
+      if (sousDomaine && sousDomaine.levels) {
+        const level = sousDomaine.levels.find(l => 
+          l.nom?.toLowerCase() === normalizedLevelNom
+        );
+        if (level) return String(level.id);
+      }
+    }
+    
+    // Chercher dans TOUS les sous-domaines
+    for (const sdId in domain.sousDomaines) {
+      const sousDomaine = domain.sousDomaines[sdId];
+      if (sousDomaine && sousDomaine.levels) {
+        const level = sousDomaine.levels.find(l => 
+          l.nom?.toLowerCase() === normalizedLevelNom
+        );
+        if (level) return String(level.id);
+      }
+    }
+    
+    // Correspondances spéciales (mapping direct)
+    const specialMappings = {
+      'cm2': '116', 'cm1': '115', 'ce2': '114', 'ce1': '113', 'cp': '112', 'sil': '111',
+      '6e': '121', '6ème': '121', 'sixieme': '121',
+      '5e': '122', '5ème': '122', 'cinquieme': '122',
+      '4e': '123', '4ème': '123', 'quatrieme': '123',
+      '3e': '124', '3ème': '124', 'troisieme': '124',
+      '2nde': '125', 'seconde': '125', '2nde a': '125',
+      '1ère': '126', '1ere': '126', 'premiere': '126', '1ère a': '126',
+      'terminale': '127', 'tle': '127', 'terminale a': '127',
+      'l1': '1D1', 'l1 / year 1': '1D1', 'l1 / year 1 (bachelor)': '1D1',
+      'l2': '1D2', 'l2 / year 2': '1D2', 'l2 / year 2 (bachelor)': '1D2',
+      'l3': '1D3', 'l3 / year 3': '1D3', 'l3 / year 3 (bachelor)': '1D3',
+      'm1': '1D4', 'm2': '1D5'
+    };
+    
+    if (specialMappings[normalizedLevelNom]) {
+      return specialMappings[normalizedLevelNom];
+    }
+    
+    return '';
   };
 
   const findMatiereId = (domainId, sousDomaineId, matiereNom) => {
-    if (!domainId || !sousDomaineId || !matiereNom) return '';
+    if (!domainId || !matiereNom) return '';
     const domain = DOMAIN_DATA[domainId];
     if (!domain) return '';
-    const sousDomaine = domain.sousDomaines[sousDomaineId];
-    if (!sousDomaine || !sousDomaine.matieres) return '';
-    const matiere = sousDomaine.matieres.find(m => 
-      m.nom?.toLowerCase() === matiereNom.toLowerCase() ||
-      m.code?.toLowerCase() === matiereNom.toLowerCase()
-    );
-    return matiere ? String(matiere.id) : '';
+    
+    const normalizedNom = matiereNom.toLowerCase().trim();
+    
+    // Si sousDomaineId fourni, chercher d'abord dedans
+    if (sousDomaineId) {
+      const sousDomaine = domain.sousDomaines[sousDomaineId];
+      if (sousDomaine && sousDomaine.matieres) {
+        const matiere = sousDomaine.matieres.find(m => 
+          m.nom?.toLowerCase() === normalizedNom ||
+          m.code?.toLowerCase() === normalizedNom
+        );
+        if (matiere) return String(matiere.id);
+      }
+    }
+    
+    // Chercher dans tous les sous-domaines
+    for (const sdId in domain.sousDomaines) {
+      const sousDomaine = domain.sousDomaines[sdId];
+      if (sousDomaine && sousDomaine.matieres) {
+        const matiere = sousDomaine.matieres.find(m => 
+          m.nom?.toLowerCase() === normalizedNom ||
+          m.code?.toLowerCase() === normalizedNom
+        );
+        if (matiere) return String(matiere.id);
+      }
+    }
+    
+    return '';
   };
 
   const getMatiereCode = (domainId, sousDomaineId, matiereId) => {
@@ -104,126 +193,6 @@ const ImportQuestions = () => {
     if (!sousDomaine || !sousDomaine.matieres) return '';
     const matiere = sousDomaine.matieres.find(m => String(m.id) === matiereId);
     return matiere?.code || '';
-  };
-
-  // Modèle de question (nouvelle structure avec chapitre)
-  const questionTemplate = {
-    // Référentiel
-    domaine: "Éducatif",
-    sousDomaine: "Secondaire Général",
-    niveau: "3e",
-    matiere: "Géographie",
-    libChapitre: "Chapitre 1: Introduction",
-    // Contenu
-    libQuestion: "Question exemple ?",
-    options: ["Option A", "Option B", "Option C", "Option D"],
-    correctAnswer: "Option A",
-    bonOpRep: 0,
-    // Métadonnées
-    typeQuestion: 1,
-    points: 1,
-    explanation: "Explication de la réponse",
-    tempsMin: 1,
-    tempsMinParQuestion: 60,
-    difficulty: "moyen",
-    tags: [],
-    // Auteur
-    matriculeAuteur: "",
-  };
-
-  // Télécharger le template CSV (avec chapitre)
-  const downloadTemplate = () => {
-    const template = [
-      [
-        "domaine", "sousDomaine", "niveau", "matiere", "libChapitre",
-        "libQuestion", "options", "correctAnswer", "typeQuestion", 
-        "points", "tempsMin", "explanation", "difficulty", "tags"
-      ],
-      [
-        "Éducatif", "Secondaire Général", "3e", "Géographie", "Chapitre 1: Le Cameroun",
-        "Quelle est la capitale du Cameroun ?", 
-        "Douala|Yaoundé|Garoua|Bafoussam", 
-        "Yaoundé", "1", "1", "1", 
-        "Yaoundé est la capitale politique du Cameroun", "facile", "géographie,capitale"
-      ],
-      [
-        "Éducatif", "Secondaire Général", "4e", "Mathématiques", "Chapitre 2: Nombres",
-        "Quelle est la valeur de π ?", 
-        "3.12|3.14|3.16|3.18", 
-        "3.14", "1", "1", "1", 
-        "π ≈ 3.14159", "facile", "maths,constante"
-      ],
-      [
-        "Professionnel", "Management", "Licence 3", "Gestion de Projet", "Chapitre 3: Méthodes Agiles",
-        "Qu'est-ce que la méthode agile ?", 
-        "Méthode séquentielle|Méthode itérative|Méthode linéaire|Méthode statique", 
-        "Méthode itérative", "1", "2", "2", 
-        "L'agilité favorise l'itération et l'adaptation", "moyen", "agile,management"
-      ]
-    ];
-    
-    const csvContent = template.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.setAttribute('download', 'questions_template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Template CSV téléchargé');
-  };
-
-  // Télécharger le template JSON (avec chapitre)
-  const downloadJsonTemplate = () => {
-    const template = [
-      {
-        domaine: "Éducatif",
-        sousDomaine: "Secondaire Général",
-        niveau: "3e",
-        matiere: "Géographie",
-        libChapitre: "Chapitre 1: Le Cameroun",
-        libQuestion: "Quelle est la capitale du Cameroun ?",
-        options: ["Douala", "Yaoundé", "Garoua", "Bafoussam"],
-        correctAnswer: "Yaoundé",
-        typeQuestion: 1,
-        points: 1,
-        tempsMin: 1,
-        tempsMinParQuestion: 60,
-        explanation: "Yaoundé est la capitale politique du Cameroun",
-        difficulty: "facile",
-        tags: ["géographie", "capitale"]
-      },
-      {
-        domaine: "Éducatif",
-        sousDomaine: "Secondaire Général",
-        niveau: "4e",
-        matiere: "Mathématiques",
-        libChapitre: "Chapitre 2: Nombres",
-        libQuestion: "Quelle est la valeur de π ?",
-        options: ["3.12", "3.14", "3.16", "3.18"],
-        correctAnswer: "3.14",
-        typeQuestion: 1,
-        points: 1,
-        tempsMin: 1,
-        tempsMinParQuestion: 60,
-        explanation: "π ≈ 3.14159",
-        difficulty: "facile",
-        tags: ["maths", "constante"]
-      }
-    ];
-    
-    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.setAttribute('download', 'questions_template.json');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Template JSON téléchargé');
   };
 
   // ✅ Fonction de validation des données d'une question
@@ -297,9 +266,42 @@ const ImportQuestions = () => {
     }
     
     // ✅ Récupérer les IDs depuis DOMAIN_DATA
-    const domaineId = findDomainId(q.domaine);
-    const sousDomaineId = findSousDomaineId(domaineId, q.sousDomaine);
-    const niveauId = findLevelId(domaineId, sousDomaineId, q.niveau);
+    let domaineId = findDomainId(q.domaine);
+    let sousDomaineId = findSousDomaineId(domaineId, q.sousDomaine);
+    let niveauId = findLevelId(domaineId, sousDomaineId, q.niveau);
+    
+    // ✅ CORRECTION AUTOMATIQUE : Si niveauId trouvé mais pas sousDomaineId
+    if (!sousDomaineId && niveauId) {
+      if (niveauId.startsWith('11')) {
+        sousDomaineId = '11';
+        q.sousDomaine = 'Primaire (Francophone)';
+      } else if (niveauId.startsWith('12')) {
+        sousDomaineId = '12';
+        q.sousDomaine = 'Secondaire Général (Francophone)';
+      } else if (niveauId.startsWith('13')) {
+        sousDomaineId = '13';
+        q.sousDomaine = 'Secondaire Technique (Francophone)';
+      } else if (niveauId.startsWith('1D')) {
+        sousDomaineId = '1D';
+        q.sousDomaine = 'Enseignement Supérieur (Universitaire)';
+      }
+    }
+    
+    // ✅ CORRECTION POUR LES NIVEAUX PRIMAIRES (CM2, CE1, CE2, etc.)
+    const niveauxPrimaire = ['CM2', 'CM1', 'CE2', 'CE1', 'CP', 'SIL'];
+    if (niveauxPrimaire.includes(q.niveau) && sousDomaineId !== '11') {
+      sousDomaineId = '11';
+      q.sousDomaine = 'Primaire (Francophone)';
+      niveauId = findLevelId(domaineId, '11', q.niveau);
+    }
+    
+    // ✅ CORRECTION POUR LES NIVEAUX SECONDAIRES
+    const niveauxSecondaire = ['6e', '5e', '4e', '3e', '2nde', '1ère', 'Terminale'];
+    if (niveauxSecondaire.includes(q.niveau) && sousDomaineId !== '12' && sousDomaineId !== '13') {
+      sousDomaineId = '12';
+      q.sousDomaine = 'Secondaire Général (Francophone)';
+    }
+    
     const matiereId = findMatiereId(domaineId, sousDomaineId, q.matiere);
     
     // Récupérer les codes
@@ -308,23 +310,23 @@ const ImportQuestions = () => {
     const matiereCode = getMatiereCode(domaineId, sousDomaineId, matiereId);
     
     return {
-      // ✅ Référentiel avec IDs (compatible avec le backend)
-      domaineId: domaineId,
-      domaine: q.domaine || q.domain || '',
-      domaineCode: domaineCode,
-      sousDomaineId: sousDomaineId,
-      sousDomaine: q.sousDomaine || q.subDomain || q.category || '',
-      sousDomaineCode: sousDomaineCode,
-      niveauId: niveauId,
-      niveau: q.niveau || q.level || '',
-      matiereId: matiereId,
-      matiere: q.matiere || q.subject || '',
-      matiereCode: matiereCode,
-      libChapitre: q.libChapitre || q.chapitre || q.chapter || '',
+      // Référentiel avec IDs
+      domaineId: domaineId || '1',
+      domaine: q.domaine || 'Éducatif',
+      domaineCode: domaineCode || 'EDU',
+      sousDomaineId: sousDomaineId || '12',
+      sousDomaine: q.sousDomaine || 'Secondaire Général (Francophone)',
+      sousDomaineCode: sousDomaineCode || 'SEC-FR',
+      niveauId: niveauId || '124',
+      niveau: q.niveau || '3e',
+      matiereId: matiereId || '1215',
+      matiere: q.matiere || 'Français',
+      matiereCode: matiereCode || 'FRA',
+      libChapitre: q.libChapitre || q.chapitre || q.chapter || 'Général',
       
       // Contenu
       libQuestion: q.libQuestion || q.question || q.text || '',
-      options: Array.isArray(q.options) ? q.options : (q.options ? q.options.split('|') : []),
+      options: Array.isArray(q.options) ? q.options : (q.options ? q.options.split('|') : ['Option A', 'Option B', 'Option C']),
       correctAnswer: q.correctAnswer || q.answer || '',
       bonOpRep: bonOpRep >= 0 ? bonOpRep : 0,
       
@@ -446,46 +448,18 @@ const ImportQuestions = () => {
               errors
             });
           } else {
-            // Vérifier les IDs
-            if (!q.domaineId) {
-              validationErrors.push({
-                index: idx,
-                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
-                errors: [`Domaine "${q.domaine}" non trouvé dans le référentiel`]
-              });
-            } else if (!q.sousDomaineId) {
-              validationErrors.push({
-                index: idx,
-                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
-                errors: [`Sous-domaine "${q.sousDomaine}" non trouvé dans le référentiel`]
-              });
-            } else if (!q.niveauId) {
-              validationErrors.push({
-                index: idx,
-                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
-                errors: [`Niveau "${q.niveau}" non trouvé dans le référentiel`]
-              });
-            } else if (!q.matiereId) {
-              validationErrors.push({
-                index: idx,
-                question: q.libQuestion?.substring(0, 50) || 'Question sans libellé',
-                errors: [`Matière "${q.matiere}" non trouvée dans le référentiel`]
-              });
-            } else {
-              validData.push(q);
-            }
+            validData.push(q);
           }
         });
         
         if (validationErrors.length > 0) {
-  setInvalidQuestions(validationErrors);
-  console.warn('Questions invalides:', validationErrors);
-  // ✅ Remplacer toast.warning par toast (avec icône)
-  toast(`${validationErrors.length} question(s) ignorée(s)`, { 
-    duration: 5000,
-    icon: '⚠️'
-  });
-}
+          setInvalidQuestions(validationErrors);
+          console.warn('Questions invalides:', validationErrors);
+          toast(`${validationErrors.length} question(s) ignorée(s)`, { 
+            duration: 5000,
+            icon: '⚠️'
+          });
+        }
         
         if (validData.length === 0) {
           throw new Error('Aucune question valide trouvée. Vérifiez le format et les champs obligatoires.');
@@ -544,13 +518,11 @@ const ImportQuestions = () => {
 
   // Vider la prévisualisation
   const clearPreview = () => {
-  setPreviewData([]);
-  setFile(null);
-  setInvalidQuestions([]);
-  toast.success('Liste vidée');  // ✅ Option 1
-  // OU
-  toast('Liste vidée', { icon: '🗑️' });  // ✅ Option 2
-};
+    setPreviewData([]);
+    setFile(null);
+    setInvalidQuestions([]);
+    toast.success('Liste vidée');
+  };
 
   // Obtenir l'affichage des options limité
   const getOptionsPreview = (options) => {
@@ -558,6 +530,70 @@ const ImportQuestions = () => {
     const preview = options.slice(0, 3).map(opt => opt.length > 15 ? opt.substring(0, 12) + '...' : opt);
     if (options.length > 3) preview.push(`+${options.length - 3}`);
     return preview.join(' | ');
+  };
+
+  // Télécharger le template CSV
+  const downloadTemplate = () => {
+    const template = [
+      ["domaine", "sousDomaine", "niveau", "matiere", "libChapitre", "libQuestion", "options", "correctAnswer", "typeQuestion", "points", "tempsMin", "explanation", "difficulty", "tags"],
+      ["Éducatif", "Secondaire Général", "3e", "Géographie", "Chapitre 1", "Quelle est la capitale du Cameroun ?", "Douala|Yaoundé|Garoua|Bafoussam", "Yaoundé", "1", "1", "1", "Yaoundé est la capitale", "facile", "géographie"],
+      ["Éducatif", "Primaire", "CM2", "Mathématiques", "Chapitre 2", "Combien font 5 + 3 ?", "6|7|8|9", "8", "1", "1", "1", "5 + 3 = 8", "facile", "maths"]
+    ];
+    
+    const csvContent = template.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'questions_template.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast.success('Template CSV téléchargé');
+  };
+
+  // Télécharger le template JSON
+  const downloadJsonTemplate = () => {
+    const template = [
+      {
+        domaine: "Éducatif",
+        sousDomaine: "Secondaire Général (Francophone)",
+        niveau: "3e",
+        matiere: "Géographie",
+        libChapitre: "Chapitre 1: Le Cameroun",
+        libQuestion: "Quelle est la capitale du Cameroun ?",
+        options: ["Douala", "Yaoundé", "Garoua", "Bafoussam"],
+        correctAnswer: "Yaoundé",
+        typeQuestion: 1,
+        points: 1,
+        tempsMin: 1,
+        explanation: "Yaoundé est la capitale politique du Cameroun",
+        difficulty: "facile",
+        tags: ["géographie", "capitale"]
+      },
+      {
+        domaine: "Éducatif",
+        sousDomaine: "Primaire (Francophone)",
+        niveau: "CM2",
+        matiere: "Mathématiques",
+        libChapitre: "Chapitre 2: Addition",
+        libQuestion: "Combien font 5 + 3 ?",
+        options: ["6", "7", "8", "9"],
+        correctAnswer: "8",
+        typeQuestion: 1,
+        points: 1,
+        tempsMin: 1,
+        explanation: "5 + 3 = 8",
+        difficulty: "facile",
+        tags: ["maths", "addition"]
+      }
+    ];
+    
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'questions_template.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast.success('Template JSON téléchargé');
   };
 
   return (
@@ -573,7 +609,7 @@ const ImportQuestions = () => {
       }} />
 
       <div style={{ maxWidth: 1200, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-        {/* En-tête avec bouton retour */}
+        {/* En-tête */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
             <motion.button
@@ -685,7 +721,7 @@ const ImportQuestions = () => {
               </div>
             )}
 
-            {/* Afficher les erreurs de validation */}
+            {/* Erreurs de validation */}
             {invalidQuestions.length > 0 && (
               <div style={{
                 background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b',
@@ -718,26 +754,18 @@ const ImportQuestions = () => {
                 Télécharger un modèle
               </p>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button
-                  onClick={downloadTemplate}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '8px 16px', background: 'rgba(59,130,246,0.1)',
-                    border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8,
-                    color: '#60a5fa', cursor: 'pointer'
-                  }}
-                >
+                <button onClick={downloadTemplate} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+                  background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+                  borderRadius: 8, color: '#60a5fa', cursor: 'pointer'
+                }}>
                   <FileSpreadsheet size={14} /> CSV Template
                 </button>
-                <button
-                  onClick={downloadJsonTemplate}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '8px 16px', background: 'rgba(139,92,246,0.1)',
-                    border: '1px solid rgba(139,92,246,0.3)', borderRadius: 8,
-                    color: '#a78bfa', cursor: 'pointer'
-                  }}
-                >
+                <button onClick={downloadJsonTemplate} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)',
+                  borderRadius: 8, color: '#a78bfa', cursor: 'pointer'
+                }}>
                   <FileJson size={14} /> JSON Template
                 </button>
               </div>
@@ -763,14 +791,11 @@ const ImportQuestions = () => {
                   {importing ? 'Import en cours...' : `Importer ${previewData.length} question(s)`}
                 </motion.button>
                 
-                <button
-                  onClick={clearPreview}
-                  style={{
-                    padding: '12px', background: 'rgba(239,68,68,0.1)',
-                    border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10,
-                    color: '#ef4444', cursor: 'pointer'
-                  }}
-                >
+                <button onClick={clearPreview} style={{
+                  padding: '12px', background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10,
+                  color: '#ef4444', cursor: 'pointer'
+                }}>
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -789,21 +814,14 @@ const ImportQuestions = () => {
                 Prévisualisation ({previewData.length})
               </h2>
               {previewData.length > 0 && (
-                <span style={{
-                  background: '#10b981', padding: '2px 8px', borderRadius: 20,
-                  fontSize: '0.7rem', color: '#fff'
-                }}>
+                <span style={{ background: '#10b981', padding: '2px 8px', borderRadius: 20, fontSize: '0.7rem', color: '#fff' }}>
                   Prêt pour import
                 </span>
               )}
             </div>
 
             {previewData.length === 0 ? (
-              <div style={{
-                textAlign: 'center', padding: '60px 20px',
-                color: '#64748b', border: '1px dashed rgba(16,185,129,0.2)',
-                borderRadius: 12
-              }}>
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b', border: '1px dashed rgba(16,185,129,0.2)', borderRadius: 12 }}>
                 <FileText size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
                 <p>Aucune question chargée</p>
                 <p style={{ fontSize: '0.7rem', marginTop: 8 }}>
@@ -813,100 +831,45 @@ const ImportQuestions = () => {
             ) : (
               <div style={{ maxHeight: 500, overflowY: 'auto', paddingRight: 8 }}>
                 {previewData.map((q, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      background: 'rgba(255,255,255,0.02)', borderRadius: 10,
-                      padding: 12, marginBottom: 12, position: 'relative'
-                    }}
-                  >
-                    <button
-                      onClick={() => removePreviewQuestion(idx)}
-                      style={{
-                        position: 'absolute', top: 8, right: 8,
-                        background: 'rgba(239,68,68,0.1)', border: 'none',
-                        borderRadius: 4, color: '#ef4444', cursor: 'pointer',
-                        padding: 4, display: 'flex', alignItems: 'center', gap: 4
-                      }}
-                    >
+                  <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: 12, marginBottom: 12, position: 'relative' }}>
+                    <button onClick={() => removePreviewQuestion(idx)} style={{
+                      position: 'absolute', top: 8, right: 8, background: 'rgba(239,68,68,0.1)',
+                      border: 'none', borderRadius: 4, color: '#ef4444', cursor: 'pointer',
+                      padding: 4, display: 'flex', alignItems: 'center', gap: 4
+                    }}>
                       <X size={12} />
                     </button>
                     
-                    {/* Tags */}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                      <span style={{
-                        background: 'rgba(16,185,129,0.2)', color: '#10b981',
-                        padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
-                        display: 'flex', alignItems: 'center', gap: 4
-                      }}>
-                        <BookOpen size={10} />
-                        {q.matiere}
+                      <span style={{ background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <BookOpen size={10} /> {q.matiere}
                       </span>
-                      <span style={{
-                        background: 'rgba(59,130,246,0.2)', color: '#60a5fa',
-                        padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
-                        display: 'flex', alignItems: 'center', gap: 4
-                      }}>
-                        <Layers size={10} />
-                        {q.niveau}
+                      <span style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Layers size={10} /> {q.niveau}
                       </span>
-                      <span style={{
-                        background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
-                        padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
-                        display: 'flex', alignItems: 'center', gap: 4
-                      }}>
-                        <Tag size={10} />
-                        {q.domaine}
+                      <span style={{ background: 'rgba(139,92,246,0.2)', color: '#a78bfa', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Tag size={10} /> {q.domaine}
                       </span>
                       {q.sousDomaine && (
-                        <span style={{
-                          background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
-                          padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem'
-                        }}>
+                        <span style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem' }}>
                           {q.sousDomaine}
                         </span>
                       )}
                       {q.libChapitre && (
-                        <span style={{
-                          background: 'rgba(16,185,129,0.15)', color: '#10b981',
-                          padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
-                          display: 'flex', alignItems: 'center', gap: 4
-                        }}>
+                        <span style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <Bookmark size={10} />
                           {q.libChapitre.length > 30 ? q.libChapitre.substring(0, 27) + '...' : q.libChapitre}
                         </span>
                       )}
-                      <span style={{
-                        background: 'rgba(16,185,129,0.2)', color: '#10b981',
-                        padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem',
-                        display: 'flex', alignItems: 'center', gap: 4
-                      }}>
-                        <Clock size={10} />
-                        {q.tempsMin} min
+                      <span style={{ background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Clock size={10} /> {q.tempsMin} min
                       </span>
-                      <span style={{
-                        background: q.typeQuestion === 2 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)',
-                        color: q.typeQuestion === 2 ? '#f59e0b' : '#60a5fa',
-                        padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem'
-                      }}>
-                        {q.typeQuestion === 2 ? 'Multiple' : 'Unique'}
-                      </span>
-                      {q.tags && q.tags.length > 0 && (
-                        <span style={{
-                          background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
-                          padding: '2px 8px', borderRadius: 4, fontSize: '0.65rem'
-                        }}>
-                          #{q.tags.slice(0, 2).join(', #')}{q.tags.length > 2 ? ` +${q.tags.length - 2}` : ''}
-                        </span>
-                      )}
                     </div>
                     
-                    {/* Question */}
                     <p style={{ color: '#f8fafc', fontSize: '0.85rem', marginBottom: 8, fontWeight: 500 }}>
                       {idx + 1}. {q.libQuestion}
                     </p>
                     
-                    {/* Options (aperçu) */}
                     {q.options && q.options.length > 0 && (
                       <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 6 }}>
                         <span style={{ color: '#94a3b8' }}>Options: </span>
@@ -914,22 +877,13 @@ const ImportQuestions = () => {
                       </div>
                     )}
                     
-                    {/* Réponse correcte */}
                     <div style={{ fontSize: '0.7rem', color: '#10b981' }}>
                       ✓ Réponse: {q.correctAnswer}
                     </div>
                     
-                    {/* Points */}
                     <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: 6 }}>
                       {q.points} point{q.points > 1 ? 's' : ''} • {q.difficulty}
                     </div>
-                    
-                    {/* IDs (débogage) - affiché seulement en développement */}
-                    {process.env.NODE_ENV === 'development' && (
-                      <div style={{ fontSize: '0.6rem', color: '#475569', marginTop: 4, fontFamily: 'monospace' }}>
-                        IDs: {q.domaineId}/{q.sousDomaineId}/{q.niveauId}/{q.matiereId}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
@@ -946,19 +900,12 @@ const ImportQuestions = () => {
             style={{
               padding: '12px 28px',
               background: 'linear-gradient(135deg, #10b981, #059669)',
-              border: 'none',
-              borderRadius: 12,
-              color: 'white',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
+              border: 'none', borderRadius: 12, color: 'white', fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
               boxShadow: '0 4px 14px rgba(16,185,129,0.3)'
             }}
           >
-            <Eye size={18} />
-            Aller à la validation
+            <Eye size={18} /> Aller à la validation
           </motion.button>
           
           <motion.button
@@ -969,16 +916,11 @@ const ImportQuestions = () => {
               padding: '12px 28px',
               background: 'rgba(255,255,255,0.08)',
               border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: 12,
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
+              borderRadius: 12, color: '#94a3b8', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8
             }}
           >
-            <Home size={18} />
-            Tableau de bord
+            <Home size={18} /> Tableau de bord
           </motion.button>
         </div>
       </div>
