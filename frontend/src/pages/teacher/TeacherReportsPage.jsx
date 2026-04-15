@@ -1,6 +1,6 @@
 // src/pages/teacher/TeacherReportsPage.jsx - Version CORRIGÉE
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';  // ✅ Correction: from manquant
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
 import {
@@ -72,140 +72,127 @@ const TeacherReportsPage = () => {
   };
 
   // ✅ RÉCUPÉRATION DES RÉSULTATS D'UN EXAMEN
- const fetchExamResults = async (examId) => {
-  setLoading(true);
-  setError(null);
-  try {
-    console.log('🔍 Récupération des résultats pour examen:', examId);
-    
-    const response = await api.get(`/api/results/exam/${examId}`);
-    
-    console.log('📦 Réponse brute:', response);
-    
-    let data = [];
-    
-    // ✅ CORRECTION: La structure correcte est response.data.data (double nesting)
-    // car api.js retourne déjà response.data, donc response.data.data est le tableau
-    if (response?.data?.data && Array.isArray(response.data.data)) {
-      data = response.data.data;
-      console.log('✅ Cas 1: response.data.data,', data.length, 'éléments');
-    }
-    // Fallback: response.data (tableau direct)
-    else if (response?.data && Array.isArray(response.data)) {
-      data = response.data;
-      console.log('✅ Cas 2: response.data,', data.length, 'éléments');
-    }
-    // Fallback: response.results
-    else if (response?.results && Array.isArray(response.results)) {
-      data = response.results;
-      console.log('✅ Cas 3: response.results,', data.length, 'éléments');
-    }
-    // Fallback: response.success avec data
-    else if (response?.success === true && response?.data && Array.isArray(response.data)) {
-      data = response.data;
-      console.log('✅ Cas 4: response.success.data,', data.length, 'éléments');
-    }
-    // Fallback: response direct
-    else if (Array.isArray(response)) {
-      data = response;
-      console.log('✅ Cas 5: response direct,', data.length, 'éléments');
-    }
-    
-    console.log('✅ Données extraites:', data.length, 'résultats');
-    
-    setResults(data);
-    setFilteredResults(data);
-    
-    if (data.length > 0) {
-      const passed = data.filter(r => r.passed).length;
-      const scores = data.map(r => r.percentage || 0);
-      const avgScore = scores.reduce((a, b) => a + b, 0) / data.length;
-      const bestScore = Math.max(...scores);
-      const worstScore = Math.min(...scores);
+  const fetchExamResults = async (examId) => {
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('🔍 Récupération des résultats pour examen:', examId);
       
-      setStats({
-        total: data.length,
-        passed,
-        avgScore: avgScore.toFixed(1),
-        bestScore,
-        worstScore
-      });
+      const response = await api.get(`/api/results/exam/${examId}`);
       
-      console.log('📊 Statistiques:', { total: data.length, passed, avgScore: avgScore.toFixed(1), bestScore, worstScore });
-    } else {
-      setStats({ total: 0, passed: 0, avgScore: 0, bestScore: 0, worstScore: 0 });
-      toast.info('Aucun résultat pour cette épreuve');
+      console.log('📦 Réponse brute:', response);
+      
+      let data = [];
+      
+      // ✅ CORRECTION: Gestion des différents formats de réponse
+      if (response?.data?.data && Array.isArray(response.data.data)) {
+        data = response.data.data;
+        console.log('✅ Cas 1: response.data.data,', data.length, 'éléments');
+      } else if (response?.data && Array.isArray(response.data)) {
+        data = response.data;
+        console.log('✅ Cas 2: response.data,', data.length, 'éléments');
+      } else if (response?.results && Array.isArray(response.results)) {
+        data = response.results;
+        console.log('✅ Cas 3: response.results,', data.length, 'éléments');
+      } else if (response?.success === true && response?.data && Array.isArray(response.data)) {
+        data = response.data;
+        console.log('✅ Cas 4: response.success.data,', data.length, 'éléments');
+      } else if (Array.isArray(response)) {
+        data = response;
+        console.log('✅ Cas 5: response direct,', data.length, 'éléments');
+      }
+      
+      console.log('✅ Données extraites:', data.length, 'résultats');
+      
+      setResults(data);
+      setFilteredResults(data);
+      
+      if (data.length > 0) {
+        const passed = data.filter(r => r.passed).length;
+        const scores = data.map(r => r.percentage || 0);
+        const avgScore = scores.reduce((a, b) => a + b, 0) / data.length;
+        const bestScore = Math.max(...scores);
+        const worstScore = Math.min(...scores);
+        
+        setStats({
+          total: data.length,
+          passed,
+          avgScore: avgScore.toFixed(1),
+          bestScore,
+          worstScore
+        });
+        
+        console.log('📊 Statistiques:', { total: data.length, passed, avgScore: avgScore.toFixed(1), bestScore, worstScore });
+      } else {
+        setStats({ total: 0, passed: 0, avgScore: 0, bestScore: 0, worstScore: 0 });
+        // ✅ Correction: toast() au lieu de toast.info()
+        toast('Aucun résultat pour cette épreuve', { icon: '📋' });
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur chargement résultats:', error);
+      let errorMsg = "Erreur chargement des résultats";
+      
+      if (error.response?.status === 401) {
+        errorMsg = "Session expirée. Veuillez vous reconnecter.";
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('userInfo');
+        setTimeout(() => navigate('/login'), 2000);
+      } else if (error.response?.status === 403) {
+        errorMsg = "Accès non autorisé. Vous n'êtes pas le propriétaire de cette épreuve.";
+      } else if (error.response?.status === 404) {
+        errorMsg = "Épreuve non trouvée";
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      setError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
     }
-    
-  } catch (error) {
-    console.error('❌ Erreur chargement résultats:', error);
-    let errorMsg = "Erreur chargement des résultats";
-    
-    if (error.response?.status === 401) {
-      errorMsg = "Session expirée. Veuillez vous reconnecter.";
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('userInfo');
-      setTimeout(() => navigate('/login'), 2000);
-    } else if (error.response?.status === 403) {
-      errorMsg = "Accès non autorisé. Vous n'êtes pas le propriétaire de cette épreuve.";
-    } else if (error.response?.status === 404) {
-      errorMsg = "Épreuve non trouvée";
-    } else if (error.message) {
-      errorMsg = error.message;
-    }
-    
-    setError(errorMsg);
-    toast.error(errorMsg);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // ✅ RÉCUPÉRATION DES ÉPREUVES DE L'ENSEIGNANT
   const fetchTeacherExams = async () => {
-  setLoading(true);
-  setError(null);
-  try {
-    console.log('🔍 Récupération des épreuves de l\'enseignant...');
-    console.log('👤 Utilisateur:', user?.name, 'Rôle:', user?.role);
-    
-    const response = await api.get('/api/exams/teacher');
-    
-    console.log('📦 Réponse épreuves:', response);
-    
-    let examsData = [];
-    
-    // ✅ CORRECTION: La structure est response.data.data (double nesting)
-    if (response?.data?.data && Array.isArray(response.data.data)) {
-      examsData = response.data.data;
-      console.log('✅ Cas 1: response.data.data');
-    }
-    // Fallback: response.data (si c'est un tableau)
-    else if (response?.data && Array.isArray(response.data)) {
-      examsData = response.data;
-      console.log('✅ Cas 2: response.data');
-    }
-    // Fallback: response.exams
-    else if (response?.exams && Array.isArray(response.exams)) {
-      examsData = response.exams;
-      console.log('✅ Cas 3: response.exams');
-    }
-    // Fallback: response direct
-    else if (Array.isArray(response)) {
-      examsData = response;
-      console.log('✅ Cas 4: response direct');
-    }
-    
-    console.log('✅ Épreuves extraites:', examsData.length);
-    setExams(examsData);
-    
-    if (examsData.length === 0) {
-      toast('Aucune épreuve trouvée', { icon: 'ℹ️' });
-    } else {
-      toast.success(`${examsData.length} épreuve(s) trouvée(s)`);
-    }
-  } catch (error) {
-    console.error('❌ Erreur chargement épreuves:', error);
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('🔍 Récupération des épreuves de l\'enseignant...');
+      console.log('👤 Utilisateur:', user?.name, 'Rôle:', user?.role);
+      
+      const response = await api.get('/api/exams/teacher');
+      
+      console.log('📦 Réponse épreuves:', response);
+      
+      let examsData = [];
+      
+      // ✅ CORRECTION: Gestion des différents formats de réponse
+      if (response?.data?.data && Array.isArray(response.data.data)) {
+        examsData = response.data.data;
+        console.log('✅ Cas 1: response.data.data');
+      } else if (response?.data && Array.isArray(response.data)) {
+        examsData = response.data;
+        console.log('✅ Cas 2: response.data');
+      } else if (response?.exams && Array.isArray(response.exams)) {
+        examsData = response.exams;
+        console.log('✅ Cas 3: response.exams');
+      } else if (Array.isArray(response)) {
+        examsData = response;
+        console.log('✅ Cas 4: response direct');
+      }
+      
+      console.log('✅ Épreuves extraites:', examsData.length);
+      setExams(examsData);
+      
+      if (examsData.length === 0) {
+        // ✅ Correction: toast() au lieu de toast.info()
+        toast('Aucune épreuve trouvée. Créez votre première épreuve !', { icon: '📝' });
+      } else {
+        toast.success(`${examsData.length} épreuve(s) trouvée(s)`);
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement épreuves:', error);
       
       let errorMsg = "Erreur chargement des épreuves";
       if (error.response?.status === 401) {
@@ -267,7 +254,6 @@ const TeacherReportsPage = () => {
       setTimeout(() => navigate('/evaluate'), 2000);
       return;
     }
-    
     fetchTeacherExams();
   }, [user, isAuthenticated, authLoading, navigate]);
 
@@ -327,7 +313,7 @@ const TeacherReportsPage = () => {
     );
   }
 
-  return (
+   return (
     <div style={{
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
