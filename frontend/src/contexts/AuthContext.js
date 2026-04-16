@@ -1,6 +1,8 @@
-// src/contexts/AuthContext.jsx
+// src/contexts/AuthContext.jsx - VERSION ULTIME
+// Support complet: localhost, IP réseau (192.168.x.x), production (Render)
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api from '../services/api';
+import api, { updateApiBaseUrl } from '../services/api';
+import ENV_CONFIG from '../config/env';
 
 const AuthContext = createContext();
 
@@ -16,67 +18,158 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [backendStatus, setBackendStatus] = useState('checking'); // checking, online, offline
 
-  // Vérifier et rafraîchir le token (optionnel)
-  const refreshToken = useCallback(async () => {
+  // ✅ Vérifier la connexion au backend
+  const checkBackendConnection = useCallback(async () => {
     try {
-      const response = await api.get('/api/auth/me');
-      if (response && response.data) {
-        const refreshedUser = {
-          ...response.data,
-          token: localStorage.getItem('userToken')
-        };
-        setUser(refreshedUser);
-        localStorage.setItem('userInfo', JSON.stringify(refreshedUser));
+      updateApiBaseUrl();
+      const backendUrl = api.defaults.baseURL;
+      console.log('[AuthContext] 🔍 Vérification backend:', backendUrl);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${backendUrl}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        console.log('[AuthContext] ✅ Backend accessible');
+        setBackendStatus('online');
         return true;
+      } else {
+        throw new Error(`HTTP ${response.status}`);
       }
     } catch (err) {
-      console.warn('⚠️ Rafraîchissement token échoué:', err.message);
+      console.warn('[AuthContext] ❌ Backend inaccessible:', err.message);
+      setBackendStatus('offline');
       return false;
     }
   }, []);
 
-  // Charger la session au démarrage
-  useEffect(() => {
-    const token = localStorage.getItem('userToken') || localStorage.getItem('token');
-    const stored = localStorage.getItem('userInfo') || localStorage.getItem('userData');
-
-    console.log('🔐 AuthContext - Chargement initial:');
-    console.log('   Token présent:', !!token);
-    console.log('   UserInfo présent:', !!stored);
-
-    if (token && stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // S'assurer que le token est bien stocké
-        const userWithToken = { ...parsed, token };
-        setUser(userWithToken);
-        console.log('   ✅ Utilisateur chargé:', parsed.email, 'Rôle:', parsed.role, 'ID:', parsed._id || parsed.id);
-        
-        // Optionnel: vérifier que le token est toujours valide
-        refreshToken().catch(() => {
-          console.warn('⚠️ Token invalide ou expiré');
-        });
-      } catch (e) {
-        console.error('   ❌ Erreur parsing userInfo:', e);
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('token');
-        localStorage.removeItem('userInfo');
-        localStorage.removeItem('userData');
+  // ✅ Rafraîchir le token avec mise à jour dynamique de l'URL
+  const refreshToken = useCallback(async () => {
+    try {
+      // Forcer la mise à jour de l'URL avant l'appel
+      updateApiBaseUrl();
+      
+      console.log('[AuthContext] 🔄 Rafraîchissement token vers:', api.defaults.baseURL);
+      const response = await api.get('/api/auth/me');
+      
+      if (response && response.data) {
+        const refreshedUser = {
+          ...response.data,
+          token: localStorage.getItem('userToken') || localStorage.getItem('token')
+        };
+        setUser(refreshedUser);
+        localStorage.setItem('userInfo', JSON.stringify(refreshedUser));
+        localStorage.setItem('userData', JSON.stringify(refreshedUser));
+        console.log('[AuthContext] ✅ Token rafraîchi avec succès');
+        return true;
       }
-    } else {
-      console.log('   ℹ️ Aucune session trouvée');
+    } catch (err) {
+      console.warn('[AuthContext] ⚠️ Rafraîchissement token échoué:', err.message);
+      
+      // Si erreur réseau, essayer de récupérer l'IP via network-info
+      if (err.message === 'Network Error') {
+        try {
+          const currentHostname = window.location.hostname;
+          const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+          
+          if (isLocalNetwork) {
+            const networkInfoUrl = `http://${currentHostname}:5000/api/network-info`;
+            console.log('[AuthContext] 🔍 Tentative de récupération network-info:', networkInfoUrl);
+            
+            const netRes = await fetch(networkInfoUrl);
+            if (netRes.ok) {
+              const netData = await netRes.json();
+              if (netData.recommended?.backend) {
+                console.log('[AuthContext] ✅ Backend détecté:', netData.recommended.backend);
+                api.defaults.baseURL = netData.recommended.backend;
+                localStorage.setItem('customBackendUrl', netData.recommended.backend);
+                
+                // Réessayer une fois
+                const retryResponse = await api.get('/api/auth/me');
+                if (retryResponse && retryResponse.data) {
+                  const refreshedUser = {
+                    ...retryResponse.data,
+                    token: localStorage.getItem('userToken')
+                  };
+                  setUser(refreshedUser);
+                  localStorage.setItem('userInfo', JSON.stringify(refreshedUser));
+                  return true;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AuthContext] ⚠️ Récupération network-info échouée:', e.message);
+        }
+      }
+      
+      return false;
     }
-    setLoading(false);
-  }, [refreshToken]);
+  }, []);
 
-  // Écouter les changements de localStorage (déconnexion multi-onglets)
+  // ✅ Charger la session au démarrage
+  useEffect(() => {
+    const initAuth = async () => {
+      // Mettre à jour l'URL avant tout
+      updateApiBaseUrl();
+      
+      // Vérifier la connexion backend
+      await checkBackendConnection();
+      
+      const token = localStorage.getItem('userToken') || localStorage.getItem('token');
+      const stored = localStorage.getItem('userInfo') || localStorage.getItem('userData');
+
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('🔐 AuthContext - Chargement initial:');
+      console.log(`   🌍 Environnement: ${ENV_CONFIG.environment}`);
+      console.log(`   🖥️  Hostname: ${ENV_CONFIG.currentHostname}`);
+      console.log(`   🔗 Backend URL: ${api.defaults.baseURL}`);
+      console.log(`   🔑 Token présent: ${!!token}`);
+      console.log(`   👤 UserInfo présent: ${!!stored}`);
+      console.log('═══════════════════════════════════════════════════════════');
+
+      if (token && stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const userWithToken = { ...parsed, token };
+          setUser(userWithToken);
+          console.log(`   ✅ Utilisateur chargé: ${parsed.email} | Rôle: ${parsed.role}`);
+          
+          // Rafraîchir le token en arrière-plan
+          refreshToken().catch(() => {
+            console.warn('⚠️ Token invalide ou expiré');
+          });
+        } catch (e) {
+          console.error('   ❌ Erreur parsing userInfo:', e);
+          localStorage.removeItem('userToken');
+          localStorage.removeItem('token');
+          localStorage.removeItem('userInfo');
+          localStorage.removeItem('userData');
+        }
+      } else {
+        console.log('   ℹ️ Aucune session trouvée');
+      }
+      setLoading(false);
+    };
+
+    initAuth();
+  }, [refreshToken, checkBackendConnection]);
+
+  // ✅ Écouter les changements de localStorage (déconnexion multi-onglets)
   useEffect(() => {
     const syncAuth = (event) => {
-      // Vérifier si c'est un changement concernant l'authentification
       if (event.key === 'userToken' || event.key === 'token' || 
           event.key === 'userInfo' || event.key === 'userData') {
-        console.log('🔐 Sync Auth - Changement détecté:', event.key);
+        console.log('[AuthContext] 🔄 Sync Auth - Changement détecté:', event.key);
         
         const token = localStorage.getItem('userToken') || localStorage.getItem('token');
         const stored = localStorage.getItem('userInfo') || localStorage.getItem('userData');
@@ -97,17 +190,15 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('storage', syncAuth);
   }, []);
 
-  // Intercepter les 401 pour déconnecter automatiquement
+  // ✅ Intercepter les 401 pour déconnecter automatiquement
   useEffect(() => {
     const interceptor = api.interceptors.response.use(
       (response) => response,
       (err) => {
-        // Ne pas déconnecter pour les requêtes d'authentification
         const isAuthRequest = err.config?.url?.includes('/api/auth/');
         
         if (err.response?.status === 401 && !isAuthRequest) {
-          console.warn('🔐 Token invalide ou expiré → déconnexion auto');
-          // Éviter les boucles infinies
+          console.warn('[AuthContext] 🔐 Token invalide ou expiré → déconnexion auto');
           if (user) {
             logout();
           }
@@ -119,15 +210,19 @@ export const AuthProvider = ({ children }) => {
     return () => api.interceptors.response.eject(interceptor);
   }, [user]);
 
-  const login = useCallback((userData, token) => {
-    console.log('🔐 AuthContext - Login:', userData.email || userData.username);
+  // ✅ Login avec détection automatique de l'environnement
+  const login = useCallback(async (userData, token) => {
+    console.log('[AuthContext] 🔐 Tentative de login:', userData.email || userData.username);
     
-    // ✅ Support des deux formats de données avec _id et id
+    // Mettre à jour l'URL avant le login
+    updateApiBaseUrl();
+    console.log('[AuthContext] 📡 Backend cible:', api.defaults.baseURL);
+    
     const userId = userData._id || userData.id;
     
     const userInfo = {
-      _id: userId,           // ✅ AJOUTÉ - pour TeacherQuestionsPage
-      id: userId,            // Gardé pour compatibilité
+      _id: userId,
+      id: userId,
       email: userData.email,
       username: userData.username,
       name: userData.name,
@@ -138,12 +233,14 @@ export const AuthProvider = ({ children }) => {
       isAdmin: userData.isAdmin
     };
     
-    console.log('🔐 UserInfo sauvegardé:', userInfo);
-    console.log('🔐 User ID disponible:', userInfo._id);
-    
     const authToken = token || userData.token;
     
-    // Stockage dans les deux formats pour compatibilité
+    // ✅ Stocker l'URL backend utilisée pour cette session
+    const currentBackendUrl = api.defaults.baseURL;
+    if (currentBackendUrl && !currentBackendUrl.includes('localhost')) {
+      localStorage.setItem('customBackendUrl', currentBackendUrl);
+    }
+    
     localStorage.setItem('userToken', authToken);
     localStorage.setItem('token', authToken);
     localStorage.setItem('userInfo', JSON.stringify(userInfo));
@@ -152,42 +249,52 @@ export const AuthProvider = ({ children }) => {
     setUser({ ...userInfo, token: authToken });
     setError(null);
     
+    console.log('[AuthContext] ✅ Login réussi - Rôle:', userInfo.role);
+    console.log('[AuthContext] 📍 Backend utilisé:', currentBackendUrl);
+    
     return userInfo;
   }, []);
 
+  // ✅ Logout avec nettoyage complet
   const logout = useCallback(() => {
-    console.log('🔐 AuthContext - Logout');
+    console.log('[AuthContext] 🔐 Déconnexion');
     
-    // Appeler l'API de déconnexion si nécessaire
     try {
       api.post('/api/auth/logout').catch(() => {});
     } catch (err) {
-      // Ignorer les erreurs
+      // Ignorer
     }
     
-    // Nettoyer le localStorage (tous les formats)
+    // ✅ Ne pas supprimer customBackendUrl pour garder la configuration
     localStorage.removeItem('userToken');
     localStorage.removeItem('token');
+    localStorage.removeItem('authToken');
     localStorage.removeItem('userInfo');
     localStorage.removeItem('userData');
     
     setUser(null);
     setError(null);
+    
+    // Rediriger vers login
+    if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+      window.location.href = '/login';
+    }
   }, []);
 
+  // ✅ Vérifier les rôles
   const hasRole = useCallback((roles) => {
     if (!user) return false;
     const userRole = user.role;
     return Array.isArray(roles) ? roles.includes(userRole) : userRole === roles;
   }, [user]);
 
-  const isAuthenticated = !!user && !!(localStorage.getItem('userToken') || localStorage.getItem('token'));
-  
-  const isTeacher = hasRole(['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'OPERATEUR_EVALUATION']);
-  const isStudent = hasRole('APPRENANT');
-  const isAdmin = hasRole(['ADMIN_SYSTEME', 'ADMIN_DELEGUE']);
+  const hasAnyRole = useCallback((...roles) => {
+    if (!user) return false;
+    const userRole = user.role;
+    return roles.flat().includes(userRole);
+  }, [user]);
 
-  // Mettre à jour les infos utilisateur (après modification du profil)
+  // ✅ Mettre à jour l'utilisateur
   const updateUser = useCallback((updatedData) => {
     if (!user) return;
     
@@ -199,23 +306,41 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('userData', JSON.stringify({ ...storedInfo, ...updatedData }));
   }, [user]);
 
-  // Vérifier la validité du token
+  // ✅ Vérifier le token
   const verifyToken = useCallback(async () => {
     if (!user?.token) return false;
     try {
+      updateApiBaseUrl();
       const response = await api.get('/api/auth/me');
       return !!response?.data;
     } catch (err) {
-      console.warn('Token verification failed:', err.message);
+      console.warn('[AuthContext] Token verification failed:', err.message);
       return false;
     }
   }, [user?.token]);
+
+  // ✅ Récupérer le token
+  const getToken = useCallback(() => {
+    return user?.token 
+      || localStorage.getItem('userToken') 
+      || localStorage.getItem('token')
+      || localStorage.getItem('authToken');
+  }, [user]);
+
+  // ✅ Helpers de rôles
+  const isAuthenticated = !!user && !!getToken();
+  const isTeacher = hasRole(['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']);
+  const isStudent = hasRole('APPRENANT');
+  const isAdmin = hasRole(['ADMIN_SYSTEME', 'ADMIN_DELEGUE']);
+  const isOperator = hasRole('OPERATEUR_EVALUATION');
+  const isSaisisseur = hasRole('SAISISEUR');
 
   const value = {
     // État
     user,
     loading,
     error,
+    backendStatus,
     
     // Actions
     login,
@@ -223,17 +348,21 @@ export const AuthProvider = ({ children }) => {
     updateUser,
     verifyToken,
     refreshToken,
+    checkBackendConnection,
     
     // Vérifications
     hasRole,
+    hasAnyRole,
     isAuthenticated,
     isTeacher,
     isStudent,
     isAdmin,
+    isOperator,
+    isSaisisseur,
     
     // Helpers
     getUser: () => user,
-    getToken: () => user?.token || localStorage.getItem('userToken') || localStorage.getItem('token'),
+    getToken,
   };
 
   return (
@@ -243,7 +372,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Hook personnalisé avec vérification d'authentification (pour routes protégées)
+// ✅ Hook pour routes protégées
 export const useRequireAuth = (redirectTo = '/login') => {
   const { isAuthenticated, loading } = useAuth();
   const [shouldRedirect, setShouldRedirect] = useState(false);
@@ -257,7 +386,7 @@ export const useRequireAuth = (redirectTo = '/login') => {
   return { isAuthenticated, loading, shouldRedirect, redirectTo };
 };
 
-// Hook pour les rôles
+// ✅ Hook pour les rôles
 export const useRequireRole = (allowedRoles, redirectTo = '/unauthorized') => {
   const { user, loading, hasRole } = useAuth();
   const [isAllowed, setIsAllowed] = useState(false);

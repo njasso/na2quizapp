@@ -1,29 +1,51 @@
-// src/pages/auth/LoginPage.jsx - Version corrigée pour SAISISEUR
-import React, { useState } from 'react';
+// src/pages/auth/LoginPage.jsx - Version COMPLÈTE CORRIGÉE
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-import { Lock, Mail, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, Loader2, ArrowRight, Eye, EyeOff, Wifi, WifiOff, Server, CheckCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-// ==================== CONFIGURATION DYNAMIQUE ====================
-const getBackendUrl = () => {
-  if (process.env.NODE_ENV === 'production') {
-    const renderUrl = process.env.REACT_APP_BACKEND_URL;
-    if (renderUrl) return renderUrl;
-    return '';
-  }
-  
-  if (process.env.NODE_ENV === 'development') {
-    return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-  }
-  
-  return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-};
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATION DYNAMIQUE - DÉTECTION AUTO DE L'IP
+// ═══════════════════════════════════════════════════════════════
+const SERVER_PORT = 5000;
+const currentHostname = window.location.hostname;
 
-const BACKEND_URL = getBackendUrl();
-console.log('[LoginPage] 🌐 Backend URL:', BACKEND_URL || '/api (relatif)');
+// Détection du type d'environnement
+const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
+const isLocalIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(currentHostname) && 
+                  (currentHostname.startsWith('192.168.') || 
+                   currentHostname.startsWith('10.') || 
+                   currentHostname.startsWith('172.'));
+
+// Construction de l'URL backend
+const getBackendUrl = () => {
+  // 1. URL personnalisée stockée par l'utilisateur
+  const savedUrl = localStorage.getItem('customBackendUrl');
+  if (savedUrl) {
+    console.log('[LoginPage] 📡 Backend personnalisé:', savedUrl);
+    return savedUrl;
+  }
+  
+  // 2. Détection automatique basée sur l'URL courante
+  if (isLocalIP) {
+    const url = `http://${currentHostname}:${SERVER_PORT}`;
+    console.log('[LoginPage] 📡 Backend auto-détecté (IP locale):', url);
+    return url;
+  }
+  
+  if (isLocalhost) {
+    const url = `http://localhost:${SERVER_PORT}`;
+    console.log('[LoginPage] 📡 Backend auto-détecté (localhost):', url);
+    return url;
+  }
+  
+  // 3. Production (Render)
+  console.log('[LoginPage] 📡 Backend production');
+  return 'https://na2quizapp.onrender.com';
+};
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -31,19 +53,167 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [backendStatus, setBackendStatus] = useState('checking'); // checking, online, offline
+  const [backendUrl, setBackendUrl] = useState(getBackendUrl());
+  const [showSettings, setShowSettings] = useState(false);
+  const [customIp, setCustomIp] = useState('');
+  const [networkInfo, setNetworkInfo] = useState(null);
+  const [availableIps, setAvailableIps] = useState([]);
+  
   const navigate = useNavigate();
   const { login } = useAuth();
 
+  // ═══════════════════════════════════════════════════════════════
+  // 1. VÉRIFICATION DE LA CONNEXION BACKEND
+  // ═══════════════════════════════════════════════════════════════
+  const checkBackend = async (url) => {
+    const testUrl = url || backendUrl;
+    console.log('[LoginPage] 🔍 Vérification backend:', testUrl);
+    setBackendStatus('checking');
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${testUrl}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        console.log('[LoginPage] ✅ Backend accessible');
+        setBackendStatus('online');
+        return true;
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (err) {
+      console.warn('[LoginPage] ❌ Backend inaccessible:', err.message);
+      setBackendStatus('offline');
+      return false;
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 2. RÉCUPÉRATION DES INFOS RÉSEAU DEPUIS LE SERVEUR
+  // ═══════════════════════════════════════════════════════════════
+  const fetchNetworkInfo = async () => {
+    try {
+      const response = await fetch(`${backendUrl}/api/network-info`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[LoginPage] 🌐 Infos réseau reçues:', data);
+        setNetworkInfo(data);
+        
+        // Extraire les IPs disponibles
+        if (data.localIPs && data.localIPs.length > 0) {
+          const ips = data.localIPs.map(ip => ({
+            ip: ip.ip,
+            interface: ip.interface,
+            url: ip.backendUrl || `http://${ip.ip}:${SERVER_PORT}`
+          }));
+          setAvailableIps(ips);
+        }
+        return data;
+      } else {
+        console.warn('[LoginPage] ⚠️ /api/network-info retourne', response.status);
+      }
+    } catch (err) {
+      console.warn('[LoginPage] ⚠️ Impossible de récupérer les infos réseau:', err.message);
+    }
+    return null;
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 3. INITIALISATION AU CHARGEMENT
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const init = async () => {
+      const isOnline = await checkBackend();
+      if (isOnline) {
+        await fetchNetworkInfo();
+      }
+    };
+    init();
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 4. CHANGEMENT MANUEL DE L'URL BACKEND
+  // ═══════════════════════════════════════════════════════════════
+  const handleSetCustomBackend = async () => {
+    if (!customIp.trim()) return;
+    
+    let newUrl = customIp;
+    if (!newUrl.startsWith('http')) {
+      newUrl = `http://${newUrl}:${SERVER_PORT}`;
+    }
+    
+    setBackendUrl(newUrl);
+    localStorage.setItem('customBackendUrl', newUrl);
+    
+    const isOnline = await checkBackend(newUrl);
+    if (isOnline) {
+      toast.success(`Connecté à ${newUrl}`);
+      await fetchNetworkInfo();
+    } else {
+      toast.error(`Impossible de joindre ${newUrl}`);
+    }
+    
+    setShowSettings(false);
+    setCustomIp('');
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 5. UTILISER UNE IP DÉTECTÉE AUTOMATIQUEMENT
+  // ═══════════════════════════════════════════════════════════════
+  const handleUseAutoIp = async (ipUrl) => {
+    setBackendUrl(ipUrl);
+    localStorage.setItem('customBackendUrl', ipUrl);
+    
+    const isOnline = await checkBackend(ipUrl);
+    if (isOnline) {
+      toast.success(`Connecté à ${ipUrl}`);
+      await fetchNetworkInfo();
+    } else {
+      toast.error(`Impossible de joindre ${ipUrl}`);
+    }
+    
+    setShowSettings(false);
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 6. RÉINITIALISER À LA DÉTECTION AUTO
+  // ═══════════════════════════════════════════════════════════════
+  const handleResetToAuto = async () => {
+    const autoUrl = getBackendUrl();
+    setBackendUrl(autoUrl);
+    localStorage.removeItem('customBackendUrl');
+    
+    const isOnline = await checkBackend(autoUrl);
+    if (isOnline) {
+      toast.success(`Retour à la détection automatique: ${autoUrl}`);
+      await fetchNetworkInfo();
+    } else {
+      toast.error(`Le backend automatique ${autoUrl} est inaccessible`);
+    }
+    
+    setShowSettings(false);
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 7. LOGIN
+  // ═══════════════════════════════════════════════════════════════
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     
+    const apiUrl = `${backendUrl}/api/auth/login`;
+    
     try {
-      const apiUrl = BACKEND_URL 
-        ? `${BACKEND_URL}/api/auth/login`
-        : '/api/auth/login';
-      
       console.log('[LoginPage] 📡 Appel API:', apiUrl);
       console.log('[LoginPage] 📧 Email:', email);
       
@@ -65,9 +235,10 @@ const LoginPage = () => {
         throw new Error('Token manquant dans la réponse.');
       }
       
-      // ✅ Stockage correct des données utilisateur
+      // Stockage des données utilisateur
       const userData = {
         _id: data._id || data.id,
+        id: data._id || data.id,
         email: data.email,
         username: data.username || data.email,
         role: data.role || 'APPRENANT',
@@ -80,59 +251,55 @@ const LoginPage = () => {
       console.log('[LoginPage] ✅ Utilisateur connecté:', userData.email);
       console.log('[LoginPage] 🎭 Rôle final:', userData.role);
       
-      // Appel au contexte d'authentification
+      // Sauvegarder l'URL backend utilisée
+      if (backendUrl !== getBackendUrl()) {
+        localStorage.setItem('customBackendUrl', backendUrl);
+      }
+      
       login(userData, data.token);
       
-      // ✅ Attendre que le contexte soit mis à jour
       setTimeout(() => {
-        // Notification de bienvenue
         toast.success(`Bienvenue ${userData.name || userData.email || '!'}`);
         
-        // ✅ REDIRECTION BASÉE SUR LE RÔLE
-        if (userData.role === 'APPRENANT') {
-          console.log('[LoginPage] Redirection vers /available-exams');
-          navigate('/available-exams', { replace: true });
-        } else if (userData.role === 'SAISISEUR') {
-          console.log('[LoginPage] Redirection vers /evaluate (SAISISEUR)');
-          navigate('/evaluate', { replace: true });
-        } else if (userData.role === 'ENSEIGNANT') {
-          console.log('[LoginPage] Redirection vers /evaluate (ENSEIGNANT)');
-          navigate('/evaluate', { replace: true });
-        } else if (userData.role === 'ADMIN_DELEGUE') {
-          console.log('[LoginPage] Redirection vers /evaluate (ADMIN_DELEGUE)');
-          navigate('/evaluate', { replace: true });
-        } else {
-          console.log('[LoginPage] Redirection par défaut vers /evaluate');
-          navigate('/evaluate', { replace: true });
+        // Redirection basée sur le rôle
+        switch (userData.role) {
+          case 'APPRENANT':
+            navigate('/available-exams', { replace: true });
+            break;
+          case 'OPERATEUR_EVALUATION':
+            navigate('/surveillance', { replace: true });
+            break;
+          case 'ENSEIGNANT':
+          case 'SAISISEUR':
+            navigate('/evaluate', { replace: true });
+            break;
+          case 'ADMIN_DELEGUE':
+          case 'ADMIN_SYSTEME':
+            navigate('/admin', { replace: true });
+            break;
+          default:
+            navigate('/evaluate', { replace: true });
+            break;
         }
       }, 100);
       
     } catch (err) {
       console.error('[LoginPage] ❌ Erreur:', err);
       
-      if (err.response) {
-        const status = err.response.status;
-        const message = err.response.data?.message || err.response.data?.error || 'Erreur de connexion';
-        
-        if (status === 401) {
-          setError('Email ou mot de passe incorrect');
-        } else if (status === 404) {
-          setError('Serveur indisponible. Veuillez réessayer plus tard.');
-        } else {
-          setError(message);
-        }
-      } else if (err.code === 'ECONNABORTED') {
-        setError('Le serveur ne répond pas. Vérifiez votre connexion.');
-      } else if (err.message === 'Network Error') {
-        setError('Impossible de joindre le serveur. Vérifiez votre connexion internet.');
+      if (err.response?.status === 401) {
+        setError('Email ou mot de passe incorrect');
+      } else if (err.code === 'ECONNABORTED' || err.message === 'Network Error') {
+        setError(`Impossible de joindre le serveur à ${apiUrl}. Vérifiez que le backend est démarré sur le port ${SERVER_PORT}.`);
+        setBackendStatus('offline');
       } else {
-        setError(err.message || 'Une erreur est survenue');
+        setError(err.response?.data?.message || err.message || 'Erreur de connexion');
       }
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Styles (inchangés)
   const fieldStyle = {
     width: '100%',
     background: 'rgba(5,7,26,0.8)',
@@ -159,6 +326,7 @@ const LoginPage = () => {
       position: 'relative',
       overflow: 'hidden',
     }}>
+      {/* Fond avec grille */}
       <div style={{
         position: 'fixed',
         inset: 0,
@@ -167,6 +335,7 @@ const LoginPage = () => {
         pointerEvents: 'none',
       }} />
       
+      {/* Glow radial */}
       <div style={{
         position: 'fixed',
         top: '-20%',
@@ -178,6 +347,174 @@ const LoginPage = () => {
         pointerEvents: 'none',
       }} />
 
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* INDICATEUR DE STATUT BACKEND */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <div style={{
+        position: 'fixed',
+        top: '16px',
+        right: '16px',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(8px)',
+        padding: '6px 12px',
+        borderRadius: '20px',
+        fontSize: '0.7rem',
+        cursor: 'pointer',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }} onClick={() => setShowSettings(!showSettings)}>
+        {backendStatus === 'online' && <Wifi size={12} color="#22c55e" />}
+        {backendStatus === 'offline' && <WifiOff size={12} color="#ef4444" />}
+        {backendStatus === 'checking' && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+        <Server size={12} color="#64748b" />
+        <span style={{ color: '#94a3b8', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {backendUrl.replace('http://', '').replace(':5000', '')}
+        </span>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* PANEL DE CONFIGURATION BACKEND */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            style={{
+              position: 'fixed',
+              top: '70px',
+              right: '16px',
+              background: 'rgba(15,23,42,0.98)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(59,130,246,0.25)',
+              borderRadius: '16px',
+              padding: '16px',
+              zIndex: 100,
+              minWidth: '280px',
+              maxWidth: '320px',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <Server size={14} color="#60a5fa" />
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#e2e8f0' }}>
+                Configuration du backend
+              </span>
+            </div>
+            
+            {/* IPs automatiquement détectées */}
+            {availableIps.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '0.6rem', color: '#64748b', marginBottom: '6px' }}>
+                  📡 Serveurs détectés sur le réseau :
+                </div>
+                {availableIps.map((ip, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleUseAutoIp(ip.url)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 10px',
+                      background: backendUrl === ip.url ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${backendUrl === ip.url ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.05)'}`,
+                      borderRadius: '8px',
+                      marginBottom: '4px',
+                      fontSize: '0.7rem',
+                      color: backendUrl === ip.url ? '#60a5fa' : '#94a3b8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>{ip.ip}</span>
+                    <span style={{ fontSize: '0.55rem', color: '#475569' }}>{ip.interface}</span>
+                    {backendUrl === ip.url && <CheckCircle size={10} color="#22c55e" />}
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            {/* Saisie manuelle */}
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '0.6rem', color: '#64748b', marginBottom: '6px' }}>
+                ✏️ Saisir une IP manuellement :
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  value={customIp}
+                  onChange={(e) => setCustomIp(e.target.value)}
+                  placeholder="ex: 192.168.1.100"
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid rgba(59,130,246,0.3)',
+                    borderRadius: '8px',
+                    color: '#e2e8f0',
+                    fontSize: '0.7rem',
+                  }}
+                />
+                <button
+                  onClick={handleSetCustomBackend}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#3b82f6',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: 'white',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+            
+            {/* Bouton reset */}
+            <button
+              onClick={handleResetToAuto}
+              style={{
+                width: '100%',
+                padding: '6px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '8px',
+                color: '#94a3b8',
+                fontSize: '0.65rem',
+                cursor: 'pointer',
+                marginBottom: '10px',
+              }}
+            >
+              🔄 Réinitialiser à la détection automatique
+            </button>
+            
+            {/* Status actuel */}
+            <div style={{
+              fontSize: '0.55rem',
+              color: backendStatus === 'online' ? '#22c55e' : (backendStatus === 'offline' ? '#ef4444' : '#f59e0b'),
+              textAlign: 'center',
+              paddingTop: '8px',
+              borderTop: '1px solid rgba(255,255,255,0.05)',
+            }}>
+              {backendStatus === 'online' && '✅ Serveur accessible'}
+              {backendStatus === 'offline' && '❌ Serveur inaccessible'}
+              {backendStatus === 'checking' && '⏳ Vérification...'}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* FORMULAIRE DE CONNEXION */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -253,6 +590,49 @@ const LoginPage = () => {
           boxShadow: '0 8px 48px rgba(0,0,0,0.5)',
           padding: '36px',
         }}>
+          {/* Message d'alerte si backend offline */}
+          {backendStatus === 'offline' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              style={{
+                marginBottom: '20px',
+                padding: '12px',
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <AlertCircle size={16} color="#ef4444" />
+              <span style={{ fontSize: '0.75rem', color: '#fca5a5' }}>
+                Serveur backend inaccessible. Cliquez sur l'icône en haut à droite pour configurer l'IP.
+              </span>
+            </motion.div>
+          )}
+
+          {/* Message d'info réseau local */}
+          {isLocalIP && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{
+                marginBottom: '20px',
+                padding: '8px 12px',
+                background: 'rgba(59,130,246,0.1)',
+                border: '1px solid rgba(59,130,246,0.2)',
+                borderRadius: '10px',
+                fontSize: '0.7rem',
+                color: '#60a5fa',
+                textAlign: 'center',
+              }}
+            >
+              🌐 Connexion depuis le réseau local ({currentHostname})
+            </motion.div>
+          )}
+
           <AnimatePresence>
             {error && (
               <motion.div
@@ -384,25 +764,27 @@ const LoginPage = () => {
 
             <motion.button
               type="submit"
-              disabled={isLoading}
-              whileHover={{ scale: isLoading ? 1 : 1.02 }}
-              whileTap={{ scale: isLoading ? 1 : 0.98 }}
+              disabled={isLoading || backendStatus === 'offline'}
+              whileHover={{ scale: (isLoading || backendStatus === 'offline') ? 1 : 1.02 }}
+              whileTap={{ scale: (isLoading || backendStatus === 'offline') ? 1 : 0.98 }}
               style={{
                 width: '100%',
                 padding: '13px',
-                background: isLoading ? 'rgba(37,99,235,0.5)' : 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #7c3aed 100%)',
+                background: (isLoading || backendStatus === 'offline') 
+                  ? 'rgba(37,99,235,0.3)' 
+                  : 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 60%, #7c3aed 100%)',
                 border: 'none',
                 borderRadius: '10px',
                 color: '#fff',
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: '0.9375rem',
                 fontWeight: 700,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: (isLoading || backendStatus === 'offline') ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                boxShadow: isLoading ? 'none' : '0 4px 20px rgba(37,99,235,0.4)',
+                boxShadow: (isLoading || backendStatus === 'offline') ? 'none' : '0 4px 20px rgba(37,99,235,0.4)',
               }}
             >
               {isLoading ? (

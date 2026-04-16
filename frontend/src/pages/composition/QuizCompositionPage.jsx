@@ -1,6 +1,6 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION FINALE AVEC CONFIGURATIONS A à K
+// src/pages/composition/QuizCompositionPage.jsx - VERSION ULTIME CORRIGÉE
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
@@ -10,7 +10,7 @@ import io from 'socket.io-client';
 import {
   Clock, CheckCircle, Send, ArrowLeft, ArrowRight,
   AlertTriangle, Loader, Users, RefreshCw, Eye, XCircle,
-  Save as SaveIcon, Image as ImageIcon
+  Save as SaveIcon, Image as ImageIcon, Lock
 } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
@@ -84,9 +84,120 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
   );
 };
 
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATIONS DES CONTRÔLES DE NAVIGATION
+// ═══════════════════════════════════════════════════════════════
+const getNavigationControl = (configOption) => {
+  switch(configOption) {
+    case 'A':
+      return {
+        disablePrev: true,
+        disableNext: true,
+        disableSubmit: true,
+        isLocked: true,
+        lockMessage: '🔒 Navigation contrôlée par le superviseur',
+        autoAdvance: true,
+        timerPerQuestion: true
+      };
+    case 'B':
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: true,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+    case 'C':
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: false,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+    case 'D':
+      return {
+        disablePrev: true,
+        disableNext: true,
+        disableSubmit: true,
+        isLocked: true,
+        lockMessage: '🎲 Avancement automatique après réponse',
+        autoAdvance: true,
+        timerPerQuestion: true
+      };
+    case 'E':
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: false,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+    case 'F':
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: false,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+    case 'G':
+    case 'H':
+    case 'I':
+    case 'J':
+    case 'K':
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: false,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+    default:
+      return {
+        disablePrev: false,
+        disableNext: false,
+        disableSubmit: false,
+        isLocked: false,
+        lockMessage: null,
+        autoAdvance: false,
+        timerPerQuestion: false
+      };
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATIONS DES RÉSULTATS
+// ═══════════════════════════════════════════════════════════════
+const getResultDisplayType = (configOption) => {
+  const binaryOnly = ['A', 'D', 'G', 'H'];
+  const binaryPlus = ['B', 'E', 'I', 'J'];
+  const noResult = ['C', 'F', 'K'];
+  
+  if (noResult.includes(configOption)) return 'none';
+  if (binaryOnly.includes(configOption)) return 'binary';
+  if (binaryPlus.includes(configOption)) return 'binaryPlus';
+  return 'binaryPlus';
+};
+
 const QuizCompositionPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // ✅ Récupération du token dans l'URL (AU DÉBUT)
+  const urlToken = searchParams.get('token');
+  const urlSessionId = searchParams.get('sessionId');
 
   // États principaux
   const [exam, setExam] = useState(null);
@@ -114,7 +225,7 @@ const QuizCompositionPage = () => {
   const [timerDisplayStep, setTimerDisplayStep] = useState(0);
   const [timerHasShown, setTimerHasShown] = useState(false);
 
-  // ✅ NOUVEAUX ÉTATS POUR LES CONFIGURATIONS A à K
+  // États pour plage ouverte
   const [requiredQuestions, setRequiredQuestions] = useState(0);
   const [openRangeMode, setOpenRangeMode] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
@@ -135,6 +246,24 @@ const QuizCompositionPage = () => {
   const terminalSessionIdRef = useRef(null);
   const stableSessionIdRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
+
+  // ✅ STOCKAGE DU TOKEN DANS LOCALSTORAGE (hook au début)
+  useEffect(() => {
+    if (urlToken) {
+      console.log('[QuizCompositionPage] 🔑 Token reçu dans l\'URL, stockage...');
+      localStorage.setItem('userToken', urlToken);
+      localStorage.setItem('token', urlToken);
+    }
+    
+    if (urlSessionId) {
+      console.log('[QuizCompositionPage] 📱 Session ID reçu:', urlSessionId);
+      terminalSessionIdRef.current = urlSessionId;
+    }
+  }, [urlToken, urlSessionId]);
+
+  // Contrôles de navigation
+  const navControl = getNavigationControl(config?.examOption);
+  const resultDisplayType = getResultDisplayType(config?.examOption);
 
   // Fonction pour récupérer le token JWT
   const getAuthToken = () => {
@@ -173,9 +302,7 @@ const QuizCompositionPage = () => {
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, quizFinished, timerHasShown, timerDisplayStep]);
 
   const onTimerDisplayShown = useCallback(() => {
-    if (!timerHasShown) {
-      setTimerHasShown(true);
-    }
+    if (!timerHasShown) setTimerHasShown(true);
     const mode = config?.timerDisplayMode;
     if (mode === 'fourTimes') {
       const progress = (currentQuestionIndex + 1) / (questions.length || 1);
@@ -213,33 +340,18 @@ const QuizCompositionPage = () => {
       bonOpRep = options.findIndex(opt => opt === correctAnswer);
     }
 
-    let imageUrl = q.imageQuestion || '';
-    if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
-      imageUrl = q.imageBase64;
-    }
-
     return {
       _id: q._id || uuidv4(),
       libQuestion: q.libQuestion || q.question || q.text || '',
-      question: q.libQuestion || q.question || q.text || '',
-      text: q.libQuestion || q.question || q.text || '',
       options: options.filter(opt => opt !== ''),
       correctAnswer: correctAnswer,
       bonOpRep: bonOpRep >= 0 ? bonOpRep : 0,
       points: q.points || 1,
       explanation: q.explanation || '',
       typeQuestion: q.typeQuestion || 1,
-      type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
       tempsMinParQuestion: (q.tempsMinParQuestion || q.tempsMin || 1) * 60,
-      tempsMin: q.tempsMin || 1,
-      domaine: q.domaine || '',
-      sousDomaine: q.sousDomaine || '',
-      niveau: q.niveau || '',
-      matiere: q.matiere || '',
       imageQuestion: q.imageQuestion || '',
-      imageBase64: q.imageBase64 || '',
-      imageMetadata: q.imageMetadata || {},
-      imageUrl: imageUrl
+      imageBase64: q.imageBase64 || ''
     };
   };
 
@@ -250,7 +362,6 @@ const QuizCompositionPage = () => {
     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
     if (imagePath.startsWith('data:')) return imagePath;
     if (imagePath.startsWith('/uploads/')) return `${NODE_BACKEND_URL}${imagePath}`;
-    if (imagePath.includes('qcm-')) return `${NODE_BACKEND_URL}/uploads/questions/${imagePath}`;
     return imagePath;
   };
 
@@ -258,10 +369,10 @@ const QuizCompositionPage = () => {
     if (config?.pointsType === 'uniform') {
       return config?.globalPoints || 1;
     }
-    return question.points || 1;
+    return question?.points || 1;
   }, [config?.pointsType, config?.globalPoints]);
 
-  // ✅ Fonction pour gérer la plage ouverte (sélection des questions)
+  // Gestion plage ouverte
   const handleSelectQuestionForOpenRange = useCallback((questionIndex) => {
     if (quizFinished || submittingRef.current) return;
     
@@ -277,90 +388,6 @@ const QuizCompositionPage = () => {
       }
     });
   }, [quizFinished, requiredQuestions]);
-
-  // ═══════════════════════════════════════════════════════════════
-  // SAUVEGARDE AUTOMATIQUE
-  // ═══════════════════════════════════════════════════════════════
-
-  useEffect(() => {
-    const savedAnswers = localStorage.getItem(`exam_${examId}_answers`);
-    const savedIndex = localStorage.getItem(`exam_${examId}_index`);
-    const savedAttempts = localStorage.getItem(`exam_${examId}_attempts`);
-    const savedShowResult = localStorage.getItem(`exam_${examId}_showResult`);
-
-    if (savedAnswers && !quizFinishedRef.current) {
-      try {
-        const parsedAnswers = JSON.parse(savedAnswers);
-        setAnswers(parsedAnswers);
-        answersRef.current = parsedAnswers;
-
-        if (savedIndex) {
-          const idx = parseInt(savedIndex);
-          setCurrentQuestionIndex(idx);
-          currentQuestionIndexRef.current = idx;
-        }
-
-        if (savedAttempts) {
-          setAttempts(JSON.parse(savedAttempts));
-          attemptsRef.current = JSON.parse(savedAttempts);
-        }
-
-        if (savedShowResult) {
-          setShowResult(JSON.parse(savedShowResult));
-          showResultRef.current = JSON.parse(savedShowResult);
-        }
-
-        toast.success("Progression chargée automatiquement", { duration: 3000 });
-      } catch (e) {
-        console.error('Erreur chargement sauvegarde:', e);
-      }
-    }
-  }, [examId]);
-
-  useEffect(() => {
-    if (quizFinishedRef.current || waitingForStartRef.current) return;
-
-    autoSaveIntervalRef.current = setInterval(() => {
-      if (Object.keys(answersRef.current).length > 0 || currentQuestionIndexRef.current > 0) {
-        localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
-        localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
-        localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
-        localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
-        localStorage.setItem(`exam_${examId}_lastSave`, Date.now());
-        setLastSaveTime(Date.now());
-      }
-    }, 30000);
-
-    return () => {
-      if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current);
-    };
-  }, [examId, quizFinished, waitingForStart]);
-
-  useEffect(() => {
-    if (quizFinishedRef.current || waitingForStartRef.current) return;
-    localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
-    localStorage.setItem(`exam_${examId}_index`, currentQuestionIndexRef.current);
-    localStorage.setItem(`exam_${examId}_attempts`, JSON.stringify(attemptsRef.current));
-    localStorage.setItem(`exam_${examId}_showResult`, JSON.stringify(showResultRef.current));
-  }, [answers, currentQuestionIndex, attempts, showResult, examId, quizFinished, waitingForStart]);
-
-  const clearAutoSave = useCallback(() => {
-    localStorage.removeItem(`exam_${examId}_answers`);
-    localStorage.removeItem(`exam_${examId}_index`);
-    localStorage.removeItem(`exam_${examId}_attempts`);
-    localStorage.removeItem(`exam_${examId}_showResult`);
-    localStorage.removeItem(`exam_${examId}_lastSave`);
-    localStorage.removeItem(`exam_${examId}_lastToast`);
-  }, [examId]);
-
-  const cleanupBeforeRedirect = useCallback(() => {
-    if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current);
-    if (socketRef.current) {
-      socketRef.current.removeAllListeners();
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-  }, []);
 
   const sendProgressUpdate = useCallback((index) => {
     if (!examRef.current || quizFinishedRef.current || waitingForStartRef.current || !socketRef.current?.connected) return;
@@ -379,65 +406,6 @@ const QuizCompositionPage = () => {
     });
   }, []);
 
-  // Anti-triche
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && !quizFinished && !submittingRef.current && !waitingForStartRef.current) {
-        if (socketRef.current?.connected) {
-          socketRef.current.emit('studentWindowChanged', {
-            examId: examRef.current?._id,
-            studentId: socketRef.current.id,
-            studentName: `${studentInfo?.firstName} ${studentInfo?.lastName}`,
-            studentMatricule: studentInfo?.matricule,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        toast.error("⚠️ Changement de fenêtre détecté ! Restez sur l'examen.", {
-          duration: 5000,
-          icon: '🔴',
-          style: { background: '#ef4444', color: '#fff' }
-        });
-        
-        console.warn('[Security] Changement de fenêtre détecté');
-      }
-    };
-    
-    const blockShortcuts = (e) => {
-      if (e.key === 'PrintScreen') {
-        e.preventDefault();
-        toast.error("Capture d'écran désactivée pendant l'examen", { duration: 2000 });
-        return false;
-      }
-      
-      if (e.key === 'F12' || 
-          (e.ctrlKey && e.shiftKey && e.key === 'I') ||
-          (e.ctrlKey && e.shiftKey && e.key === 'C') ||
-          (e.ctrlKey && e.key === 'U') ||
-          (e.ctrlKey && e.key === 'S') ||
-          (e.ctrlKey && e.key === 'P')) {
-        e.preventDefault();
-        toast.error("Action non autorisée pendant l'examen", { duration: 2000 });
-        return false;
-      }
-      
-      if ((e.ctrlKey && (e.key === 'c' || e.key === 'v' || e.key === 'x')) ||
-          (e.metaKey && (e.key === 'c' || e.key === 'v' || e.key === 'x'))) {
-        e.preventDefault();
-        toast.error("Copier/Coller désactivé pendant l'examen", { duration: 1500 });
-        return false;
-      }
-    };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('keydown', blockShortcuts);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('keydown', blockShortcuts);
-    };
-  }, [quizFinished, studentInfo]);
-
   // ═══════════════════════════════════════════════════════════════
   // SOUMISSION
   // ═══════════════════════════════════════════════════════════════
@@ -446,7 +414,6 @@ const QuizCompositionPage = () => {
 
     if (!examRef.current || !examRef.current._id) {
       console.error('[QuizCompositionPage] ❌ examRef.current est undefined');
-      toast.error("Erreur: impossible de soumettre l'examen.");
       submittingRef.current = false;
       quizFinishedRef.current = false;
       setQuizFinished(false);
@@ -459,7 +426,10 @@ const QuizCompositionPage = () => {
     setQuizFinished(true);
     setIsSubmitting(true);
 
-    clearAutoSave();
+    localStorage.removeItem(`exam_${examId}_answers`);
+    localStorage.removeItem(`exam_${examId}_index`);
+    localStorage.removeItem(`exam_${examId}_attempts`);
+    localStorage.removeItem(`exam_${examId}_showResult`);
 
     if (socketRef.current?.connected) {
       try {
@@ -474,32 +444,17 @@ const QuizCompositionPage = () => {
 
     try {
       const token = getAuthToken();
-      const axiosConfig = token ? {
-        headers: { Authorization: `Bearer ${token}` }
-      } : {};
+      const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
       const studentData = {
-        firstName: studentInfoRef.current?.firstName || studentInfoRef.current?.name?.split(' ')[0] || '',
-        lastName: studentInfoRef.current?.lastName || studentInfoRef.current?.name?.split(' ')[1] || '',
+        firstName: studentInfoRef.current?.firstName || '',
+        lastName: studentInfoRef.current?.lastName || '',
         matricule: studentInfoRef.current?.matricule || '',
         level: studentInfoRef.current?.level || ''
       };
 
       const currentQuestionsList = examRef.current.questions || [];
       const formattedAnswers = {};
-
-      // ✅ Pour la plage ouverte, ne soumettre que les questions sélectionnées
-      let questionsToSubmit = currentQuestionsList;
-      let answersToSubmit = {};
-
-      if (configRef.current?.openRange && selectedQuestions.length > 0) {
-        questionsToSubmit = selectedQuestions.map(idx => currentQuestionsList[idx]);
-        selectedQuestions.forEach(idx => {
-          answersToSubmit[idx] = answersRef.current[idx] || null;
-        });
-      } else {
-        answersToSubmit = answersRef.current;
-      }
 
       currentQuestionsList.forEach((question, idx) => {
         let answer = answersRef.current[idx];
@@ -508,33 +463,18 @@ const QuizCompositionPage = () => {
         formattedAnswers[idx] = answer || null;
       });
 
-      console.log('[QuizCompositionPage] 📤 Soumission:', {
+      const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         examId: examRef.current._id,
-        answersCount: Object.keys(formattedAnswers).filter(k => formattedAnswers[k] !== null).length,
-        totalQuestions: currentQuestionsList.length,
-        openRange: configRef.current?.openRange,
-        selectedQuestions
-      });
-
-      // Dans handleSubmitExam
-const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
-  examId: examRef.current._id,
-  studentInfo: studentData,
-  answers: formattedAnswers,
-  config: configRef.current
-}, { timeout: 10000, ...axiosConfig });
+        studentInfo: studentData,
+        answers: formattedAnswers,
+        config: configRef.current
+      }, { timeout: 10000, ...axiosConfig });
 
       const result = res.data?.data || res.data?.result;
       const correctionDetails = res.data?.details || null;
 
       if (!result) {
-        console.error("Réponse de soumission invalide:", res.data);
-        toast.error("Échec de la soumission: Réponse serveur inattendue.");
-        submittingRef.current = false;
-        quizFinishedRef.current = false;
-        setQuizFinished(false);
-        setIsSubmitting(false);
-        return;
+        throw new Error("Réponse serveur invalide");
       }
 
       setShowConfetti(true);
@@ -554,8 +494,8 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
 
       setTimeout(() => {
         const opt = configRef.current?.examOption;
-        // ── C, F, K : pas d'affichage de résultat → page "épreuve terminée" simple ──
         const noResultOptions = ['C', 'F', 'K'];
+        
         if (noResultOptions.includes(opt)) {
           navigate(`/exam/completed/${examRef.current._id}`, {
             state: {
@@ -568,6 +508,7 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
           });
           return;
         }
+        
         navigate(`/results/${examRef.current._id}`, {
           state: {
             resultId: result._id,
@@ -584,12 +525,9 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
               examLevel: result.examLevel || examRef.current.level,
               domain: result.domain || examRef.current.domain,
               subject: result.subject || examRef.current.subject,
-              category: result.category || examRef.current.category,
               duration: result.duration || examRef.current.duration,
               passingScore: result.passingScore || examRef.current.passingScore,
               examOption: result.examOption || opt,
-              examQuestions: result.examQuestions || [],
-              // ✅ Config complète transmise pour que ResultsPage respecte les règles
               config: configRef.current || null,
             },
             terminalSessionId: terminalSessionIdRef.current
@@ -604,16 +542,15 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       quizFinishedRef.current = false;
       setQuizFinished(false);
       setIsSubmitting(false);
+      
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         toast.error("Session expirée. Veuillez vous reconnecter.");
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('token');
         setTimeout(() => navigate('/login'), 2000);
       } else {
-        toast.error(error.response?.data?.message || "Échec de la soumission. Veuillez réessayer.");
+        toast.error(error.response?.data?.message || "Échec de la soumission.");
       }
     }
-  }, [navigate, clearAutoSave, selectedQuestions]);
+  }, [navigate, examId]);
 
   const handleTimeEnd = useCallback(() => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -621,81 +558,75 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     const idx = currentQuestionIndexRef.current;
     const total = examRef.current?.questions?.length;
 
-    if (!examRef.current || !total) {
-      console.error("Exam data or total questions missing in handleTimeEnd.");
-      return;
-    }
+    if (!examRef.current || !total) return;
 
-    // ── A & D : séquentiel figé par question — avancer ou soumettre ──
+    // A & D : séquentiel figé par question → avancer ou soumettre
     if (opt === 'A' || opt === 'D') {
       if (idx < total - 1) {
         const nextIndex = idx + 1;
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
-        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
+        const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60);
         setRemainingTime(timeForNextQuestion);
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 100);
-        toast(opt === 'D' ? "Temps écoulé! Question suivante (Aléatoire)." : "Temps écoulé! Passage à la question suivante.", {
-          style: { background: '#f59e0b', color: '#fff' }, icon: '⏳',
-        });
+        toast(opt === 'D' ? "Temps écoulé! Question suivante." : "Temps écoulé! Passage à la question suivante.");
       } else {
         handleSubmitExam(false);
       }
     } else {
-      // ── B, C, E, F : plage fermée timer global — soumettre automatiquement ──
-      // ── G, H, I, J, K : plage ouverte — soumettre automatiquement si timer défini ──
-      toast("Temps global écoulé ! Soumission automatique…", {
-        style: { background: '#ef4444', color: '#fff' }, icon: '⏱️', duration: 3000
-      });
+      // Timer global → soumettre automatiquement
+      toast("Temps global écoulé ! Soumission automatique…");
       handleSubmitExam(false);
     }
   }, [handleSubmitExam, sendProgressUpdate]);
 
   const handlePrevQuestion = useCallback(() => {
+    if (navControl.disablePrev) {
+      toast.error("Navigation bloquée dans cette configuration");
+      return;
+    }
     const idx = currentQuestionIndexRef.current;
     if (examRef.current && idx > 0) {
-      localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
-      localStorage.setItem(`exam_${examId}_index`, idx - 1);
-      
       const prevIndex = idx - 1;
       currentQuestionIndexRef.current = prevIndex;
       setCurrentQuestionIndex(prevIndex);
-      const timeForPrevQuestion = examRef.current.questions[prevIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
-      setRemainingTime(timeForPrevQuestion);
       setTimerResetTrigger(prev => prev + 1);
       setTimeout(() => sendProgressUpdate(prevIndex), 50);
     }
-  }, [examId, sendProgressUpdate]);
+  }, [navControl.disablePrev, sendProgressUpdate]);
 
   const handleNextQuestion = useCallback(() => {
+    if (navControl.disableNext) {
+      toast.error("Navigation bloquée dans cette configuration");
+      return;
+    }
     const idx = currentQuestionIndexRef.current;
     if (examRef.current && idx < examRef.current.questions.length - 1) {
-      localStorage.setItem(`exam_${examId}_answers`, JSON.stringify(answersRef.current));
-      localStorage.setItem(`exam_${examId}_index`, idx + 1);
-      
       const nextIndex = idx + 1;
       currentQuestionIndexRef.current = nextIndex;
       setCurrentQuestionIndex(nextIndex);
-      const timeForNextQuestion = examRef.current.questions[nextIndex]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
-      setRemainingTime(timeForNextQuestion);
       setTimerResetTrigger(prev => prev + 1);
       setTimeout(() => sendProgressUpdate(nextIndex), 50);
     }
-  }, [examId, sendProgressUpdate]);
+  }, [navControl.disableNext, sendProgressUpdate]);
 
   const handleManualSubmit = useCallback(() => {
+    if (navControl.disableSubmit) {
+      toast.error("Soumission manuelle désactivée dans cette configuration");
+      return;
+    }
     if (quizFinishedRef.current || submittingRef.current) return;
-    // ── C, F, K : confirmer avant soumission (pas de résultat affiché après) ──
+    
     const noResultOptions = ['C', 'F', 'K'];
     if (noResultOptions.includes(configRef.current?.examOption)) {
       setShowSubmitConfirm(true);
       return;
     }
     handleSubmitExam(true);
-  }, [handleSubmitExam]);
+  }, [navControl.disableSubmit, handleSubmitExam]);
 
-  // ✅ Feedback selon la configuration (A à K)
+  // Feedback selon la configuration
   const handleOptionChange = useCallback((questionId, selectedOption, questionIndex) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
@@ -704,13 +635,11 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
 
     const currentAttempts = attemptsRef.current[questionId] || 0;
 
-    // ── Vérifier la limite de tentatives si reprise autorisée (G, I) ──
-    // allowRetry=true signifie UNE reprise autorisée → bloquer après la 2e tentative
+    // Vérifier la limite de tentatives
     if (configRef.current?.allowRetry && currentAttempts >= 2) {
-      toast.error("Vous avez déjà utilisé votre seconde chance sur cette question.");
+      toast.error("Vous avez déjà utilisé votre seconde chance.");
       return;
     }
-    // Sans reprise : bloquer si déjà répondu (1 tentative max)
     if (!configRef.current?.allowRetry && currentAttempts >= 1) {
       return;
     }
@@ -730,19 +659,14 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       [questionIndex]: selectedOption,
       [questionId]: selectedOption
     };
-    
     answersRef.current = newAnswers;
     setAnswers(newAnswers);
 
-    // Mettre à jour les tentatives
     const newAttempts = { ...attemptsRef.current, [questionId]: (currentAttempts + 1) };
     attemptsRef.current = newAttempts;
     setAttempts(newAttempts);
 
-    // ═══════════════════════════════════════════════════════════════
-    // FEEDBACK SELON LA CONFIGURATION
-    // ═══════════════════════════════════════════════════════════════
-    
+    // Feedback
     if (configRef.current?.showBinaryResult) {
       toast[isCorrect ? 'success' : 'error'](
         isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
@@ -754,54 +678,36 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
         toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
       }
-    } else {
-      setShowResult(prev => ({ ...prev, [questionId]: null }));
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // AVANCEMENT AUTOMATIQUE — A et D uniquement (séquentiel figé piloté par réponse)
-    // B, E : l'étudiant navigue manuellement (feedback binaire mais pas d'auto-avance)
-    // G–K  : plage ouverte, pas d'ordre forcé
-    // ═══════════════════════════════════════════════════════════════
+    // Auto-avancement pour A et D
     const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
-    
-    // Ne pas avancer si la réponse est incorrecte ET qu'il reste une reprise (1ère tentative avec allowRetry)
     const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1 && !isCorrect;
+    
     if (hasRetryLeft) {
-      toast.info('💡 Vous pouvez réessayer cette question une fois.', { duration: 3000 });
+      toast.info('💡 Vous pouvez réessayer une fois.', { duration: 3000 });
       return;
     }
 
     if (shouldAutoAdvance) {
       const currentIdx = currentQuestionIndexRef.current;
       const totalQuestions = examRef.current?.questions?.length || 0;
-      const isLastQuestion = currentIdx >= totalQuestions - 1;
       
-      if (!isLastQuestion) {
+      if (currentIdx < totalQuestions - 1) {
         const nextIndex = currentIdx + 1;
         currentQuestionIndexRef.current = nextIndex;
         setCurrentQuestionIndex(nextIndex);
-        
-        const timeForNextQuestion = examRef.current?.questions[nextIndex]?.tempsMinParQuestion 
-          || (configRef.current?.timePerQuestion || 60) * 60;
-        setRemainingTime(timeForNextQuestion);
         setTimerResetTrigger(prev => prev + 1);
-        
         setTimeout(() => sendProgressUpdate(nextIndex), 500);
-        
-        if (configRef.current?.examOption === 'D') {
-          toast.info(`Question suivante (${nextIndex + 1}/${totalQuestions})`, { 
-            duration: 1500,
-            icon: '⏩'
-          });
-        }
       } else {
         handleSubmitExam(false);
       }
     }
   }, [handleSubmitExam, sendProgressUpdate]);
 
-  // Chargement de l'examen
+  // ═══════════════════════════════════════════════════════════════
+  // CHARGEMENT INITIAL
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     const storedInfo = localStorage.getItem('studentInfoForExam');
     if (!storedInfo) {
@@ -816,9 +722,8 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     setStudentInfo(parsed.info);
     setConfig(parsed.config);
     configRef.current = parsed.config;
-    terminalSessionIdRef.current = parsed.terminalSessionId || null;
+    terminalSessionIdRef.current = parsed.terminalSessionId || urlSessionId || null;
     
-    // ✅ Récupérer les paramètres de plage ouverte
     if (parsed.config?.openRange) {
       setOpenRangeMode(true);
       setRequiredQuestions(parsed.config.requiredQuestions || 0);
@@ -828,9 +733,7 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     const fetchExam = async () => {
       try {
         const token = getAuthToken();
-        const axiosConfig = token ? {
-          headers: { Authorization: `Bearer ${token}` }
-        } : {};
+        const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
         const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, {
           timeout: 10000,
@@ -842,45 +745,36 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         else if (examData?.exam?.questions) examData = examData.exam;
         else if (examData?.success && examData?.data?.questions) examData = examData.data;
 
-        if (!examData || !examData.questions || !Array.isArray(examData.questions) || examData.questions.length === 0) {
+        if (!examData || !examData.questions || !Array.isArray(examData.questions)) {
           throw new Error("Données d'examen invalides");
         }
-
-        console.log('[QuizCompositionPage] ✅ Examen chargé:', examData.title);
-        console.log('[QuizCompositionPage] 📊 Questions brutes:', examData.questions.length);
 
         let fetchedQuestions = examData.questions.map((q, idx) => normalizeQuestion({ ...q, _id: q._id || `q_${idx}` }));
 
         const safeConfig = parsed.config || {};
 
-        // ✅ Gestion de la plage ouverte
         if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
           const shuffled = shuffleArray([...fetchedQuestions]);
           fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
-          toast.info(`Mode plage ouverte: ${safeConfig.requiredQuestions} questions à traiter sur ${examData.questions.length}`, {
-            duration: 4000,
-            icon: '📖'
-          });
+          toast.info(`Mode plage ouverte: ${safeConfig.requiredQuestions} questions à traiter`, { duration: 4000 });
         }
 
         if (safeConfig.sequencing === 'randomPerStudent') {
           fetchedQuestions = shuffleArray(fetchedQuestions);
-          toast.info("L'ordre des questions est aléatoire", { duration: 2000, icon: '🎲' });
-        }
-
-        if (parsed.examOption === 'D' && safeConfig.sequencing !== 'randomPerStudent') {
-          fetchedQuestions = shuffleArray(fetchedQuestions);
+          toast.info("L'ordre des questions est aléatoire", { duration: 2000 });
         }
 
         setQuestions(fetchedQuestions);
         setExam({ ...examData, questions: fetchedQuestions });
         examRef.current = { ...examData, questions: fetchedQuestions };
 
-        if (safeConfig.timerPerQuestion && fetchedQuestions.length > 0) {
-          const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60) * 60;
+        // ✅ Configuration du timer
+        const navCtrl = getNavigationControl(parsed.examOption);
+        if (navCtrl.timerPerQuestion && fetchedQuestions.length > 0) {
+          const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60);
           setRemainingTime(firstQuestionTime);
         } else {
-          setRemainingTime((safeConfig.totalTime || 60) * 60);
+          setRemainingTime((safeConfig.totalTime || examData.duration || 60) * 60);
         }
 
         setQuizStarted(true);
@@ -896,15 +790,8 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
 
       } catch (error) {
         console.error("Erreur chargement examen:", error);
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          toast.error("Session expirée. Veuillez vous reconnecter.");
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('token');
-          setTimeout(() => navigate('/login'), 2000);
-        } else {
-          toast.error("Échec du chargement de l'examen.");
-          navigate('/', { replace: true });
-        }
+        toast.error("Échec du chargement de l'examen.");
+        navigate('/', { replace: true });
       } finally {
         setIsLoading(false);
       }
@@ -916,8 +803,6 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     const newSocket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 20,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
       transports: ['polling'],
       upgrade: false,
       forceNew: true,
@@ -936,7 +821,7 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     stableSessionIdRef.current = stableId;
 
     newSocket.on('connect', () => {
-      console.log('[QuizCompositionPage] ✅ Socket connecté, ID:', newSocket.id);
+      console.log('[QuizCompositionPage] ✅ Socket connecté');
 
       newSocket.emit('registerSession', {
         type: 'student',
@@ -956,11 +841,6 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       });
     });
 
-    newSocket.on('connect_error', (error) => {
-      console.error('[QuizCompositionPage] ❌ Erreur Socket:', error.message);
-      toast.error("Problème de connexion. Reconnexion en cours...");
-    });
-
     newSocket.on('examStarted', (data) => {
       if (data.examId !== examId) return;
       waitingForStartRef.current = false;
@@ -976,7 +856,7 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       currentQuestionIndexRef.current = qIdx;
       setCurrentQuestionIndex(qIdx);
       setTimerResetTrigger(prev => prev + 1);
-      toast.success("L'examen commence maintenant!", { icon: '🚀', duration: 3000 });
+      toast.success("L'examen commence maintenant!", { icon: '🚀' });
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
@@ -991,10 +871,6 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       currentQuestionIndexRef.current = idx;
       setCurrentQuestionIndex(idx);
       setTimerResetTrigger(prev => prev + 1);
-      
-      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion 
-        || (configRef.current?.timePerQuestion || 60) * 60;
-      setRemainingTime(timeForQuestion);
       
       toast(`Question ${idx + 1}`, { icon: '📋', duration: 2000 });
       setTimeout(() => sendProgressUpdate(idx), 500);
@@ -1015,9 +891,9 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
         newSocket.removeAllListeners();
         newSocket.disconnect();
       }
-      cleanupBeforeRedirect();
+      if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current);
     };
-  }, [examId, navigate, handleSubmitExam, sendProgressUpdate, cleanupBeforeRedirect]);
+  }, [examId, navigate, handleSubmitExam, sendProgressUpdate, urlSessionId]);
 
   // Gestion du timer
   useEffect(() => {
@@ -1040,19 +916,20 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
     return () => clearInterval(interval);
   }, [quizStarted, quizFinished, waitingForStart, remainingTime, handleTimeEnd]);
 
-  // Réinitialisation du timerHasShown
+  // Réinitialisation timerHasShown
   useEffect(() => {
     setTimerHasShown(false);
     setTimerDisplayStep(0);
   }, [currentQuestionIndex]);
 
-  // Affichage conditionnel
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
   if (isLoading || !exam || !studentInfo) {
     return (
-      <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={styles.loadingContainer}>
         <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
         <Toaster />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -1062,26 +939,19 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       <div style={styles.waitingContainer}>
         <div style={styles.waitingCard}>
           <div style={styles.waitingIcon}><Clock size={36} color="#3b82f6" /></div>
-          <h2>{config?.examOption === 'A' ? 'Salle d\'attente' : 'En attente de démarrage'}</h2>
-          <p>{config?.examOption === 'A' ? 'Le superviseur démarrera l\'épreuve pour tous les participants simultanément.' : 'Le superviseur démarrera l\'épreuve pour tous les postes simultanément.'}</p>
+          <h2>Salle d'attente</h2>
+          <p>Le superviseur démarrera l'épreuve pour tous les participants simultanément.</p>
           {config?.examOption === 'B' && (
             <div style={styles.waitingCount}>
               <Users size={20} />
               <span>{waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente</span>
-              <button onClick={() => {
-                if (socketRef.current?.connected) {
-                  socketRef.current.emit('getWaitingStudents', { examId }, (resp) => setWaitingCount(resp.count));
-                } else {
-                  toast.error("Non connecté au serveur. Veuillez patienter pour la reconnexion.");
-                }
-              }}><RefreshCw size={12} /> Rafraîchir</button>
             </div>
           )}
           <div style={styles.connectedBadge}>
             <div style={styles.pulseDot} />
             <span>{studentInfo.firstName} {studentInfo.lastName} · Connecté</span>
           </div>
-          <p style={styles.waitingNote}>Ne quittez pas cette page · Option {config?.examOption} — {config?.examOption === 'A' ? 'Collective Figée' : 'Collective Souple'}</p>
+          <p style={styles.waitingNote}>Ne quittez pas cette page · Option {config?.examOption}</p>
         </div>
         <Toaster />
       </div>
@@ -1093,18 +963,13 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
   const progressPercentage = (answeredCount / questions.length) * 100;
   const displayPoints = getDisplayPoints(currentQuestion);
   
-  const isOptionA = config?.examOption === 'A';
-  const isOptionB = config?.examOption === 'B';
-  const isOptionD = config?.examOption === 'D';
-  
-  const disablePrev = quizFinished || currentQuestionIndex === 0 || isOptionA || isOptionD;
+  const finalDisablePrev = navControl.disablePrev || quizFinished || currentQuestionIndex === 0;
+  const finalDisableNext = navControl.disableNext || quizFinished || currentQuestionIndex === questions.length - 1;
   const hasCurrentAnswer = answers[currentQuestion?._id] || answers[currentQuestionIndex];
-  const optionBNextDisabled = isOptionB && (!hasCurrentAnswer || currentQuestionIndex === questions.length - 1);
-  const disableNext = quizFinished || currentQuestionIndex === questions.length - 1 || isOptionA || isOptionD || optionBNextDisabled;
 
   if (!currentQuestion) {
     return (
-      <div style={{ minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={styles.loadingContainer}>
         <Loader size={48} style={{ color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
         <p style={{ color: '#f8fafc', marginLeft: '16px' }}>Chargement des questions...</p>
         <Toaster />
@@ -1140,44 +1005,31 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
               <p style={styles.studentInfo}>{studentInfo.firstName} {studentInfo.lastName} · {studentInfo.matricule}</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              {!quizFinished && !waitingForStart && Object.keys(answers).length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: '#10b981', marginBottom: '4px', justifyContent: 'flex-end' }}>
-                  <SaveIcon size={10} />
-                  <span>Sauvegarde auto</span>
-                </div>
-              )}
-              {quizStarted && !quizFinished && config?.examOption !== 'B' && shouldShowTimer() && (
+              {quizStarted && !quizFinished && shouldShowTimer() && (
                 <Timer
                   initialTime={remainingTime}
                   onTimeEnd={handleTimeEnd}
                   isActive={!quizFinished && remainingTime > 0}
                   resetTrigger={timerResetTrigger}
-                  timerConfig={config?.timerConfig || 'permanent'}
                   displayMode={config?.timerDisplayMode || 'permanent'}
                   onDisplayShown={onTimerDisplayShown}
                 />
               )}
-              {config?.examOption === 'C' && quizStarted && !quizFinished && (
-                <span style={styles.globalTimerHint}>TEMPS GLOBAL ({questions.length} × {config?.timePerQuestion || 60}s)</span>
-              )}
             </div>
           </div>
 
-          {/* Indicateur pour Option A */}
-          {isOptionA && !quizFinished && (
-            <div style={styles.currentQuestionIndicator}>
-              <span>Question {currentQuestionIndex + 1} / {questions.length}</span>
-              <span style={{ color: '#ef4444' }}>(Navigation contrôlée par le superviseur)</span>
+          {/* Indicateur navigation verrouillée */}
+          {navControl.isLocked && (
+            <div style={styles.lockedIndicator}>
+              <Lock size={14} />
+              {navControl.lockMessage}
             </div>
           )}
 
           {/* Indicateur pour Plage ouverte */}
           {openRangeMode && plageOuverteSeuil > 0 && (
-            <div style={{ ...styles.currentQuestionIndicator, background: 'rgba(16,185,129,0.1)', border: '1px solid #10b98133', marginBottom: 16 }}>
+            <div style={styles.openRangeIndicator}>
               <span>📖 Plage ouverte: {selectedQuestions.length} / {plageOuverteSeuil} questions sélectionnées</span>
-              <span style={{ color: '#10b981', fontSize: '0.7rem', marginLeft: 12 }}>
-                (Vous devez traiter exactement {plageOuverteSeuil} questions)
-              </span>
             </div>
           )}
 
@@ -1191,8 +1043,8 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
             </div>
           </div>
 
-          {/* Navigation grille pour Option C et configurations à navigation libre */}
-          {(config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K') && (
+          {/* Navigation grille pour options libres */}
+          {(config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K' || openRangeMode) && (
             <div style={styles.navGrid}>
               <h3>Navigation des questions</h3>
               <div style={styles.questionButtons}>
@@ -1200,22 +1052,23 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
                   <button
                     key={q._id}
                     onClick={() => {
+                      if (navControl.disablePrev && navControl.disableNext) {
+                        toast.error("Navigation bloquée");
+                        return;
+                      }
                       currentQuestionIndexRef.current = idx;
                       setCurrentQuestionIndex(idx);
-                      const timeForQuestion = examRef.current.questions[idx]?.tempsMinParQuestion || (configRef.current?.timePerQuestion || 60) * 60;
-                      setRemainingTime(timeForQuestion);
                       setTimerResetTrigger(prev => prev + 1);
                       sendProgressUpdate(idx);
                     }}
                     disabled={quizFinished}
                     style={{
                       ...styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]),
-                      background: openRangeMode && selectedQuestions.includes(idx) ? 'rgba(16,185,129,0.3)' : styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]).background,
-                      border: openRangeMode && selectedQuestions.includes(idx) ? '1px solid #10b981' : styles.questionButton(idx === currentQuestionIndex, answers[q._id] || answers[idx]).border
+                      background: openRangeMode && selectedQuestions.includes(idx) ? 'rgba(16,185,129,0.3)' : undefined,
+                      border: openRangeMode && selectedQuestions.includes(idx) ? '1px solid #10b981' : undefined
                     }}
                   >
                     {idx + 1}
-                    {openRangeMode && selectedQuestions.includes(idx) && <span style={{ fontSize: '0.6rem', marginLeft: 2 }}>✓</span>}
                   </button>
                 ))}
               </div>
@@ -1233,24 +1086,10 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
                   {(answers[currentQuestion._id] || answers[currentQuestionIndex]) && (
                     <span style={styles.answeredBadge}>Répondue</span>
                   )}
-                  {showResult[currentQuestion._id] !== undefined && showResult[currentQuestion._id] !== null && (
-                    <span style={{ ...styles.resultBadge, background: showResult[currentQuestion._id] ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: showResult[currentQuestion._id] ? '#10b981' : '#ef4444' }}>
-                      {showResult[currentQuestion._id] ? '✓ Bonne réponse' : '✗ Mauvaise réponse'}
-                    </span>
-                  )}
                   {openRangeMode && (
                     <button
                       onClick={() => handleSelectQuestionForOpenRange(currentQuestionIndex)}
-                      style={{
-                        marginLeft: 'auto',
-                        padding: '4px 12px',
-                        borderRadius: '20px',
-                        background: selectedQuestions.includes(currentQuestionIndex) ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.1)',
-                        border: `1px solid ${selectedQuestions.includes(currentQuestionIndex) ? '#10b981' : 'rgba(255,255,255,0.2)'}`,
-                        color: selectedQuestions.includes(currentQuestionIndex) ? '#10b981' : '#94a3b8',
-                        fontSize: '0.7rem',
-                        cursor: 'pointer'
-                      }}
+                      style={styles.selectButton(selectedQuestions.includes(currentQuestionIndex))}
                     >
                       {selectedQuestions.includes(currentQuestionIndex) ? '✓ Sélectionnée' : '☐ Sélectionner'}
                     </button>
@@ -1261,19 +1100,14 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
                   <div style={{ marginBottom: 16, textAlign: 'center' }}>
                     <img
                       src={getImageUrl(currentQuestion)}
-                      alt="Illustration de la question"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: 200,
-                        borderRadius: 12,
-                        objectFit: 'contain',
-                        background: 'rgba(0,0,0,0.2)'
-                      }}
+                      alt="Illustration"
+                      style={styles.questionImage}
+                      onError={(e) => { e.target.style.display = 'none'; }}
                     />
                   </div>
                 )}
 
-                <p style={styles.questionText}>{currentQuestion.libQuestion || currentQuestion.text}</p>
+                <p style={styles.questionText}>{currentQuestion.libQuestion}</p>
                 <div style={styles.optionsList}>
                   {currentQuestion.options.map((opt, idx) => {
                     const currentAnswer = answers[currentQuestion._id] || answers[currentQuestionIndex];
@@ -1282,12 +1116,9 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
                       ? idx === currentQuestion.bonOpRep
                       : opt === currentQuestion.correctAnswer;
 
-                    const isOptionDisabled = quizFinished || submittingRef.current ||
-                      (config?.examOption !== 'C' && config?.examOption !== 'F' && config?.examOption !== 'K' && currentAnswer &&
-                       !(config?.allowRetry && attempts[currentQuestion._id] === 0));
-
-                    const canRetry = config?.allowRetry && attempts[currentQuestion._id] === 1;
-                    const isDisabled = quizFinished || submittingRef.current || (isOptionDisabled && !canRetry);
+                    const isDisabled = quizFinished || submittingRef.current ||
+                      (!config?.allowRetry && currentAnswer) ||
+                      (config?.allowRetry && attempts[currentQuestion._id] >= 2);
 
                     return (
                       <label
@@ -1309,7 +1140,6 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
                           style={{ marginRight: '12px', accentColor: '#3b82f6' }}
                         />
                         <span style={{ color: '#f8fafc' }}>{opt}</span>
-                        {config?.showCorrectAnswer && isCorrect && !isSelected && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
                       </label>
                     );
                   })}
@@ -1318,32 +1148,40 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
             </motion.div>
           </AnimatePresence>
 
-          {/* ACTIONS - Navigation corrigée pour toutes les options */}
+          {/* Actions de navigation */}
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
-              {config?.examOption === 'A' ? (
-                <div style={styles.waitingIndicator}>
-                  <div style={styles.pulseDotSmall} />
-                  Navigation contrôlée par le superviseur
-                </div>
-              ) : (
+              {!navControl.isLocked ? (
                 <>
-                  <button onClick={handlePrevQuestion} disabled={disablePrev || submittingRef.current} style={styles.prevButton(disablePrev)}>
+                  <button 
+                    onClick={handlePrevQuestion} 
+                    disabled={finalDisablePrev || submittingRef.current} 
+                    style={styles.prevButton(finalDisablePrev)}
+                  >
                     <ArrowLeft size={16} /> Précédent
                   </button>
-                  <button onClick={handleNextQuestion} disabled={disableNext || submittingRef.current} style={styles.nextButton(disableNext)}>
+                  <button 
+                    onClick={handleNextQuestion} 
+                    disabled={finalDisableNext || submittingRef.current} 
+                    style={styles.nextButton(finalDisableNext)}
+                  >
                     Suivant <ArrowRight size={16} />
                   </button>
                 </>
+              ) : (
+                <div style={styles.lockedNavMessage}>
+                  <Lock size={14} />
+                  {navControl.lockMessage}
+                </div>
               )}
             </div>
 
-            {!quizFinished && config?.examOption !== 'A' && config?.examOption !== 'B' && (
+            {!quizFinished && !navControl.disableSubmit && (
               <button onClick={handleManualSubmit} disabled={isSubmitting || submittingRef.current} style={styles.submitButton(isSubmitting)}>
                 {isSubmitting ? (
                   <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Soumission...</>
                 ) : (
-                  <><Send size={16} /> {config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K' ? 'Terminer l\'examen' : 'Soumettre l\'examen'}</>
+                  <><Send size={16} /> Terminer l'examen</>
                 )}
               </button>
             )}
@@ -1378,13 +1216,14 @@ const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
     </div>
   );
 };
 
-// Styles complets (inchangés)
+// ═══════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },
@@ -1394,22 +1233,13 @@ const styles = {
   header: { marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 },
   titleRow: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   optionBadge: (opt) => {
-    const optColors = {
-      'A': '#ef4444', 'B': '#ef4444', 'C': '#ef4444',
-      'D': '#f59e0b', 'E': '#f59e0b', 'F': '#f59e0b',
-      'G': '#10b981', 'H': '#10b981', 'I': '#10b981', 'J': '#10b981', 'K': '#10b981'
-    };
-    const color = optColors[opt] || '#3b82f6';
-    return {
-      padding: '3px 10px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em',
-      background: `${color}25`,
-      border: `1px solid ${color}44`,
-      color: color,
-    };
+    const colors = { 'A':'#ef4444','B':'#ef4444','C':'#ef4444','D':'#f59e0b','E':'#f59e0b','F':'#f59e0b','G':'#10b981','H':'#10b981','I':'#10b981','J':'#10b981','K':'#10b981' };
+    const color = colors[opt] || '#3b82f6';
+    return { padding: '3px 10px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.06em', background: `${color}25`, border: `1px solid ${color}44`, color: color };
   },
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
-  globalTimerHint: { display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.1em', color: '#475569', marginTop: 4, textAlign: 'center' },
-  currentQuestionIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', fontSize: '0.8rem', color: '#f8fafc' },
+  lockedIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef444440', borderRadius: '8px', fontSize: '0.8rem', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  openRangeIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b98140', borderRadius: '8px', fontSize: '0.8rem', color: '#10b981' },
   progressArea: { marginBottom: '16px' },
   progressLabels: { display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '8px' },
   progressBar: { width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' },
@@ -1428,13 +1258,20 @@ const styles = {
   questionNumber: { background: '#3b82f6', color: '#fff', fontSize: '0.875rem', fontWeight: 600, padding: '4px 10px', borderRadius: '999px' },
   pointsBadge: { background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 8px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 600 },
   answeredBadge: { background: 'rgba(16,185,129,0.2)', color: '#10b981', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px' },
-  resultBadge: { background: 'rgba(16,185,129,0.2)', color: '#10b981', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '999px' },
+  selectButton: (selected) => ({
+    marginLeft: 'auto', padding: '4px 12px', borderRadius: '20px',
+    background: selected ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.1)',
+    border: `1px solid ${selected ? '#10b981' : 'rgba(255,255,255,0.2)'}`,
+    color: selected ? '#10b981' : '#94a3b8', fontSize: '0.7rem', cursor: 'pointer'
+  }),
+  questionImage: { maxWidth: '100%', maxHeight: 200, borderRadius: 12, objectFit: 'contain', background: 'rgba(0,0,0,0.2)' },
   questionText: { fontSize: '1.125rem', color: '#f8fafc', lineHeight: 1.6, marginBottom: '24px' },
   optionsList: { display: 'flex', flexDirection: 'column', gap: '12px' },
   option: { display: 'flex', alignItems: 'center', padding: '14px 16px', border: '2px solid', borderRadius: '12px', transition: 'all 0.2s' },
   actions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap', gap: 12 },
   prevButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: disabled ? '#4b5563' : '#f8fafc', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
   nextButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: disabled ? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
+  lockedNavMessage: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#ef4444', fontSize: '0.875rem' },
   submitButton: (submitting) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: submitting ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }),
   finishedBox: { marginTop: '32px', padding: '24px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: '12px', textAlign: 'center' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
@@ -1443,12 +1280,11 @@ const styles = {
   waitingContainer: { minHeight: '100vh', background: 'linear-gradient(135deg, #05071a, #0a0f2e)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", padding: '24px' },
   waitingCard: { background: 'rgba(15,23,42,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '24px', padding: '48px 40px', textAlign: 'center', maxWidth: '480px', width: '100%' },
   waitingIcon: { width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(59,130,246,0.12)', border: '2px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' },
-  waitingCount: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderRadius: '12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', marginBottom: '16px' },
-  connectedBadge: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px 20px', borderRadius: '12px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' },
+  waitingCount: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '12px 20px', borderRadius: '12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', marginBottom: '16px', color: '#f8fafc' },
+  connectedBadge: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px 20px', borderRadius: '12px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#10b981' },
   pulseDot: { width: 10, height: 10, borderRadius: '50%', background: '#10b981', animation: 'pulse 1.5s infinite' },
-  pulseDotSmall: { width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', display: 'inline-block', animation: 'pulse 1.5s infinite', marginRight: 6 },
-  waitingIndicator: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#94a3b8', fontSize: '0.875rem' },
-  waitingNote: { color: '#475569', fontSize: '0.78rem', marginTop: '8px' }
+  waitingNote: { color: '#475569', fontSize: '0.78rem', marginTop: '16px' },
+  loadingContainer: { minHeight: '100vh', background: '#05071a', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 };
 
 export default QuizCompositionPage;

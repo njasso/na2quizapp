@@ -1,876 +1,486 @@
-// src/pages/composition/ResultsPage.jsx — Version complète corrigée
+// src/pages/composition/ResultsPage.jsx — Version Ultime Corrigée
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
-import { jsPDF } from 'jspdf';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
-import QRCode from 'qrcode';
-import logo from '../logo.png';
-import { Download, CheckCircle, XCircle, Award, User, Calendar, FileText, Printer, Settings } from 'lucide-react';
+import { CheckCircle, XCircle, Award, User, FileText, Settings } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
 const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
 
 console.log('[ResultsPage] Backend URL:', NODE_BACKEND_URL);
-console.log('[ResultsPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATIONS DES RÉSULTATS
+// ═══════════════════════════════════════════════════════════════
+const getResultDisplayType = (configOption) => {
+  const binaryOnly = ['A', 'D', 'G', 'H'];
+  const binaryPlus = ['B', 'E', 'I', 'J'];
+  const noResult = ['C', 'F', 'K'];
+  
+  if (noResult.includes(configOption)) return 'none';
+  if (binaryOnly.includes(configOption)) return 'binary';
+  if (binaryPlus.includes(configOption)) return 'binaryPlus';
+  return 'binaryPlus';
+};
+
+const getOptionLabel = (opt) => {
+  const labels = {
+    A: 'Fermée · Figée · Binaire',
+    B: 'Fermée · Figée · Binaire+',
+    C: 'Fermée · Figée · Sans résultat',
+    D: 'Fermée · Aléatoire · Binaire',
+    E: 'Fermée · Aléatoire · Binaire+',
+    F: 'Fermée · Aléatoire · Sans résultat',
+    G: 'Ouverte · Binaire · Reprise OK',
+    H: 'Ouverte · Binaire · No Reply',
+    I: 'Ouverte · Binaire+ · Reprise OK',
+    J: 'Ouverte · Binaire+ · No Reply',
+    K: 'Ouverte · Sans résultat · No Reply',
+  };
+  return labels[opt] || `Configuration ${opt}`;
+};
 
 const getAuthToken = () => {
-    return localStorage.getItem('userToken') || localStorage.getItem('token');
+  return localStorage.getItem('userToken') || localStorage.getItem('token');
 };
 
 const ResultsPage = () => {
-    const { examId } = useParams();
-    const { state } = useLocation();
-    const navigate = useNavigate();
+  const { examId } = useParams();
+  const { state } = useLocation();
+  const navigate = useNavigate();
 
-    const {
-        submittedAnswers,
-        studentInfo,
-        submittedScore,
-        submittedPercentage,
-        examTitle: passedExamTitle,
-        passingScore: passedPassingScore,
-        examQuestions: passedExamQuestions,
-        questionDetails: passedQuestionDetails,
-        resultSnapshot: passedResultSnapshot,
-        terminalSessionId: passedTerminalSessionId,
-        resultId: passedResultId,
-    } = state || {};
+  const {
+    submittedAnswers,
+    studentInfo,
+    submittedScore,
+    submittedPercentage,
+    examTitle: passedExamTitle,
+    passingScore: passedPassingScore,
+    examQuestions: passedExamQuestions,
+    resultSnapshot: passedResultSnapshot,
+    terminalSessionId: passedTerminalSessionId,
+    resultId: passedResultId,
+  } = state || {};
 
-    const [exam, setExam] = useState(null);
-    const [config, setConfig] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [countdown, setCountdown] = useState(120);
-    const [redirectTimerActive, setRedirectTimerActive] = useState(true);
-    const questionDetailsRef = useRef([]);
-    const redirectTimeoutRef = useRef(null);
-    const countdownIntervalRef = useRef(null);
+  const [exam, setExam] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [countdown, setCountdown] = useState(120);
+  const [redirectTimerActive, setRedirectTimerActive] = useState(true);
+  
+  const questionDetailsRef = useRef([]);
+  const countdownIntervalRef = useRef(null);
+  const isTerminalContext = !!passedTerminalSessionId;
+  const resultId = passedResultId || state?.resultId || '';
+  
+  const examOption = config?.examOption || passedResultSnapshot?.examOption || passedResultSnapshot?.config?.examOption;
+  const displayType = getResultDisplayType(examOption);
+  const allowRetry = config?.allowRetry || passedResultSnapshot?.config?.allowRetry;
 
-    const terminalSessionId = passedTerminalSessionId || localStorage.getItem('terminalSessionId');
-    const resultId = passedResultId || state?.resultId || '';
+  // ═══════════════════════════════════════════════════════════════
+  // REDIRECTION SELON REPRISE
+  // ═══════════════════════════════════════════════════════════════
+  const handleRedirect = useCallback(() => {
+    localStorage.removeItem('studentInfoForExam');
+    if (examId) {
+      localStorage.removeItem(`exam_${examId}_answers`);
+      localStorage.removeItem(`exam_${examId}_index`);
+      localStorage.removeItem(`exam_${examId}_attempts`);
+      localStorage.removeItem(`exam_${examId}_showResult`);
+    }
+    
+    if (allowRetry && passedTerminalSessionId) {
+      // ✅ Reprise OK → retour au terminal
+      const redirectUrl = `${ENV_CONFIG.TERMINAL_URL}${passedTerminalSessionId ? `?sessionId=${passedTerminalSessionId}` : ''}`;
+      window.location.replace(redirectUrl);
+    } else {
+      // ✅ No Reply → retour accueil
+      navigate('/', { replace: true });
+    }
+  }, [allowRetry, passedTerminalSessionId, examId, navigate]);
 
-    // ✅ Débogage
-    useEffect(() => {
-        console.log('=== DÉBOGAGE RESULTS PAGE ===');
-        console.log('submittedAnswers:', submittedAnswers);
-        console.log('studentInfo:', studentInfo);
-        console.log('submittedScore:', submittedScore);
-        console.log('submittedPercentage:', submittedPercentage);
-        console.log('passedExamQuestions:', passedExamQuestions?.length);
-        console.log('passedResultSnapshot:', passedResultSnapshot);
-        console.log('resultId:', resultId);
-    }, []);
-
-    const cleanupBeforeRedirect = useCallback(() => {
-        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-        if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
-    }, []);
-
-    const redirectToTerminal = useCallback(() => {
-        cleanupBeforeRedirect();
-        localStorage.removeItem('studentInfoForExam');
-        if (examId) {
-            localStorage.removeItem(`exam_${examId}_answers`);
-            localStorage.removeItem(`exam_${examId}_index`);
-            localStorage.removeItem(`exam_${examId}_attempts`);
-            localStorage.removeItem(`exam_${examId}_showResult`);
+  // Timer redirection
+  useEffect(() => {
+    if (isLoading || !redirectTimerActive) return;
+    
+    countdownIntervalRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          handleRedirect();
+          return 0;
         }
-        const redirectUrl = `${ENV_CONFIG.TERMINAL_URL}${terminalSessionId ? `?sessionId=${terminalSessionId}` : ''}`;
-        window.location.replace(redirectUrl);
-    }, [terminalSessionId, cleanupBeforeRedirect, examId]);
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => {
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  }, [isLoading, redirectTimerActive, handleRedirect]);
 
-    useEffect(() => {
-        if (isLoading || !redirectTimerActive) return;
-        countdownIntervalRef.current = setInterval(() => {
-            setCountdown(prev => {
-                if (prev <= 1) { redirectToTerminal(); return 0; }
-                return prev - 1;
-            });
-        }, 1000);
-        return () => { if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current); };
-    }, [isLoading, redirectTimerActive, redirectToTerminal]);
+  const extendStay = useCallback(() => {
+    setRedirectTimerActive(false);
+    toast.success("Temps prolongé.", { duration: 4000 });
+    setTimeout(() => {
+      setRedirectTimerActive(true);
+      setCountdown(120);
+    }, 300000);
+  }, []);
 
-    const extendStay = useCallback(() => {
-        setRedirectTimerActive(false);
-        toast.success("Temps prolongé. Vous pouvez fermer cette page manuellement.", { duration: 4000, icon: '⏱️' });
-        setTimeout(() => {
-            setRedirectTimerActive(true);
-            setCountdown(120);
-            toast.success("Retour automatique au terminal dans 2 minutes", { duration: 3000 });
-        }, 300000);
-    }, []);
+  // ═══════════════════════════════════════════════════════════════
+  // NORMALISATION QUESTIONS
+  // ═══════════════════════════════════════════════════════════════
+  const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
+    let correctAnswerIndex = -1;
+    let correctAnswerText = '';
+    
+    if (typeof q.bonOpRep === 'number') {
+      correctAnswerIndex = q.bonOpRep;
+      correctAnswerText = q.options?.[correctAnswerIndex] || '';
+    } else if (q.correctAnswer) {
+      correctAnswerText = q.correctAnswer;
+    }
+    
+    let finalStudentAnswer = 'Non répondu';
+    if (studentAnswer && studentAnswer !== 'Non répondu') {
+      finalStudentAnswer = studentAnswer;
+    } else if (submittedAnswers) {
+      finalStudentAnswer = submittedAnswers[q._id] 
+        || submittedAnswers[questionIndex]
+        || 'Non répondu';
+    }
+    
+    let isCorrect = false;
+    if (finalStudentAnswer !== 'Non répondu') {
+      if (typeof q.bonOpRep === 'number') {
+        const selectedIndex = q.options?.findIndex(opt => opt === finalStudentAnswer);
+        isCorrect = selectedIndex === q.bonOpRep;
+      } else {
+        isCorrect = finalStudentAnswer === q.correctAnswer;
+      }
+    }
+    
+    return {
+      _id: q._id,
+      questionText: q.libQuestion || q.question || q.text || 'Question sans texte',
+      options: q.options || [],
+      studentAnswer: finalStudentAnswer,
+      correctAnswer: correctAnswerText,
+      isCorrect,
+      points: q.points || 1,
+      explanation: q.explanation || '',
+    };
+  };
 
-    // ✅ FONCTION 1: getTotalQuestionsCount (déclarée en premier)
-    const getTotalQuestionsCount = useCallback(() => {
-        if (exam?.questions?.length > 0) return exam.questions.length;
-        if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
-        if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
-        if (questionDetailsRef.current.length > 0) return questionDetailsRef.current.length;
-        return 0;
-    }, [exam, passedResultSnapshot, passedExamQuestions]);
+  const getTotalQuestions = () => {
+    if (exam?.questions?.length > 0) return exam.questions.length;
+    if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
+    if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
+    return questionDetailsRef.current.length;
+  };
 
-    // ✅ FONCTION 2: getTotalPoints (dépend de getTotalQuestionsCount)
-    const getTotalPoints = useCallback(() => {
+  const getTotalPoints = () => {
     const questions = passedResultSnapshot?.examQuestions || passedExamQuestions || exam?.questions || [];
-    if (questions.length === 0) return getTotalQuestionsCount();
+    if (questions.length === 0) return getTotalQuestions();
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
-}, [passedResultSnapshot, passedExamQuestions, exam, getTotalQuestionsCount]);
+  };
 
-    // ✅ FONCTION 3: getNote (indépendante)
-    const getNote = useCallback(() => {
-    const bareme = 20;
-    // Note /20 basée sur le pourcentage du serveur (toujours exact)
-    const rawNote = (submittedPercentage / 100) * bareme;
-    return { note: parseFloat(rawNote.toFixed(2)), bareme };
-}, [submittedPercentage]);
+  // ═══════════════════════════════════════════════════════════════
+  // CHARGEMENT
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!examId || !submittedAnswers || !studentInfo || submittedPercentage === undefined) {
+      toast.error("Données manquantes.");
+      navigate(`/exam/profile/${examId}`, { replace: true });
+      return;
+    }
 
-    // ✅ Fonction de normalisation
-    const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
-        let correctAnswerIndex = -1;
-        let correctAnswerText = '';
-        
-        if (typeof q.bonOpRep === 'number') {
-            correctAnswerIndex = q.bonOpRep;
-            correctAnswerText = q.options?.[correctAnswerIndex] || '';
-        } else if (q.correctAnswer) {
-            correctAnswerText = q.correctAnswer;
-            correctAnswerIndex = q.options?.findIndex(opt => opt === q.correctAnswer) || -1;
-        }
-        
-        let finalStudentAnswer = 'Non répondu';
-        if (studentAnswer && studentAnswer !== 'Non répondu' && studentAnswer !== undefined) {
-            finalStudentAnswer = studentAnswer;
-        } else if (submittedAnswers) {
-            const qId = q._id?.toString();
-            finalStudentAnswer = submittedAnswers[qId] 
-                || submittedAnswers[q._id] 
-                || submittedAnswers[questionIndex]
-                || submittedAnswers[`q${questionIndex}`]
-                || submittedAnswers[`question_${questionIndex}`]
-                || 'Non répondu';
-        }
-        
-        let isCorrect = false;
-        if (finalStudentAnswer !== 'Non répondu') {
-            if (typeof q.bonOpRep === 'number') {
-                const selectedIndex = q.options?.findIndex(opt => opt === finalStudentAnswer);
-                isCorrect = selectedIndex === q.bonOpRep;
-            } else {
-                isCorrect = finalStudentAnswer === q.correctAnswer;
-            }
-        }
-        
-        console.log(`[Q${questionIndex}] ID: ${q._id}, Réponse: "${finalStudentAnswer}", Correcte: ${isCorrect}`);
-        
-        return {
-            _id: q._id,
-            questionText: q.libQuestion || q.question || q.text || 'Question sans texte',
-            options: q.options || [],
-            studentAnswer: finalStudentAnswer,
-            correctAnswer: correctAnswerText,
-            isCorrect,
-            type: q.type || (q.typeQuestion === 2 ? 'multiple' : 'single'),
-            points: q.points || 1,
-            explanation: q.explanation || '',
-            domaine: q.domaine || '',
-            niveau: q.niveau || '',
-            matiere: q.matiere || '',
-        };
-    };
-
-    // ✅ useEffect principal pour charger les résultats
-    useEffect(() => {
-        if (!examId || !submittedAnswers || !studentInfo || submittedScore === undefined || submittedPercentage === undefined) {
-            console.error('Données manquantes:', { examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage });
-            toast.error("Données de résultats manquantes. Veuillez refaire l'épreuve.");
-            navigate(`/exam/profile/${examId}`, { replace: true });
-            return;
+    const fetchAndProcessResults = async () => {
+      try {
+        if (passedResultSnapshot?.examQuestions?.length > 0) {
+          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => 
+            normalizeQuestionForDisplay(q, null, idx)
+          );
+          
+          setExam({
+            _id: examId,
+            title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
+            questions: passedResultSnapshot.examQuestions || [],
+            passingScore: passedResultSnapshot.passingScore || passedPassingScore || 70,
+          });
+          setConfig(passedResultSnapshot.config || null);
+          setIsLoading(false);
+          return;
         }
 
-        const fetchAndProcessResults = async () => {
-            try {
-                const token = getAuthToken();
-                const axiosConfig = token ? {
-                    headers: { Authorization: `Bearer ${token}` }
-                } : {};
+        const token = getAuthToken();
+        const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-                if (passedResultSnapshot?.examQuestions?.length > 0) {
-                    console.log('Utilisation du snapshot avec', passedResultSnapshot.examQuestions.length, 'questions');
-                    questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
-                        return normalizeQuestionForDisplay(q, null, idx);
-                    });
-                    
-                    setExam({
-                        _id: examId,
-                        title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
-                        questions: passedResultSnapshot.examQuestions || [],
-                        passingScore: passedResultSnapshot.passingScore || passedPassingScore || 70,
-                        domain: passedResultSnapshot.domain || 'N/A',
-                        subject: passedResultSnapshot.subject || 'N/A',
-                        level: passedResultSnapshot.examLevel || studentInfo?.level || 'N/A',
-                        duration: passedResultSnapshot.duration || 60,
-                        totalPoints: passedResultSnapshot.examQuestions?.reduce((sum, q) => sum + (q.points || 1), 0) || 20
-                    });
-                    setConfig(passedResultSnapshot.config || null);
-                    setIsLoading(false);
-                    
-                    const actualPassingScore = passedResultSnapshot.passingScore || passedPassingScore || 70;
-                    const passStatusText = submittedPercentage >= actualPassingScore ? 'Réussi' : 'Échoué';
-                    toast[passStatusText === 'Réussi' ? 'success' : 'error'](
-                        `${passStatusText === 'Réussi' ? 'Félicitations' : 'Dommage'} ! Vous avez ${submittedPercentage.toFixed(2)}%` +
-                        (actualPassingScore ? ` (seuil: ${actualPassingScore}%)` : '')
-                    );
-                    return;
-                }
-
-                const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
-                    timeout: 10000,
-                    ...axiosConfig 
-                });
-                
-                const examData = response.data;
-                const questionsArray = examData.questions || [];
-                
-                setExam({
-                    ...examData,
-                    questions: questionsArray
-                });
-                setConfig(examData.config || null);
-
-                questionDetailsRef.current = questionsArray.map((q, idx) => {
-                    return normalizeQuestionForDisplay(q, null, idx);
-                });
-
-                const actualPassingScore = examData.passingScore || passedPassingScore || 70;
-                const passStatusText = submittedPercentage >= actualPassingScore ? 'Réussi' : 'Échoué';
-                toast[passStatusText === 'Réussi' ? 'success' : 'error'](
-                    `${passStatusText === 'Réussi' ? 'Félicitations' : 'Dommage'} ! Vous avez ${submittedPercentage.toFixed(2)}%` +
-                    (actualPassingScore ? ` (seuil: ${actualPassingScore}%)` : '')
-                );
-            } catch (error) {
-                console.error("Erreur lors du chargement des détails:", error);
-                
-                if (error.response?.status === 401) {
-                    toast.error("Session expirée. Veuillez vous reconnecter.");
-                    localStorage.removeItem('userToken');
-                    localStorage.removeItem('token');
-                    setTimeout(() => navigate('/login'), 2000);
-                    return;
-                }
-                
-                if (passedExamQuestions?.length > 0) {
-                    console.log('Fallback vers passedExamQuestions');
-                    questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
-                        return normalizeQuestionForDisplay(q, null, idx);
-                    });
-                    setExam({
-                        _id: examId,
-                        title: passedExamTitle || 'Titre inconnu',
-                        questions: passedExamQuestions,
-                        passingScore: passedPassingScore || 70,
-                        domain: passedResultSnapshot?.domain || 'N/A',
-                        subject: passedResultSnapshot?.subject || 'N/A',
-                        level: passedResultSnapshot?.examLevel || studentInfo?.level || 'N/A',
-                        duration: passedResultSnapshot?.duration || 60,
-                        totalPoints: passedExamQuestions.reduce((sum, q) => sum + (q.points || 1), 0) || 20
-                    });
-                    setConfig(passedResultSnapshot?.config || null);
-                } else {
-                    toast.error(`Erreur: ${error.response ? error.response.status : 'Réseau ou serveur inaccessible'}`);
-                    setExam(null);
-                }
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchAndProcessResults();
-
-        return () => cleanupBeforeRedirect();
-    }, [examId, submittedAnswers, studentInfo, submittedScore, submittedPercentage, passedPassingScore, passedExamTitle, passedExamQuestions, passedQuestionDetails, passedResultSnapshot, navigate, cleanupBeforeRedirect]);
-
-    const getOptionLabel = (opt) => {
-        const labels = {
-            A: 'Fermée · Figée · Binaire',
-            B: 'Fermée · Figée · Binaire+',
-            C: 'Fermée · Figée · Sans résultat',
-            D: 'Fermée · Aléatoire · Binaire',
-            E: 'Fermée · Aléatoire · Binaire+',
-            F: 'Fermée · Aléatoire · Sans résultat',
-            G: 'Ouverte · Binaire · Reprise OK',
-            H: 'Ouverte · Binaire · No Reply',
-            I: 'Ouverte · Binaire+ · Reprise OK',
-            J: 'Ouverte · Binaire+ · No Reply',
-            K: 'Ouverte · Sans résultat · No Reply',
-        };
-        return labels[opt] || `Configuration ${opt}`;
-    };
-
-    // ✅ Export CSV
-    const exportToCSV = useCallback(() => {
-        if (!questionDetailsRef.current.length) {
-            toast.error('Aucune donnée à exporter');
-            return;
-        }
-        
-        const totalPoints = getTotalPoints();
-        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
-        const totalQ = getTotalQuestionsCount();
-        
-        const headers = [
-            'Question', 'Votre réponse', 'Bonne réponse', 
-            'Résultat', 'Points', 'Matière', 'Niveau', 'Domaine', 'Explication'
-        ];
-        
-        const rows = questionDetailsRef.current.map((q, idx) => [
-            `Q${idx + 1}: ${q.questionText.replace(/"/g, '""')}`,
-            q.studentAnswer.replace(/"/g, '""'),
-            q.correctAnswer.replace(/"/g, '""'),
-            q.isCorrect ? 'Correct' : 'Incorrect',
-            q.points,
-            q.matiere || 'N/A',
-            q.niveau || 'N/A',
-            q.domaine || 'N/A',
-            (q.explanation || '').replace(/"/g, '""')
-        ]);
-        
-        const infoRows = [
-            [`"=== INFORMATIONS ÉTUDIANT ==="`, "", "", "", "", "", "", "", ""],
-            [`"Nom: ${studentInfo?.lastName || 'N/A'}"`, "", "", "", "", "", "", "", ""],
-            [`"Prénom: ${studentInfo?.firstName || 'N/A'}"`, "", "", "", "", "", "", "", ""],
-            [`"Matricule: ${studentInfo?.matricule || 'N/A'}"`, "", "", "", "", "", "", "", ""],
-            [`"Niveau: ${studentInfo?.level || 'N/A'}"`, "", "", "", "", "", "", "", ""],
-            [`"==="`, "", "", "", "", "", "", "", ""],
-            [`"Score: ${submittedScore} pts / ${totalPoints} pts · ${submittedPercentage.toFixed(2)}%"`, "", "", "", "", "", "", "", ""],
-            [`"Bonnes réponses: ${correctCount} / ${totalQ}"`, "", "", "", "", "", "", "", ""],
-            [`"Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}"`, "", "", "", "", "", "", "", ""],
-            [`"==="`, "", "", "", "", "", "", "", ""],
-            [`"Date: ${new Date().toLocaleString('fr-FR')}"`, "", "", "", "", "", "", "", ""],
-            [``, "", "", "", "", "", "", "", ""]
-        ];
-        
-        const csvContent = [...infoRows, headers, ...rows].map(row => 
-            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-        ).join('\n');
-        
-        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `resultats_${studentInfo?.matricule || studentInfo?.lastName || 'candidat'}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        toast.success('Export CSV réussi');
-    }, [questionDetailsRef, studentInfo, submittedScore, submittedPercentage, exam, passedPassingScore, getTotalQuestionsCount, getTotalPoints]);
-
-    // ✅ Export PDF
-    const exportToPDF = useCallback(async () => {
-        if ((!exam && !passedResultSnapshot) || !studentInfo || questionDetailsRef.current.length === 0) {
-            toast.error("Données incomplètes pour l'export PDF.");
-            return;
-        }
-
-        const doc = new jsPDF();
-        let yPos = 30;
-        const margin = 20;
-        const lineHeight = 7;
-        const maxWidth = doc.internal.pageSize.width - 2 * margin;
-        const totalQ = getTotalQuestionsCount();
-        const totalPoints = getTotalPoints();
-        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
-
-        try { doc.addImage(logo, 'PNG', 10, 10, 20, 20); } catch (e) { console.warn("Logo non trouvé"); }
-        
-        doc.setFontSize(16);
-        doc.setTextColor(59, 130, 246);
-        doc.text('NA²QUIZ', 35, 20);
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(26);
-        doc.text('Bulletin de Résultats', 105, yPos, { align: 'center' });
-        yPos += 15;
-
-        doc.setFontSize(14);
-        doc.setTextColor(59, 130, 246);
-        doc.text('Informations de l\'étudiant :', margin, yPos);
-        yPos += 10;
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(12);
-        doc.text(`Nom: ${studentInfo?.lastName || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Prénom: ${studentInfo?.firstName || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Niveau d'étude: ${studentInfo?.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        if (studentInfo?.matricule) { doc.text(`Matricule: ${studentInfo?.matricule}`, margin, yPos); yPos += lineHeight; }
-        yPos += 10;
-
-        doc.setFontSize(14);
-        doc.setTextColor(59, 130, 246);
-        doc.text('Résumé de l\'épreuve :', margin, yPos);
-        yPos += 10;
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(12);
-        doc.text(`Titre: ${exam?.title || passedExamTitle || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Domaine: ${exam?.domain || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Matière: ${exam?.subject || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Niveau: ${exam?.level || 'N/A'}`, margin, yPos); yPos += lineHeight;
-        doc.text(`Durée: ${exam?.duration || 'N/A'} minutes`, margin, yPos); yPos += 10;
-
-        doc.setFontSize(14);
-        doc.setTextColor(59, 130, 246);
-        doc.text('Performance :', margin, yPos);
-        yPos += 10;
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(12);
-        doc.text(`Score Obtenu: ${submittedScore} pts / ${totalPoints} pts totaux`, margin, yPos); yPos += lineHeight;
-        doc.text(`Bonnes réponses: ${correctCount} / ${totalQ} questions`, margin, yPos); yPos += lineHeight;
-        doc.text(`Pourcentage: ${submittedPercentage.toFixed(2)}%`, margin, yPos); yPos += lineHeight;
-        doc.text(`Seuil de Réussite: ${exam?.passingScore || passedPassingScore || 70}%`, margin, yPos); yPos += lineHeight;
-        
-        const noteInfo = getNote();
-        if (noteInfo) {
-            doc.setFontSize(14);
-            doc.setTextColor(59, 130, 246);
-            doc.text(`NOTE : ${noteInfo.note} / ${noteInfo.bareme}`, margin, yPos); yPos += lineHeight + 2;
-            doc.setTextColor(0, 0, 0);
-            doc.setFontSize(12);
-        }
-        
-        const passStatusColor = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#22C55E' : '#EF4444';
-        doc.setTextColor(passStatusColor);
-        doc.text(`Statut: ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué'}`, margin, yPos); yPos += 15;
-        doc.setTextColor(0, 0, 0);
-
-        if (config) {
-            doc.setFontSize(14);
-            doc.setTextColor(139, 92, 246);
-            doc.text('Configuration de l\'épreuve :', margin, yPos);
-            yPos += 8;
-            doc.setTextColor(0, 0, 0);
-            doc.setFontSize(10);
-            const configLines = [
-                `Option : ${getOptionLabel(config.examOption)} (${config.examOption})`,
-                config.openRange ? `Plage ouverte : ${config.requiredQuestions} questions à traiter` : null,
-                `Séquencement : ${config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}`,
-                config.allowRetry ? `Reprise : Autorisée (une fois)` : null,
-                `Chronomètre : ${config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}`,
-                config.showBinaryResult ? `✓ Résultat binaire affiché après chaque QCM` : null,
-                config.showCorrectAnswer ? `✓ Bonne réponse affichée après chaque QCM` : null,
-            ].filter(l => l);
-            configLines.forEach(line => {
-                const split = doc.splitTextToSize(line, maxWidth);
-                doc.text(split, margin, yPos);
-                yPos += split.length * lineHeight;
-            });
-            yPos += 5;
-        }
-
-        doc.setFontSize(14);
-        doc.setTextColor(59, 130, 246);
-        doc.text('Détails des réponses :', margin, yPos);
-        yPos += 10;
-
-        questionDetailsRef.current.forEach((qDetail, index) => {
-            const questionLines = doc.splitTextToSize(`Question ${index + 1}: ${qDetail.questionText}`, maxWidth);
-            const totalHeight = questionLines.length * lineHeight + (qDetail.options.length * 5) + 30;
-            if (yPos + totalHeight > doc.internal.pageSize.height - margin - 40) {
-                doc.addPage();
-                yPos = margin;
-            }
-            doc.setFontSize(12);
-            doc.setTextColor(0, 0, 0);
-            doc.text(questionLines, margin, yPos);
-            yPos += questionLines.length * lineHeight;
-            doc.setFontSize(10);
-            qDetail.options.forEach((optText, optIdx) => {
-                const prefix = `${String.fromCharCode(65 + optIdx)}. `;
-                const optionLines = doc.splitTextToSize(prefix + optText, maxWidth - 5);
-                doc.text(optionLines, margin + 5, yPos);
-                yPos += optionLines.length * 5;
-            });
-            doc.text(`Votre réponse: ${qDetail.studentAnswer || 'Non répondu'}`, margin, yPos); yPos += 5;
-            doc.text(`Bonne réponse: ${qDetail.correctAnswer || 'N/A'}`, margin, yPos); yPos += 5;
-            if (qDetail.explanation) {
-                doc.text(`Explication: ${qDetail.explanation}`, margin, yPos); yPos += 5;
-            }
-            const textColor = qDetail.isCorrect ? '#22C55E' : '#EF4444';
-            doc.setTextColor(textColor);
-            doc.text(`Statut: ${qDetail.isCorrect ? 'Correct' : 'Incorrect'}`, margin, yPos); yPos += 10;
-            doc.setTextColor(0, 0, 0);
-            yPos += 5;
+        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+          timeout: 10000,
+          ...axiosConfig 
         });
-
-        try {
-            const backendUrl = NODE_BACKEND_URL;
-            const qrVerifyUrl = resultId 
-                ? `${backendUrl}/api/bulletin/verify/${resultId}`
-                : `NA2QUIZ|MAT:${studentInfo?.matricule||''}|SC:${submittedScore}/${totalPoints}|PCT:${submittedPercentage?.toFixed(2)}%|${new Date().toLocaleDateString('fr-FR')}`;
-            const qrCode = await QRCode.toDataURL(qrVerifyUrl, { 
-                width: 100, 
-                margin: 1,
-                color: { dark: '#0f172a', light: '#ffffff' }
-            });
-            const pageW = doc.internal.pageSize.width;
-            const pageH = doc.internal.pageSize.height;
-            doc.addImage(qrCode, 'PNG', pageW - 42, pageH - 42, 32, 32);
-            doc.setFontSize(6);
-            doc.setTextColor(100, 116, 139);
-            doc.text('QR Vérif.', pageW - 34, pageH - 8, { align: 'center' });
-        } catch (e) { console.warn('Erreur génération QR code:', e); }
-
-        doc.save(`bulletin_resultats_${studentInfo?.lastName || 'Anonyme'}_${studentInfo?.firstName || 'Anonyme'}.pdf`);
-        toast.success("Le bulletin de résultats a été exporté en PDF !");
-    }, [exam, passedResultSnapshot, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount, getTotalPoints, resultId]);
-
-    // ✅ Print bulletin
-    const printBulletin = useCallback(() => {
-        const noteInfo = getNote();
-        const noteStr = noteInfo ? `${noteInfo.note} / ${noteInfo.bareme}` : 'N/A';
-        const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'RÉUSSI' : 'ÉCHOUÉ';
-        const passColor = passStatus === 'RÉUSSI' ? '#10b981' : '#ef4444';
-        const totalQ = getTotalQuestionsCount();
-        const totalPts = getTotalPoints();
-        const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
-
-        const configHtml = config ? `
-            <div style="margin: 16px 0; padding: 12px; background: #f1f5f9; border-radius: 12px; border: 1px solid #8b5cf6;">
-                <h3 style="margin:0 0 8px; font-size:0.9rem; color:#6d28d9;">⚙️ Configuration de l'épreuve</h3>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.8rem;">
-                    <span><strong>Option :</strong></span><span>${getOptionLabel(config.examOption)} (${config.examOption})</span>
-                    ${config.openRange ? `<span><strong>Plage ouverte :</strong></span><span>${config.requiredQuestions} questions à traiter</span>` : ''}
-                    <span><strong>Séquencement :</strong></span><span>${config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}</span>
-                    ${config.allowRetry ? `<span><strong>Reprise :</strong></span><span>Autorisée (une fois)</span>` : ''}
-                    <span><strong>Chronomètre :</strong></span><span>${config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}</span>
-                    ${config.showBinaryResult ? '<span colspan="2">✓ Résultat binaire affiché après chaque QCM</span>' : ''}
-                    ${config.showCorrectAnswer ? '<span colspan="2">✓ Bonne réponse affichée après chaque QCM</span>' : ''}
-                </div>
-            </div>
-        ` : '';
-
-        const questionsHtml = questionDetailsRef.current.map((q, i) => `
-            <div style="margin-bottom:12px; padding:10px; border:1px solid ${q.isCorrect ? '#22c55e' : '#ef4444'}; border-radius:8px;">
-                <p style="font-weight:600; margin:0 0 6px;">Q${i + 1}. ${q.questionText}</p>
-                ${q.options.map((opt, optIdx) => {
-                    const isCorrectOpt = opt === q.correctAnswer;
-                    const isStudentOpt = opt === q.studentAnswer;
-                    return `
-                        <p style="margin:2px 0; padding:3px 8px; border-radius:4px;
-                            background:${isCorrectOpt ? '#dcfce7' : isStudentOpt && !isCorrectOpt ? '#fee2e2' : 'transparent'};
-                            color:${isCorrectOpt ? '#15803d' : isStudentOpt && !isCorrectOpt ? '#dc2626' : '#374151'}">
-                            ${String.fromCharCode(65 + optIdx)}. ${opt}${isStudentOpt ? ' ← votre réponse' : ''}${isCorrectOpt && !isStudentOpt ? ' ✓ correcte' : ''}
-                        </p>
-                    `;
-                }).join('')}
-                <p style="margin:6px 0 0; font-size:0.85rem; color:${q.isCorrect ? '#15803d' : '#dc2626'}; font-weight:600;">
-                    ${q.isCorrect ? '✓ Correct' : `✗ Incorrect — Bonne réponse : ${q.correctAnswer}`}
-                </p>
-                ${q.explanation ? `<p style="margin:4px 0 0; font-size:0.75rem; color:#64748b;">💡 ${q.explanation}</p>` : ''}
-            </div>
-        `).join('');
-
-        const win = window.open('', '_blank');
-        win.document.write(`<!DOCTYPE html><html><head>
-            <title>Corrigé — ${studentInfo?.lastName || ''} ${studentInfo?.firstName || ''}</title>
-            <style>
-                body { font-family: 'DM Sans', Arial, sans-serif; margin: 0; padding: 20px; color: #1e293b; }
-                @media print { @page { size: A4; margin: 15mm; } }
-                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
-                .brand { font-size: 1.5rem; font-weight: 800; color: #3b82f6; }
-                .badge { padding: 6px 16px; border-radius: 999px; font-size: 1.1rem; font-weight: 800; background: ${passColor}22; color: ${passColor}; border: 2px solid ${passColor}; }
-                .note-box { text-align: center; margin: 16px 0; padding: 12px; background: #f8fafc; border-radius: 12px; border: 2px solid #3b82f6; }
-                .note-val { font-size: 2.5rem; font-weight: 800; color: #3b82f6; }
-                .note-label { font-size: 0.8rem; color: #64748b; }
-                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-                .info-box { padding: 12px; background: #f8fafc; border-radius: 8px; }
-                .info-box h3 { margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
-                p { margin: 3px 0; font-size: 0.875rem; }
-                h2 { font-size: 1rem; margin: 20px 0 10px; color: #1e293b; }
-            </style>
-        </head><body>
-            <div class="header">
-                <div><div class="brand">NA²QUIZ</div><div style="font-size:1.125rem; font-weight:700; margin-top:4px;">Corrigé Individuel</div><div style="font-size:0.8rem; color:#64748b;">${new Date().toLocaleString('fr-FR')}</div></div>
-                <div class="badge">${passStatus}</div>
-            </div>
-            <div class="note-box">
-                <div class="note-label">NOTE OBTENUE</div>
-                <div class="note-val">${noteStr}</div>
-                <div class="note-label">${submittedScore} pts sur ${totalPts} pts · ${correctCount}/${totalQ} correctes · ${submittedPercentage.toFixed(2)}%</div>
-            </div>
-            <div class="info-grid">
-                <div class="info-box">
-                    <h3>Candidat</h3>
-                    <p><b>Nom :</b> ${studentInfo?.lastName || 'N/A'}</p>
-                    <p><b>Prénom :</b> ${studentInfo?.firstName || 'N/A'}</p>
-                    <p><b>Matricule :</b> ${studentInfo?.matricule || 'N/A'}</p>
-                    <p><b>Niveau :</b> ${studentInfo?.level || 'N/A'}</p>
-                </div>
-                <div class="info-box">
-                    <h3>Épreuve</h3>
-                    <p><b>Titre :</b> ${exam?.title || passedExamTitle || 'N/A'}</p>
-                    <p><b>Matière :</b> ${exam?.subject || 'N/A'}</p>
-                    <p><b>Domaine :</b> ${exam?.domain || 'N/A'}</p>
-                    <p><b>Seuil de réussite :</b> ${exam?.passingScore || passedPassingScore || 'N/A'}%</p>
-                </div>
-            </div>
-            ${configHtml}
-            <h2>Détail des réponses</h2>
-            ${questionsHtml}
-            <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 800); }</script>
-        </body></html>`);
-        win.document.close();
-    }, [exam, studentInfo, submittedScore, submittedPercentage, passedExamTitle, passedPassingScore, getNote, config, getTotalQuestionsCount, getTotalPoints]);
-
-    if (isLoading) {
-        return (
-            <div style={{
-                minHeight: '100vh',
-                background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                fontFamily: "'DM Sans', sans-serif",
-            }}>
-                <div style={{ width: '48px', height: '48px', border: '3px solid rgba(59,130,246,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                <p style={{ color: '#94a3b8', marginTop: '16px' }}>Chargement des résultats...</p>
-                <Toaster />
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
+        
+        const examData = response.data;
+        const questionsArray = examData.questions || [];
+        
+        questionDetailsRef.current = questionsArray.map((q, idx) => 
+          normalizeQuestionForDisplay(q, null, idx)
         );
-    }
+        
+        setExam({ ...examData, questions: questionsArray });
+        setConfig(examData.config || null);
+        
+      } catch (error) {
+        console.error("Erreur chargement:", error);
+        if (passedExamQuestions?.length > 0) {
+          questionDetailsRef.current = passedExamQuestions.map((q, idx) => 
+            normalizeQuestionForDisplay(q, null, idx)
+          );
+          setExam({
+            _id: examId,
+            title: passedExamTitle || 'Titre inconnu',
+            questions: passedExamQuestions,
+            passingScore: passedPassingScore || 70,
+          });
+          setConfig(passedResultSnapshot?.config || null);
+        } else {
+          toast.error("Erreur de chargement.");
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-    if ((!exam && !passedResultSnapshot) || !studentInfo || submittedAnswers === undefined || submittedPercentage === undefined) {
-        return (
-            <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', fontFamily: "'DM Sans', sans-serif" }}>
-                Impossible de charger l'épreuve ou ses résultats.
-            </div>
-        );
-    }
+    fetchAndProcessResults();
+  }, [examId, submittedAnswers, studentInfo, submittedPercentage, passedExamTitle, passedExamQuestions, passedResultSnapshot, navigate]);
 
-    // ✅ C, F, K : "Pas de renvoi dynamique du résultat" — afficher une page de confirmation minimaliste
-    const noResultOptions = ['C', 'F', 'K'];
-    const examOption = config?.examOption || passedResultSnapshot?.examOption || passedResultSnapshot?.config?.examOption;
-    if (noResultOptions.includes(examOption)) {
-        return (
-            <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", padding: '24px' }}>
-                <div style={{ textAlign: 'center', maxWidth: '480px', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '24px', padding: '48px 32px' }}>
-                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
-                        <span style={{ fontSize: '2rem' }}>✓</span>
-                    </div>
-                    <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginBottom: '12px' }}>
-                        Épreuve terminée
-                    </h1>
-                    <p style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '8px' }}>
-                        {studentInfo?.firstName} {studentInfo?.lastName}
-                    </p>
-                    <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '32px' }}>
-                        Vos réponses ont bien été enregistrées.<br />
-                        Les résultats de cette configuration (<strong style={{ color: '#60a5fa' }}>{examOption}</strong>) ne sont pas communiqués.
-                    </p>
-                    <button
-                        onClick={() => navigate('/', { replace: true })}
-                        style={{ padding: '12px 32px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}>
-                        Retour à l'accueil
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    const actualTotalQuestions = getTotalQuestionsCount();
-    const totalPoints = getTotalPoints();
-    const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
-    const currentPassStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'Réussi' : 'Échoué';
-    const showDebugInfo = process.env.NODE_ENV === 'development';
-
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
+  if (isLoading) {
     return (
-        <div style={{
-            minHeight: '100vh', fontFamily: "'DM Sans', sans-serif",
-            background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
-            position: 'relative', overflow: 'hidden', padding: '24px',
-        }}>
-            <div style={{ position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 }} />
-            <div style={{ position: 'fixed', top: '-15%', left: '50%', transform: 'translateX(-50%)', width: '70vw', height: '50vh', background: 'radial-gradient(ellipse, rgba(37,99,235,0.12) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
-
-            <main style={{ position: 'relative', zIndex: 1, maxWidth: '900px', margin: '0 auto' }}>
-                {!isLoading && redirectTimerActive && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-                        style={{ marginBottom: '16px', padding: '12px 20px', background: countdown <= 30 ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.1)', border: `1px solid ${countdown <= 30 ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.25)'}`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: countdown <= 30 ? '#ef4444' : '#3b82f6', display: 'inline-block', animation: 'pulse 1s infinite' }} />
-                                <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Retour automatique au terminal dans</span>
-                                <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: '1.25rem', color: countdown <= 30 ? '#ef4444' : '#60a5fa', minWidth: '60px' }}>
-                                    {Math.floor(countdown / 60).toString().padStart(2, '0')}:{(countdown % 60).toString().padStart(2, '0')}
-                                </span>
-                            </div>
-                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={extendStay}
-                                style={{ padding: '6px 12px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '8px', color: '#93c5fd', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
-                                + 5 min
-                            </motion.button>
-                        </motion.div>
-                )}
-
-                {showDebugInfo && submittedAnswers && (
-                    <div style={{ marginBottom: '20px', padding: '10px', background: '#1e293b', borderRadius: '8px', fontSize: '0.7rem' }}>
-                        <h4 style={{ color: '#f8fafc', marginBottom: '5px' }}>Débogage - Réponses reçues :</h4>
-                        <pre style={{ color: '#94a3b8', overflow: 'auto', maxHeight: '100px' }}>
-                            {JSON.stringify(submittedAnswers, null, 2)}
-                        </pre>
-                    </div>
-                )}
-
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                    style={{ background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '24px', padding: '32px' }}>
-                    
-                    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '5px 14px', marginBottom: '16px', background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '999px' }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 8px #3b82f6' }} />
-                            <span style={{ fontSize: '0.75rem', color: '#93c5fd', fontWeight: 600, letterSpacing: '0.08em' }}>RÉSULTATS</span>
-                        </div>
-                        <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: '2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' }}>
-                            Bulletin de Résultats
-                        </h1>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '32px' }}>
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}
-                            style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', padding: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                                <User size={20} color="#3b82f6" />
-                                <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#f8fafc' }}>Informations de l'étudiant</h2>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Nom:</span> {studentInfo?.lastName || 'N/A'}</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Prénom:</span> {studentInfo?.firstName || 'N/A'}</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Niveau:</span> {studentInfo?.level || 'N/A'}</p>
-                                {studentInfo?.matricule && <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Matricule:</span> {studentInfo?.matricule}</p>}
-                            </div>
-                        </motion.div>
-
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}
-                            style={{ background: submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '16px', padding: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                                <Award size={20} color={submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#10b981' : '#ef4444'} />
-                                <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#f8fafc' }}>Performance</h2>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Titre:</span> {exam?.title || passedExamTitle || 'N/A'}</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Points:</span> {submittedScore} / {totalPoints} pts</p>
-                                <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Bonnes rép.:</span> {correctCount} / {actualTotalQuestions} questions</p>
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Pourcentage:</span>{' '}
-                                    <span style={{ color: submittedPercentage >= (exam?.passingScore || passedPassingScore || 70) ? '#10b981' : '#ef4444', fontWeight: 600 }}>
-                                        {submittedPercentage.toFixed(2)}%
-                                    </span>
-                                </p>
-                                {(() => { const n = getNote(); return n ? (
-                                    <div style={{ marginTop: '8px', padding: '10px 14px', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <span style={{ fontSize: '0.8125rem', color: '#93c5fd', fontWeight: 600, letterSpacing: '0.04em' }}>NOTE / BARÈME</span>
-                                        <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#60a5fa' }}>{n.note}<span style={{ fontSize: '0.9rem', color: '#94a3b8' }}> / {n.bareme}</span></span>
-                                    </div>
-                                ) : null; })()}
-                                <p style={{ color: '#94a3b8' }}><span style={{ color: '#f8fafc', fontWeight: 500 }}>Statut:</span>{' '}
-                                    <span style={{ color: currentPassStatus === 'Réussi' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{currentPassStatus}</span>
-                                </p>
-                            </div>
-                        </motion.div>
-                    </div>
-
-                    {config && (
-                        <div style={{ marginBottom: '24px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <Settings size={14} color="#8b5cf6" />
-                                <span style={{ color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Configuration de l'épreuve</span>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.78rem' }}>
-                                <span style={{ color: '#64748b' }}>Option :</span>
-                                <span style={{ color: '#e2e8f0' }}>{getOptionLabel(config.examOption)} ({config.examOption})</span>
-                                {config.openRange && (
-                                    <>
-                                        <span style={{ color: '#64748b' }}>Plage ouverte :</span>
-                                        <span style={{ color: '#e2e8f0' }}>{config.requiredQuestions} questions à traiter</span>
-                                    </>
-                                )}
-                                <span style={{ color: '#64748b' }}>Séquencement :</span>
-                                <span style={{ color: '#e2e8f0' }}>{config.sequencing === 'identical' ? 'Identique pour tous' : 'Aléatoire par étudiant'}</span>
-                                {config.allowRetry && (
-                                    <>
-                                        <span style={{ color: '#64748b' }}>Reprise :</span>
-                                        <span style={{ color: '#e2e8f0' }}>Autorisée (une fois)</span>
-                                    </>
-                                )}
-                                <span style={{ color: '#64748b' }}>Chronomètre :</span>
-                                <span style={{ color: '#e2e8f0' }}>{config.timerPerQuestion ? `${config.timePerQuestion} sec/question` : `${config.totalTime} min totales`}</span>
-                                {config.showBinaryResult && (
-                                    <span style={{ color: '#64748b', gridColumn: 'span 2' }}>✓ Résultat binaire affiché après chaque QCM</span>
-                                )}
-                                {config.showCorrectAnswer && (
-                                    <span style={{ color: '#64748b', gridColumn: 'span 2' }}>✓ Bonne réponse affichée après chaque QCM</span>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} style={{ marginBottom: '32px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <FileText size={20} color="#3b82f6" /> Détails des Réponses
-                            </h2>
-                            <button onClick={exportToCSV}
-                                style={{ padding: '8px 16px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', fontWeight: 500 }}>
-                                <Download size={14} /> Exporter CSV
-                            </button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {questionDetailsRef.current.map((qDetail, index) => (
-                                <div key={qDetail._id || `q-${index}`}
-                                    style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${qDetail.isCorrect ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '12px', padding: '16px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                                        <p style={{ color: '#f8fafc', fontWeight: 600 }}>Question {index + 1}</p>
-                                        {qDetail.isCorrect ? <CheckCircle size={20} color="#10b981" /> : <XCircle size={20} color="#ef4444" />}
-                                    </div>
-                                    <p style={{ color: '#94a3b8', marginBottom: '12px' }}>{qDetail.questionText}</p>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
-                                        {qDetail.options.map((opt, i) => {
-                                            const isCorrectOpt = opt === qDetail.correctAnswer;
-                                            const isStudentOpt = opt === qDetail.studentAnswer;
-                                            return (
-                                                <div key={i}
-                                                    style={{ padding: '8px 12px', background: isCorrectOpt ? 'rgba(16,185,129,0.1)' : isStudentOpt && !isCorrectOpt ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCorrectOpt ? 'rgba(16,185,129,0.3)' : isStudentOpt && !isCorrectOpt ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.05)'}`, borderRadius: '8px', color: '#94a3b8', fontSize: '0.9375rem' }}>
-                                                    {String.fromCharCode(65 + i)}. {opt}
-                                                    {isStudentOpt && <span style={{ marginLeft: '8px', color: isCorrectOpt ? '#10b981' : '#ef4444' }}>(Votre réponse)</span>}
-                                                    {isCorrectOpt && !isStudentOpt && <span style={{ marginLeft: '8px', color: '#10b981' }}>(Correcte)</span>}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', flexWrap: 'wrap' }}>
-                                        <p style={{ color: '#94a3b8' }}>Votre réponse: <span style={{ color: qDetail.isCorrect ? '#10b981' : '#ef4444' }}>{qDetail.studentAnswer || 'Non répondu'}</span></p>
-                                        <p style={{ color: '#94a3b8' }}>Bonne réponse: <span style={{ color: '#10b981' }}>{qDetail.correctAnswer}</span></p>
-                                        {qDetail.points && <p style={{ color: '#94a3b8' }}>Points: {qDetail.points}</p>}
-                                    </div>
-                                    {qDetail.explanation && (
-                                        <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(59,130,246,0.05)', borderRadius: '8px' }}>
-                                            <p style={{ color: '#64748b', fontSize: '0.8rem' }}>💡 {qDetail.explanation}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </motion.div>
-
-                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={printBulletin}
-                            style={{ flex: 1, minWidth: '160px', padding: '14px', background: 'linear-gradient(135deg, #0f172a, #1e293b)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '12px', color: '#93c5fd', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}>
-                            <Printer size={18} /> Imprimer le Corrigé
-                        </motion.button>
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={exportToPDF}
-                            style={{ flex: 1, minWidth: '160px', padding: '14px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(139,92,246,0.3)' }}>
-                            <Download size={18} /> Exporter PDF
-                        </motion.button>
-                    </div>
-                </motion.div>
-            </main>
-            <Toaster />
-            <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap'); @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.5} }`}</style>
-        </div>
+      <div style={styles.loadingContainer}>
+        <div style={styles.spinner} />
+        <p style={{ color: '#94a3b8', marginTop: '16px' }}>Chargement des résultats...</p>
+        <Toaster />
+      </div>
     );
+  }
+
+  // ✅ C, F, K : Aucun résultat
+  if (displayType === 'none') {
+    return (
+      <div style={styles.container}>
+        <div style={styles.noResultCard}>
+          <div style={styles.checkIcon}>✓</div>
+          <h1 style={styles.noResultTitle}>Épreuve terminée</h1>
+          <p style={styles.noResultText}>
+            {studentInfo?.firstName} {studentInfo?.lastName}
+          </p>
+          <p style={styles.noResultSubtext}>
+            Vos réponses ont bien été enregistrées.<br />
+            Les résultats de cette configuration (<strong>{examOption}</strong>) ne sont pas communiqués.
+          </p>
+          <button onClick={() => navigate('/', { replace: true })} style={styles.homeButton}>
+            Retour à l'accueil
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const totalQuestions = getTotalQuestions();
+  const totalPoints = getTotalPoints();
+  const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
+  const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70);
+  const note20 = ((submittedPercentage / 100) * 20).toFixed(2);
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.bgGrid} />
+      <div style={styles.bgGlow} />
+      
+      <main style={styles.main}>
+        {/* Timer redirection */}
+        {!isLoading && redirectTimerActive && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={styles.redirectBanner(countdown)}>
+            <div style={styles.redirectInfo}>
+              <span style={styles.pulseDot(countdown)} />
+              <span>Retour automatique dans</span>
+              <span style={styles.countdown(countdown)}>
+                {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+            <button onClick={extendStay} style={styles.extendButton}>+ 5 min</button>
+          </motion.div>
+        )}
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={styles.resultCard}>
+          
+          {/* En-tête */}
+          <div style={styles.header}>
+            <div style={styles.badge}>
+              <span style={styles.badgeDot} />
+              <span>RÉSULTATS</span>
+            </div>
+            <h1 style={styles.title}>Bulletin de Résultats</h1>
+          </div>
+
+          {/* Infos étudiant + Performance */}
+          <div style={styles.infoGrid}>
+            <div style={styles.infoBox}>
+              <div style={styles.infoHeader}>
+                <User size={20} color="#3b82f6" />
+                <h2>Informations</h2>
+              </div>
+              <p><span>Nom:</span> {studentInfo?.lastName || 'N/A'}</p>
+              <p><span>Prénom:</span> {studentInfo?.firstName || 'N/A'}</p>
+              <p><span>Niveau:</span> {studentInfo?.level || 'N/A'}</p>
+              {studentInfo?.matricule && <p><span>Matricule:</span> {studentInfo.matricule}</p>}
+            </div>
+
+            <div style={styles.perfBox(passStatus)}>
+              <div style={styles.infoHeader}>
+                <Award size={20} color={passStatus ? '#10b981' : '#ef4444'} />
+                <h2>Performance</h2>
+              </div>
+              <p><span>Titre:</span> {exam?.title || passedExamTitle || 'N/A'}</p>
+              <p><span>Points:</span> {submittedScore} / {totalPoints} pts</p>
+              <p><span>Bonnes rép.:</span> {correctCount} / {totalQuestions}</p>
+              <p><span>Pourcentage:</span> <span style={{ color: passStatus ? '#10b981' : '#ef4444', fontWeight: 600 }}>{submittedPercentage.toFixed(2)}%</span></p>
+              
+              {/* Note /20 */}
+              <div style={styles.noteBox}>
+                <span>NOTE / 20</span>
+                <span style={styles.noteValue}>{note20}</span>
+              </div>
+              
+              <p><span>Statut:</span> <span style={{ color: passStatus ? '#10b981' : '#ef4444', fontWeight: 600 }}>{passStatus ? 'RÉUSSI' : 'ÉCHOUÉ'}</span></p>
+            </div>
+          </div>
+
+          {/* Configuration */}
+          {config && (
+            <div style={styles.configBox}>
+              <div style={styles.configHeader}>
+                <Settings size={14} color="#8b5cf6" />
+                <span>Configuration de l'épreuve</span>
+              </div>
+              <div style={styles.configGrid}>
+                <span>Option:</span><span>{getOptionLabel(config.examOption)} ({config.examOption})</span>
+                {config.openRange && <><span>Plage ouverte:</span><span>{config.requiredQuestions} questions</span></>}
+                <span>Séquencement:</span><span>{config.sequencing === 'identical' ? 'Identique' : 'Aléatoire'}</span>
+                {config.allowRetry && <><span>Reprise:</span><span>Autorisée (une fois)</span></>}
+              </div>
+            </div>
+          )}
+
+          {/* ✅ Résultat Binaire (toujours affiché) */}
+          <div style={styles.binaryResult(passStatus)}>
+            <h3>{passStatus ? '🎉 FÉLICITATIONS !' : '😔 DOMMAGE...'}</h3>
+            <p style={styles.binaryPercentage}>{submittedPercentage.toFixed(1)}%</p>
+            <p>Score : {submittedScore} / {totalPoints} pts</p>
+          </div>
+
+          {/* ✅ Détails des réponses - UNIQUEMENT pour BINARY+ */}
+          {displayType === 'binaryPlus' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={styles.detailsSection}>
+              <div style={styles.detailsHeader}>
+                <FileText size={20} color="#3b82f6" />
+                <h2>Détails des Réponses</h2>
+              </div>
+              <div style={styles.detailsList}>
+                {questionDetailsRef.current.map((qDetail, index) => (
+                  <div key={qDetail._id || index} style={styles.detailItem(qDetail.isCorrect)}>
+                    <div style={styles.detailHeaderRow}>
+                      <span>Question {index + 1}</span>
+                      {qDetail.isCorrect ? <CheckCircle size={20} color="#10b981" /> : <XCircle size={20} color="#ef4444" />}
+                    </div>
+                    <p style={styles.detailQuestion}>{qDetail.questionText}</p>
+                    <div style={styles.detailOptions}>
+                      {qDetail.options.map((opt, i) => {
+                        const isCorrectOpt = opt === qDetail.correctAnswer;
+                        const isStudentOpt = opt === qDetail.studentAnswer;
+                        return (
+                          <div key={i} style={styles.detailOption(isCorrectOpt, isStudentOpt)}>
+                            {String.fromCharCode(65 + i)}. {opt}
+                            {isStudentOpt && <span style={{ marginLeft: 8, color: isCorrectOpt ? '#10b981' : '#ef4444' }}>(Votre réponse)</span>}
+                            {isCorrectOpt && !isStudentOpt && <span style={{ marginLeft: 8, color: '#10b981' }}>(Correcte)</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={styles.detailMeta}>
+                      <span>Votre réponse: <span style={{ color: qDetail.isCorrect ? '#10b981' : '#ef4444' }}>{qDetail.studentAnswer}</span></span>
+                      <span>Bonne réponse: <span style={{ color: '#10b981' }}>{qDetail.correctAnswer}</span></span>
+                      <span>Points: {qDetail.points}</span>
+                    </div>
+                    {qDetail.explanation && (
+                      <div style={styles.explanation}>💡 {qDetail.explanation}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+        </motion.div>
+      </main>
+      <Toaster />
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════
+const styles = {
+  container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
+  bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },
+  bgGlow: { position: 'fixed', top: '-15%', left: '50%', transform: 'translateX(-50%)', width: '70vw', height: '50vh', background: 'radial-gradient(ellipse, rgba(37,99,235,0.12) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 },
+  main: { position: 'relative', zIndex: 1, maxWidth: '900px', margin: '0 auto' },
+  redirectBanner: (countdown) => ({ marginBottom: '16px', padding: '12px 20px', background: countdown <= 30 ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.1)', border: `1px solid ${countdown <= 30 ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.25)'}`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }),
+  redirectInfo: { display: 'flex', alignItems: 'center', gap: '10px', flex: 1, color: '#94a3b8', fontSize: '0.875rem' },
+  pulseDot: (countdown) => ({ width: 8, height: 8, borderRadius: '50%', background: countdown <= 30 ? '#ef4444' : '#3b82f6', display: 'inline-block', animation: 'pulse 1s infinite' }),
+  countdown: (countdown) => ({ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: '1.25rem', color: countdown <= 30 ? '#ef4444' : '#60a5fa', minWidth: '60px' }),
+  extendButton: { padding: '6px 12px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '8px', color: '#93c5fd', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' },
+  resultCard: { background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '24px', padding: '32px' },
+  header: { textAlign: 'center', marginBottom: '32px' },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '5px 14px', marginBottom: '16px', background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '999px' },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 8px #3b82f6' },
+  title: { fontFamily: "'Sora', sans-serif", fontSize: '2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' },
+  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' },
+  infoBox: { background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', padding: '20px' },
+  perfBox: (pass) => ({ background: pass ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${pass ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '16px', padding: '20px' }),
+  infoHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' },
+  noteBox: { marginTop: '8px', padding: '10px 14px', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  noteValue: { fontSize: '1.5rem', fontWeight: 800, color: '#60a5fa' },
+  configBox: { marginBottom: '24px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: '14px 16px' },
+  configHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' },
+  configGrid: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: '0.78rem', color: '#e2e8f0' },
+  binaryResult: (pass) => ({ marginTop: '24px', padding: '20px', background: pass ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${pass ? '#10b981' : '#ef4444'}40`, borderRadius: '16px', textAlign: 'center' }),
+  binaryPercentage: { fontSize: '2.5rem', fontWeight: 800, color: 'inherit' },
+  detailsSection: { marginTop: '32px' },
+  detailsHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: '#f8fafc' },
+  detailsList: { display: 'flex', flexDirection: 'column', gap: '16px' },
+  detailItem: (isCorrect) => ({ background: 'rgba(255,255,255,0.02)', border: `1px solid ${isCorrect ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '12px', padding: '16px' }),
+  detailHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px', color: '#f8fafc', fontWeight: 600 },
+  detailQuestion: { color: '#94a3b8', marginBottom: '12px' },
+  detailOptions: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' },
+  detailOption: (isCorrect, isStudent) => ({ padding: '8px 12px', background: isCorrect ? 'rgba(16,185,129,0.1)' : (isStudent && !isCorrect ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.02)'), border: `1px solid ${isCorrect ? 'rgba(16,185,129,0.3)' : (isStudent && !isCorrect ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.05)')}`, borderRadius: '8px', color: '#94a3b8', fontSize: '0.9375rem' }),
+  detailMeta: { display: 'flex', gap: '16px', fontSize: '0.875rem', flexWrap: 'wrap', color: '#94a3b8', marginTop: '8px' },
+  explanation: { marginTop: '8px', padding: '8px', background: 'rgba(59,130,246,0.05)', borderRadius: '8px', color: '#64748b', fontSize: '0.8rem' },
+  loadingContainer: { minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
+  spinner: { width: '48px', height: '48px', border: '3px solid rgba(59,130,246,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' },
+  noResultCard: { textAlign: 'center', maxWidth: '480px', margin: '0 auto', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '24px', padding: '48px 32px' },
+  checkIcon: { width: '72px', height: '72px', borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem' },
+  noResultTitle: { fontFamily: "'Sora', sans-serif", fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginBottom: '12px' },
+  noResultText: { color: '#94a3b8', fontSize: '1rem', marginBottom: '8px' },
+  noResultSubtext: { color: '#64748b', fontSize: '0.875rem', marginBottom: '32px' },
+  homeButton: { padding: '12px 32px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }
 };
 
 export default ResultsPage;

@@ -1,6 +1,6 @@
-// src/pages/composition/WaitingPage.jsx
+// src/pages/composition/WaitingPage.jsx - Version COMPLÈTE CORRIGÉE
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast, Toaster } from 'react-hot-toast';
 import io from 'socket.io-client';
@@ -16,6 +16,12 @@ console.log('[WaitingPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : '
 const WaitingPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // ✅ Récupération du token dans l'URL
+  const urlToken = searchParams.get('token');
+  const urlSessionId = searchParams.get('sessionId');
+  
   const [studentInfo, setStudentInfo] = useState(null);
   const [waitingCount, setWaitingCount] = useState(0);
   const [examTitle, setExamTitle] = useState('');
@@ -29,6 +35,15 @@ const WaitingPage = () => {
   const stableSessionIdRef = useRef(null);
   const pingIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
+
+  // ✅ Stockage du token
+  useEffect(() => {
+    if (urlToken) {
+      console.log('[WaitingPage] 🔑 Token reçu dans l\'URL, stockage...');
+      localStorage.setItem('userToken', urlToken);
+      localStorage.setItem('token', urlToken);
+    }
+  }, [urlToken]);
 
   const cleanupBeforeRedirect = useCallback(() => {
     if (pingIntervalRef.current) {
@@ -88,7 +103,6 @@ const WaitingPage = () => {
       setExamOption(parsed.examOption || 'A');
 
       // ✅ Plage ouverte (G–K) : pas besoin d'attendre le signal du professeur
-      // → naviguer directement vers la composition
       const openRangeOptions = ['G', 'H', 'I', 'J', 'K'];
       if (openRangeOptions.includes(parsed.examOption)) {
         toast.success('Épreuve en accès libre — démarrage immédiat !', { duration: 2000, icon: '🟢' });
@@ -172,7 +186,6 @@ const WaitingPage = () => {
         toast.success('Reconnecté au serveur', { id: 'reconnect', duration: 2000 });
       });
 
-      // ✅ Écouter examStarted (pour TOUTES les options)
       socketRef.current.on('examStarted', (data) => {
         console.log('🚀 Exam démarré:', data);
         if (data.examId === examId) {

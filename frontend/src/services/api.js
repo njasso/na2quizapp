@@ -1,32 +1,73 @@
-// src/services/api.js - VERSION UNIFIÉE COMPLÈTE ET CORRIGÉE
-// ─────────────────────────────────────────────────────────────
-//  Toutes les fonctions d'appel API pour NA²QUIZ
-//  Support production/développement avec détection automatique
-//  CORRECTION: Support complet des filtres de statut pour les questions
+// src/services/api.js - VERSION ULTIME
+// Support complet: localhost, IP réseau (192.168.x.x), production (Render)
 // ─────────────────────────────────────────────────────────────
 
 import axios from 'axios';
 import ENV_CONFIG from '../config/env';
 
-console.log('[API] 🚀 Backend URL configurée:', ENV_CONFIG.BACKEND_URL);
-console.log('[API] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
+console.log('[API] 🚀 Configuration initiale:');
+console.log('[API]   Backend URL:', ENV_CONFIG.BACKEND_URL);
+console.log('[API]   Environnement:', ENV_CONFIG.environment);
+console.log('[API]   Hostname:', ENV_CONFIG.currentHostname);
+
+// ==================== FONCTION DE MISE À JOUR DYNAMIQUE ====================
+
+/**
+ * Met à jour dynamiquement l'URL du backend en fonction de l'environnement
+ * Cette fonction est cruciale pour le passage localhost ↔ IP réseau
+ */
+export const updateApiBaseUrl = () => {
+  const currentHostname = window.location.hostname;
+  const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+  const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
+  
+  let newBaseUrl = ENV_CONFIG.BACKEND_URL;
+  
+  // ✅ Si on est en IP réseau mais que l'API utilise localhost, forcer la mise à jour
+  if (isLocalNetwork && newBaseUrl.includes('localhost')) {
+    newBaseUrl = `http://${currentHostname}:5000`;
+    console.log('[API] 🔄 Mise à jour baseURL (IP réseau):', newBaseUrl);
+  }
+  // ✅ Si on est en localhost mais que l'API utilise une IP, forcer la mise à jour
+  else if (isLocalhost && !newBaseUrl.includes('localhost')) {
+    newBaseUrl = 'http://localhost:5000';
+    console.log('[API] 🔄 Mise à jour baseURL (localhost):', newBaseUrl);
+  }
+  
+  if (api.defaults.baseURL !== newBaseUrl) {
+    api.defaults.baseURL = newBaseUrl;
+    console.log('[API] ✅ BaseURL mise à jour:', newBaseUrl);
+  }
+  
+  return api.defaults.baseURL;
+};
 
 // ==================== CLIENT AXIOS ====================
+
 const api = axios.create({
   baseURL: ENV_CONFIG.BACKEND_URL,
-  timeout: 60000, // 60 secondes par défaut
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
   },
 });
 
+// ✅ Appliquer la mise à jour immédiatement
+updateApiBaseUrl();
+
 // ==================== INTERCEPTEURS ====================
 
 // Request interceptor - injection du token
 api.interceptors.request.use(
   (config) => {
-    // ✅ Chercher le token dans toutes les clés possibles
+    // ✅ Mettre à jour l'URL avant chaque requête (pour les reconnexions)
+    const currentBaseUrl = updateApiBaseUrl();
+    if (config.baseURL !== currentBaseUrl) {
+      config.baseURL = currentBaseUrl;
+    }
+    
+    // Chercher le token dans toutes les clés possibles
     let token = localStorage.getItem('token') ||
                 localStorage.getItem('userToken') ||
                 localStorage.getItem('authToken');
@@ -44,12 +85,9 @@ api.interceptors.request.use(
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log(`[API] 🔑 Token ajouté (${config.url})`);
-    } else {
-      console.warn(`[API] ⚠️ Pas de token pour ${config.url}`);
     }
 
-    // Cache busting
+    // Cache busting pour les GET
     if (config.method?.toLowerCase() === 'get' && !config.params?.noCache) {
       config.params = {
         ...config.params,
@@ -57,7 +95,6 @@ api.interceptors.request.use(
       };
     }
 
-    console.log(`[API] 📡 ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error) => {
@@ -70,13 +107,19 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // ✅ Amélioration des messages d'erreur
+    if (error.code === 'ERR_NETWORK') {
+      console.error('[API] ❌ Erreur réseau - Backend inaccessible:', api.defaults.baseURL);
+      console.error('[API] 💡 Vérifiez que le serveur backend est démarré sur le port 5000');
+    }
+    
     if (error.response?.status === 401) {
       console.warn('[API] 🔒 Session expirée, redirection vers login...');
-      // Ne pas rediriger automatiquement si on est déjà sur login
       if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
         localStorage.removeItem('token');
         localStorage.removeItem('userToken');
         localStorage.removeItem('userData');
+        localStorage.removeItem('userInfo');
         window.location.href = '/login';
       }
     }
@@ -85,9 +128,19 @@ api.interceptors.response.use(
 );
 
 // ==================== AUTH ====================
-export const login = (data) => api.post('/api/auth/login', data);
+export const login = async (data) => {
+  // ✅ Mettre à jour l'URL avant login
+  updateApiBaseUrl();
+  console.log('[API] 🔐 Tentative de login vers:', api.defaults.baseURL);
+  return api.post('/api/auth/login', data);
+};
+
 export const register = (data) => api.post('/api/auth/register', data);
-export const getMe = () => api.get('/api/auth/me');
+
+export const getMe = async () => {
+  updateApiBaseUrl();
+  return api.get('/api/auth/me');
+};
 
 export const logout = () => {
   localStorage.removeItem('token');
@@ -96,29 +149,18 @@ export const logout = () => {
   localStorage.removeItem('userData');
   localStorage.removeItem('userInfo');
   localStorage.removeItem('forceShowAllQuestions');
-  // Optionnel: redirection vers login
+  
   if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
     window.location.href = '/login';
   }
 };
 
-// ==================== QUESTIONS (Banque QCM) - VERSION CORRIGÉE ====================
+// ==================== QUESTIONS ====================
 
-/**
- * Récupère les questions avec filtres avancés
- * @param {Object} params - Paramètres de filtrage
- * @param {string} params.status - Filtre par statut: 'approved', 'pending', 'rejected', 'all'
- * @param {boolean} params.showAll - Si true, ignore le filtre de statut par défaut
- * @param {string} params.domainId - Filtre par domaine
- * @param {string} params.sousDomaineId - Filtre par sous-domaine
- * @param {string} params.niveauId - Filtre par niveau
- * @param {string} params.matiereId - Filtre par matière
- * @param {number} params.page - Pagination (page)
- * @param {number} params.limit - Nombre d'éléments par page
- * @param {string} params.search - Recherche textuelle
- */
 export const getQuestions = async (params = {}) => {
   try {
+    updateApiBaseUrl();
+    
     const token = localStorage.getItem('userToken') || localStorage.getItem('token');
     const userData = localStorage.getItem('userData');
     let userRole = null;
@@ -130,46 +172,33 @@ export const getQuestions = async (params = {}) => {
       } catch (e) {}
     }
     
-    // Déterminer quel endpoint utiliser
     let endpoint = '/api/questions';
     
-    // Si pas de token, utiliser l'endpoint public
     if (!token) {
       endpoint = '/api/questions/public';
     }
     
-    // Préparer les paramètres
     const queryParams = { ...params };
     
-    // Gestion du filtre de statut
-    // Si showAll est true, ne pas filtrer par status
     if (queryParams.showAll === true || queryParams.showAll === 'true') {
       delete queryParams.status;
       delete queryParams.showAll;
-      console.log('[API] 📋 Mode "showAll" activé - toutes les questions seront affichées');
     } 
-    // Si status est 'all', ne pas appliquer de filtre de statut
     else if (queryParams.status === 'all') {
       delete queryParams.status;
-      console.log('[API] 📋 Filtre "all" - toutes les questions seront affichées');
     }
-    // Pour les non-admins sans filtre explicite, ne montrer que les approuvées
     else if (!queryParams.status && userRole !== 'admin' && !token) {
       queryParams.status = 'approved';
-      console.log('[API] 📋 Mode public - seulement les questions approuvées');
     }
     
-    // Supprimer les paramètres vides
     Object.keys(queryParams).forEach(key => {
       if (queryParams[key] === undefined || queryParams[key] === null || queryParams[key] === '') {
         delete queryParams[key];
       }
     });
     
-    console.log('[API] 📋 Chargement questions:', { endpoint, params: queryParams });
     const response = await api.get(endpoint, { params: queryParams });
     
-    // Normaliser la réponse
     if (response.data && response.data.questions) {
       return response.data;
     }
@@ -183,27 +212,18 @@ export const getQuestions = async (params = {}) => {
   }
 };
 
-/**
- * Récupère TOUTES les questions (y compris pending et rejected)
- * Utile pour les administrateurs et le tableau de bord
- */
 export const getAllQuestions = async (params = {}) => {
   return getQuestions({
     ...params,
     showAll: true,
-    limit: params.limit || 1000 // Augmenter la limite pour tout voir
+    limit: params.limit || 1000
   });
 };
 
-/**
- * Récupère les questions par statut spécifique
- */
 export const getQuestionsByStatus = async (status, params = {}) => {
   if (!['approved', 'pending', 'rejected'].includes(status)) {
-    console.warn(`[API] Statut invalide: ${status}, utilisation de 'approved'`);
     status = 'approved';
   }
-  
   return getQuestions({
     ...params,
     status,
@@ -211,44 +231,29 @@ export const getQuestionsByStatus = async (status, params = {}) => {
   });
 };
 
-/**
- * Récupère uniquement les questions approuvées (pour les quiz)
- */
 export const getApprovedQuestions = async (params = {}) => {
   return getQuestionsByStatus('approved', params);
 };
 
-/**
- * Récupère les questions en attente de validation (admin seulement)
- */
 export const getPendingQuestionsOnly = async (params = {}) => {
   return getQuestionsByStatus('pending', params);
 };
 
-/**
- * Récupère les questions rejetées (admin seulement)
- */
 export const getRejectedQuestions = async (params = {}) => {
   return getQuestionsByStatus('rejected', params);
 };
 
-/**
- * Compte les questions par statut
- */
 export const getQuestionsStats = async () => {
   try {
     const allQuestions = await getAllQuestions({ limit: 10000 });
     const questions = allQuestions.questions || [];
     
-    const stats = {
+    return {
       total: questions.length,
       approved: questions.filter(q => q.status === 'approved' || q.status === 'Validée').length,
       pending: questions.filter(q => q.status === 'pending' || q.status === 'En attente').length,
       rejected: questions.filter(q => q.status === 'rejected' || q.status === 'Rejetée').length
     };
-    
-    console.log('[API] 📊 Statistiques questions:', stats);
-    return stats;
   } catch (error) {
     console.error('[API] Erreur comptage questions:', error);
     return { total: 0, approved: 0, pending: 0, rejected: 0 };
@@ -260,7 +265,7 @@ export const saveQuestions = (data) => api.post('/api/questions/save', data);
 export const updateQuestion = (id, data) => api.put(`/api/questions/${id}`, data);
 export const deleteQuestion = (id) => api.delete(`/api/questions/${id}`);
 
-// ==================== VALIDATION DES QUESTIONS (Admin) ====================
+// ==================== VALIDATION DES QUESTIONS ====================
 export const getPendingQuestions = () => api.get('/api/questions/pending');
 export const validateQuestion = (id, approved, comment) => 
   api.put(`/api/questions/${id}/validate`, { approved, comment });
@@ -300,15 +305,14 @@ export const getTerminals = () => api.get('/api/surveillance/terminals');
 export const getSurveillanceAlerts = () => api.get('/api/surveillance/alerts');
 export const exportSessionLogs = (data) => api.post('/api/surveillance/export-logs', data);
 
-// ==================== IA — DeepSeek (timeout 120s) ====================
+// ==================== IA — DeepSeek ====================
 export const generateQuestionsAI = async (data) => {
   try {
     console.log('🚀 [IA] Envoi à /api/ai/generate-questions:', data);
     const response = await api.post('/api/ai/generate-questions', data, {
-      timeout: 120000, // ✅ 120 secondes (2 minutes)
+      timeout: 120000,
     });
     
-    // Normalisation selon la réponse
     if (response && response.questions && Array.isArray(response.questions)) {
       return { success: true, questions: response.questions, metadata: response.metadata };
     }
@@ -336,7 +340,7 @@ export const getManualQuizById = (id) => api.get(`/api/manual-quiz/${id}`);
 export const updateManualQuiz = (id, data) => api.put(`/api/manual-quiz/${id}`, data);
 export const deleteManualQuiz = (id) => api.delete(`/api/manual-quiz/${id}`);
 
-// ==================== COMPOSE (Génération par paramètres) ====================
+// ==================== COMPOSE ====================
 export const generateQuizByAI = (data) => api.post('/api/compose/generate-by-ai', data);
 export const getComposeConfig = () => api.get('/api/compose/config');
 
@@ -385,19 +389,20 @@ export const deleteQuestionImage = (filename) => api.delete(`/api/upload/questio
 // ==================== TEST CONNEXION ====================
 export const testConnection = async () => {
   try {
+    updateApiBaseUrl();
     const result = await api.get('/health');
-    console.log('[API] ✅ Connexion réussie:', result);
-    return { success: true, data: result };
+    console.log('[API] ✅ Connexion réussie:', result.data);
+    return { success: true, data: result.data };
   } catch (error) {
     console.error('[API] ❌ Échec connexion:', error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, url: api.defaults.baseURL };
   }
 };
 
-// ==================== UTILITAIRES POUR LE DASHBOARD ====================
-/**
- * Récupère toutes les données nécessaires pour le tableau de bord analytique
- */
+// ==================== CONFIGURATIONS ====================
+export const getExamConfigs = () => api.get('/api/configs');
+
+// ==================== UTILITAIRES ====================
 export const getAnalyticsDashboardData = async () => {
   try {
     const [questionsStats, allQuestions, domains, subjects] = await Promise.all([
@@ -409,63 +414,35 @@ export const getAnalyticsDashboardData = async () => {
     
     const questions = allQuestions.questions || [];
     
-    // Calculer les statistiques avancées
-    const analytics = {
+    // Calcul des top matières
+    const matiereCount = {};
+    questions.forEach(q => {
+      const matiere = q.matiere || 'Non classé';
+      matiereCount[matiere] = (matiereCount[matiere] || 0) + 1;
+    });
+    const topMatieres = Object.entries(matiereCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+    
+    return {
       ...questionsStats,
       avgPoints: questions.reduce((acc, q) => acc + (q.points || 1), 0) / (questions.length || 1),
-      avgTime: 1, // Temps moyen par question (à ajuster selon vos données)
-      topMatieres: getTopMatieres(questions),
-      repartitionParType: getRepartitionParType(questions),
-      croissanceMensuelle: calculateGrowth(questions),
-      tempsValidationMoyen: calculateAvgValidationTime(questions)
+      avgTime: 1,
+      topMatieres,
+      repartitionParType: {
+        'Savoir': questions.filter(q => q.type === 'Savoir' || q.typeQuestion === 1).length,
+        'Savoir-Faire': questions.filter(q => q.type === 'Savoir-Faire' || q.typeQuestion === 2).length,
+        'Savoir-être': questions.filter(q => q.type === 'Savoir-être' || q.typeQuestion === 3).length
+      },
+      croissanceMensuelle: questions.length > 0 ? '+10%' : '0%',
+      tempsValidationMoyen: '0.2 jours'
     };
-    
-    return analytics;
   } catch (error) {
     console.error('[API] Erreur chargement dashboard analytics:', error);
     throw error;
   }
 };
-
-// Fonctions utilitaires internes
-function getTopMatieres(questions) {
-  const matiereCount = {};
-  questions.forEach(q => {
-    const matiere = q.matiere || 'Non classé';
-    matiereCount[matiere] = (matiereCount[matiere] || 0) + 1;
-  });
-  return Object.entries(matiereCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count]) => ({ name, count }));
-}
-
-function getRepartitionParType(questions) {
-  const types = {
-    'Savoir': 0,
-    'Savoir-Faire': 0,
-    'Savoir-être': 0
-  };
-  questions.forEach(q => {
-    const type = q.type || 'Savoir';
-    if (types[type] !== undefined) {
-      types[type]++;
-    } else {
-      types['Savoir']++;
-    }
-  });
-  return types;
-}
-
-function calculateGrowth(questions) {
-  // Calcul simplifié de la croissance
-  return questions.length > 0 ? '+10%' : '0%';
-}
-
-function calculateAvgValidationTime(questions) {
-  // Calcul du temps moyen de validation (exemple)
-  return '0.2 jours';
-}
 
 // ==================== EXPORT PAR DÉFAUT ====================
 export default api;

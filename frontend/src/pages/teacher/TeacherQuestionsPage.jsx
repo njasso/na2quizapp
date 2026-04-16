@@ -1,6 +1,6 @@
-// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE avec affichage des images et édition fonctionnelle
+// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE CORRIGÉE
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, ArrowLeft, RefreshCw, Search, Eye, Edit, Trash2,
@@ -17,6 +17,7 @@ const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
 
 const TeacherQuestionsPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, hasRole } = useAuth();
   
   console.log('=== TeacherQuestionsPage - DÉMARRAGE ===');
@@ -44,6 +45,36 @@ const TeacherQuestionsPage = () => {
   const isSaisisseur = user?.role === 'SAISISEUR';
   const isEnseignant = user?.role === 'ENSEIGNANT';
   const isAdmin = user?.role === 'ADMIN_DELEGUE' || user?.role === 'ADMIN_SYSTEME';
+  
+  // ✅ FORCER LE RECHARGEMENT QUAND ON REVIENT DE LA PAGE D'ÉDITION
+  useEffect(() => {
+    // Vérifier si on revient d'une édition via sessionStorage
+    const shouldRefresh = sessionStorage.getItem('refreshQuestions');
+    if (shouldRefresh) {
+      sessionStorage.removeItem('refreshQuestions');
+      console.log('[TeacherQuestionsPage] 🔄 Rechargement forcé après édition (sessionStorage)');
+      fetchMyQuestions();
+      return;
+    }
+    
+    // Vérifier le state de navigation
+    if (location.state?.refreshed) {
+      console.log('[TeacherQuestionsPage] 🔄 Rechargement depuis state');
+      fetchMyQuestions();
+      // Nettoyer le state
+      navigate(location.pathname, { replace: true, state: {} });
+      return;
+    }
+    
+    // Vérifier localStorage
+    const forceRefresh = localStorage.getItem('forceRefreshQuestions');
+    if (forceRefresh) {
+      localStorage.removeItem('forceRefreshQuestions');
+      console.log('[TeacherQuestionsPage] 🔄 Rechargement depuis localStorage');
+      fetchMyQuestions();
+      return;
+    }
+  }, [location]);
   
   // Connexion Socket.IO pour les notifications en temps réel
   useEffect(() => {
@@ -184,6 +215,7 @@ const TeacherQuestionsPage = () => {
     return null;
   };
 
+  // ✅ FONCTION FETCH AVEC CACHE BUSTING
   const fetchMyQuestions = async () => {
     setLoading(true);
     try {
@@ -211,13 +243,13 @@ const TeacherQuestionsPage = () => {
         return;
       }
       
-      const url = `/api/questions?limit=500&createdBy=${userId}`;
-      console.log('[fetchMyQuestions] URL:', url);
+      // ✅ AJOUTER CACHE BUSTING AVEC TIMESTAMP
+      const timestamp = Date.now();
+      const url = `/api/questions?limit=500&createdBy=${userId}&_t=${timestamp}`;
+      console.log('[fetchMyQuestions] URL avec cache busting:', url);
       
       const response = await api.get(url);
       console.log('[fetchMyQuestions] Réponse brute:', response);
-      console.log('[fetchMyQuestions] Type de réponse:', typeof response);
-      console.log('[fetchMyQuestions] Clés de la réponse:', Object.keys(response || {}));
       
       let data = [];
       
@@ -248,12 +280,17 @@ const TeacherQuestionsPage = () => {
       
       console.log(`[fetchMyQuestions] ${data.length} questions extraites`);
       
+      // ✅ Vérifier spécifiquement la question modifiée (pour debug)
+      const modifiedQuestion = data.find(q => q._id === '69dffbb44c972ef12b37c9de');
+      if (modifiedQuestion) {
+        console.log('[fetchMyQuestions] 📝 Question modifiée trouvée:');
+        console.log('   - bonOpRep:', modifiedQuestion.bonOpRep);
+        console.log('   - options:', modifiedQuestion.options);
+        console.log('   - bonne réponse:', modifiedQuestion.options?.[modifiedQuestion.bonOpRep]);
+      }
+      
       if (data.length > 0) {
         console.log('[fetchMyQuestions] Première question:', data[0]);
-        console.log('[fetchMyQuestions] Clés de la première question:', Object.keys(data[0]));
-      } else {
-        console.warn('[fetchMyQuestions] Aucune donnée trouvée dans la réponse');
-        console.log('[fetchMyQuestions] Contenu complet de response:', JSON.stringify(response, null, 2));
       }
       
       setQuestions(data);
@@ -308,6 +345,48 @@ const TeacherQuestionsPage = () => {
     setSelectedQuestion(question);
   };
   
+  // ✅ FONCTION D'ÉDITION CORRIGÉE AVEC FLAG DE RAFRAÎCHISSEMENT
+  const handleEditQuestion = (question) => {
+    console.log('[TeacherQuestions] Édition question:', question._id);
+    console.log('[TeacherQuestions] Image:', question.imageQuestion);
+    console.log('[TeacherQuestions] bonOpRep actuel:', question.bonOpRep);
+    console.log('[TeacherQuestions] Bonne réponse actuelle:', question.options?.[question.bonOpRep]);
+    
+    // Stocker les données complètes dans sessionStorage
+    sessionStorage.setItem('editQuestion', JSON.stringify({
+      _id: question._id,
+      libQuestion: question.libQuestion,
+      options: question.options || [],
+      correctAnswer: question.correctAnswer || (question.options && question.options[question.bonOpRep]),
+      bonOpRep: question.bonOpRep,
+      typeQuestion: question.typeQuestion || 1,
+      points: question.points || 1,
+      tempsMin: question.tempsMin || 1,
+      explanation: question.explanation || '',
+      domaine: question.domaine,
+      niveau: question.niveau,
+      matiere: question.matiere,
+      sousDomaine: question.sousDomaine || '',
+      libChapitre: question.libChapitre || '',
+      imageQuestion: question.imageQuestion || '',
+      imageBase64: question.imageBase64 || '',
+      imageMetadata: question.imageMetadata || {},
+      status: question.status,
+      domaineId: question.domaineId,
+      sousDomaineId: question.sousDomaineId,
+      niveauId: question.niveauId,
+      matiereId: question.matiereId
+    }));
+    
+    // Naviguer vers la page d'édition
+    navigate('/create/question', { 
+      state: { 
+        editQuestion: question,
+        isEditing: true 
+      }
+    });
+  };
+  
   const markNotificationAsRead = (id) => {
     setNotifications(prev => prev.map(n => 
       n.id === id ? { ...n, read: true } : n
@@ -324,97 +403,37 @@ const TeacherQuestionsPage = () => {
   
   const unreadCount = notifications.filter(n => !n.read).length;
   
-  // ✅ FONCTION CORRIGÉE POUR OBTENIR L'URL DE L'IMAGE
+  // ✅ FONCTION POUR OBTENIR L'URL DE L'IMAGE
   const getImageUrl = (question) => {
-    if (!question) {
-      console.log('[getImageUrl] Question null');
-      return null;
-    }
-    
-    console.log(`[getImageUrl] Traitement question ${question._id}:`);
-    console.log(`  - imageQuestion: ${question.imageQuestion ? question.imageQuestion.substring(0, 80) : '(absent)'}`);
-    console.log(`  - imageBase64 présent: ${!!question.imageBase64}`);
-    console.log(`  - imageBase64 length: ${question.imageBase64?.length || 0}`);
+    if (!question) return null;
     
     let imagePath = question.imageQuestion || question.imageBase64 || null;
-    
-    if (!imagePath) {
-      console.log('[getImageUrl] Aucune image trouvée');
-      return null;
-    }
-    
-    console.log('[getImageUrl] Image path brute:', imagePath.substring(0, 100));
+    if (!imagePath) return null;
     
     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      console.log('[getImageUrl] URL complète détectée');
       return imagePath;
     }
     
     if (imagePath.startsWith('data:')) {
-      console.log('[getImageUrl] Base64 détecté, longueur:', imagePath.length);
       return imagePath;
     }
     
     if (imagePath.startsWith('/uploads/')) {
-      const fullUrl = `${BACKEND_URL}${imagePath}`;
-      console.log('[getImageUrl] Chemin relatif converti:', fullUrl);
-      return fullUrl;
+      return `${BACKEND_URL}${imagePath}`;
     }
     
     if (imagePath.includes('qcm-')) {
-      const fullUrl = `${BACKEND_URL}/uploads/questions/${imagePath}`;
-      console.log('[getImageUrl] Nom de fichier converti:', fullUrl);
-      return fullUrl;
+      return `${BACKEND_URL}/uploads/questions/${imagePath}`;
     }
     
-    console.log('[getImageUrl] Format non reconnu, retour tel quel');
     return imagePath;
   };
-
-  // ✅ FONCTION D'ÉDITION CORRIGÉE
-  // TeacherQuestionsPage.jsx - Fonction handleEditQuestion corrigée
-const handleEditQuestion = (question) => {
-  console.log('[TeacherQuestions] Édition question:', question._id);
-  console.log('[TeacherQuestions] Image:', question.imageQuestion);
-  
-  // Stocker les données complètes dans sessionStorage (fallback)
-  sessionStorage.setItem('editQuestion', JSON.stringify({
-    _id: question._id,
-    libQuestion: question.libQuestion,
-    options: question.options || [],
-    correctAnswer: question.correctAnswer || (question.options && question.options[question.bonOpRep]),
-    bonOpRep: question.bonOpRep,
-    typeQuestion: question.typeQuestion || 1,
-    points: question.points || 1,
-    tempsMin: question.tempsMin || 1,
-    explanation: question.explanation || '',
-    domaine: question.domaine,
-    niveau: question.niveau,
-    matiere: question.matiere,
-    sousDomaine: question.sousDomaine || '',
-    libChapitre: question.libChapitre || '',
-    imageQuestion: question.imageQuestion || '',
-    imageBase64: question.imageBase64 || '',
-    imageMetadata: question.imageMetadata || {},
-    status: question.status
-  }));
-  
-  // ✅ Utiliser la route existante (sans l'ID dans l'URL)
-  navigate('/create/question', { 
-    state: { 
-      editQuestion: question,
-      isEditing: true 
-    }
-  });
-};
 
   // Modal de détail avec image
   const QuestionDetailModal = ({ question, onClose }) => {
     if (!question) return null;
     const status = getStatusBadge(question.status);
     const imageUrl = getImageUrl(question);
-    
-    console.log('[QuestionDetailModal] imageUrl finale:', imageUrl);
     
     return (
       <motion.div
@@ -468,19 +487,7 @@ const handleEditQuestion = (question) => {
                   background: 'rgba(0,0,0,0.3)',
                   padding: '8px'
                 }} 
-                onLoad={() => console.log('[QuestionDetailModal] Image chargée avec succès:', imageUrl)}
-                onError={(e) => {
-                  console.error('[QuestionDetailModal] Erreur chargement image:', imageUrl);
-                  e.target.style.display = 'none';
-                  const parent = e.target.parentElement;
-                  if (parent && !parent.querySelector('.error-message')) {
-                    const errorMsg = document.createElement('p');
-                    errorMsg.className = 'error-message';
-                    errorMsg.style.cssText = 'color:#ef4444;font-size:0.7rem;margin-top:8px;text-align:center;';
-                    errorMsg.textContent = '⚠️ Image non disponible';
-                    parent.appendChild(errorMsg);
-                  }
-                }}
+                onError={(e) => { e.target.style.display = 'none'; }}
               />
             </div>
           ) : (
@@ -506,13 +513,6 @@ const handleEditQuestion = (question) => {
                 <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,0.1)', borderRadius: 8 }}>
                   <p style={{ color: '#ef4444', fontSize: '0.75rem' }}>
                     <strong>Motif du rejet :</strong> {question.rejectionComment}
-                  </p>
-                </div>
-              )}
-              {question.validationComment && question.status === 'approved' && (
-                <div style={{ marginTop: 8, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 8 }}>
-                  <p style={{ color: '#10b981', fontSize: '0.75rem' }}>
-                    <strong>Commentaire de validation :</strong> {question.validationComment}
                   </p>
                 </div>
               )}
@@ -835,6 +835,25 @@ const handleEditQuestion = (question) => {
               {isSocketConnected ? 'Notifications en temps réel actives' : 'Notifications déconnectées'}
             </span>
           </div>
+        </div>
+        
+        {/* Bouton de rafraîchissement manuel */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <button
+            onClick={() => fetchMyQuestions()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px',
+              background: 'rgba(59,130,246,0.1)',
+              border: '1px solid rgba(59,130,246,0.3)',
+              borderRadius: 8,
+              color: '#60a5fa',
+              cursor: 'pointer',
+              fontSize: '0.8rem'
+            }}
+          >
+            <RefreshCw size={14} /> Actualiser la liste
+          </button>
         </div>
         
         {/* Filtres */}

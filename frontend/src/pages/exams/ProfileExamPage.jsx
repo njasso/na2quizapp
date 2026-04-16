@@ -1,4 +1,4 @@
-// src/pages/exams/ProfileExamPage.jsx - Version CORRIGÉE avec toutes les configurations A à K
+// src/pages/exams/ProfileExamPage.jsx - Version COMPLÈTE CORRIGÉE
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -7,94 +7,175 @@ import { toast, Toaster } from 'react-hot-toast';
 import io from 'socket.io-client';
 import { 
   User, BookOpen, Hash, Layers, Home, ArrowRight, Lock,
-  AlertCircle, Clock, Settings, CheckCircle, XCircle, Info, RefreshCw
+  AlertCircle, Clock, Settings, Info, ChevronRight, Monitor
 } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
 const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
 
-console.log('[ProfileExamPage] Backend URL:', NODE_BACKEND_URL);
+console.log('[ProfileExamPage] 🌍 Environnement:', ENV_CONFIG.environment);
+console.log('[ProfileExamPage] 🔗 Backend URL:', NODE_BACKEND_URL);
+console.log('[ProfileExamPage] 🔌 Socket URL:', SOCKET_URL);
 
 // ══════════════════════════════════════════════════════════════
-//  CONFIGURATIONS DES ÉPREUVES (A à K)
+//  CONFIGURATIONS DES ÉPREUVES (A à K) AVEC INSTRUCTIONS
 // ══════════════════════════════════════════════════════════════
 const EXAM_CONFIGURATIONS = [
   { 
     key: 'A', 
-    label: 'Configuration A', 
-    desc: 'Plage fermée · Séquentiel figé · Même QCM · Résultat binaire · Pas de reprise',
+    label: 'Configuration A - Collective Figée', 
+    desc: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Résultat binaire · Pas de reprise',
     color: '#ef4444',
-    config: { examOption: 'A', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '🔒 Navigation entièrement contrôlée par le superviseur',
+      '⏱️ Chronomètre par question (vous ne pouvez pas passer à la suivante)',
+      '✅ Résultat binaire affiché (Réussi/Échoué) après chaque réponse',
+      '🚫 Pas de reprise possible après échec',
+      '👁️ Le superviseur contrôle l\'avancement des questions'
+    ],
+    config: { examOption: 'A', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: true }
   },
   { 
     key: 'B', 
-    label: 'Configuration B', 
-    desc: 'Plage fermée · Séquentiel figé · Même QCM · Résultat binaire+ · Pas de reprise',
+    label: 'Configuration B - Collective Souple', 
+    desc: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Résultat binaire+ · Pas de reprise',
     color: '#ef4444',
-    config: { examOption: 'B', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '✅ Navigation libre entre les questions',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire + bonne réponse affichée',
+      '🚫 Pas de reprise possible après échec',
+      '📋 Tous les candidats ont les mêmes questions dans le même ordre'
+    ],
+    config: { examOption: 'B', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false }
   },
   { 
     key: 'C', 
-    label: 'Configuration C', 
-    desc: 'Plage fermée · Séquentiel figé · Même QCM · Pas de résultat · Pas de reprise',
+    label: 'Configuration C - Personnalisée', 
+    desc: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Pas de résultat · Pas de reprise',
     color: '#ef4444',
-    config: { examOption: 'C', openRange: false, sequencing: 'identical', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '✅ Navigation libre entre les questions',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '🔇 Aucun résultat affiché (ni pendant, ni après l\'épreuve)',
+      '🚫 Pas de reprise possible',
+      '🏠 Redirection vers l\'accueil après soumission'
+    ],
+    config: { examOption: 'C', openRange: false, sequencing: 'identical', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false }
   },
   { 
     key: 'D', 
-    label: 'Configuration D', 
-    desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Résultat binaire · Pas de reprise',
+    label: 'Configuration D - Aléatoire', 
+    desc: 'Plage fermée · Séquentiel figé · QCM aléatoire par étudiant · Résultat binaire · Pas de reprise',
     color: '#f59e0b',
-    config: { examOption: 'D', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '🎲 Questions aléatoires (chaque candidat a un jeu différent)',
+      '⏱️ Chronomètre par question · Avancement automatique après réponse',
+      '✅ Résultat binaire affiché (Réussi/Échoué)',
+      '🚫 Pas de reprise possible',
+      '⚡ L\'épreuve avance automatiquement après chaque réponse'
+    ],
+    config: { examOption: 'D', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: true }
   },
   { 
     key: 'E', 
-    label: 'Configuration E', 
-    desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Résultat binaire+ · Pas de reprise',
+    label: 'Configuration E - Aléatoire+', 
+    desc: 'Plage fermée · QCM aléatoire · Résultat binaire+ · Pas de reprise',
     color: '#f59e0b',
-    config: { examOption: 'E', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '🎲 Questions aléatoires (chaque candidat a un jeu différent)',
+      '✅ Navigation libre entre les questions',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire + bonne réponse affichée',
+      '🚫 Pas de reprise possible'
+    ],
+    config: { examOption: 'E', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false }
   },
   { 
     key: 'F', 
-    label: 'Configuration F', 
-    desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Pas de résultat · Pas de reprise',
+    label: 'Configuration F - Aléatoire Libre', 
+    desc: 'Plage fermée · QCM aléatoire · Pas de résultat · Pas de reprise',
     color: '#f59e0b',
-    config: { examOption: 'F', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 }
+    instructions: [
+      '🎲 Questions aléatoires (chaque candidat a un jeu différent)',
+      '✅ Navigation libre entre les questions',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '🔇 Aucun résultat affiché (ni pendant, ni après)',
+      '🚫 Pas de reprise possible',
+      '🏠 Redirection vers l\'accueil après soumission'
+    ],
+    config: { examOption: 'F', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false }
   },
   { 
     key: 'G', 
-    label: 'Configuration G', 
-    desc: 'Plage ouverte · Résultat binaire · Reprise OK',
+    label: 'Configuration G - Plage Ouverte + Reprise', 
+    desc: 'Plage ouverte · Navigation libre · Résultat binaire · Reprise autorisée',
     color: '#10b981',
-    config: { examOption: 'G', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: true }
+    instructions: [
+      '📖 Navigation totalement libre (toutes les questions accessibles)',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire affiché (Réussi/Échoué)',
+      '🔄 Reprise autorisée une fois en cas d\'échec',
+      '🖥️ Retour automatique au terminal après l\'épreuve'
+    ],
+    config: { examOption: 'G', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: true, timerPerQuestion: false }
   },
   { 
     key: 'H', 
-    label: 'Configuration H', 
-    desc: 'Plage ouverte · Résultat binaire · No Reply',
+    label: 'Configuration H - Plage Ouverte', 
+    desc: 'Plage ouverte · Navigation libre · Résultat binaire · Pas de reprise',
     color: '#10b981',
-    config: { examOption: 'H', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: false }
+    instructions: [
+      '📖 Navigation totalement libre (toutes les questions accessibles)',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire affiché (Réussi/Échoué)',
+      '🚫 Pas de reprise possible après échec',
+      '🖥️ Retour automatique au terminal après l\'épreuve'
+    ],
+    config: { examOption: 'H', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, timerPerQuestion: false }
   },
   { 
     key: 'I', 
-    label: 'Configuration I', 
-    desc: 'Plage ouverte · Résultat binaire+ · Reprise OK',
+    label: 'Configuration I - Plage Ouverte+', 
+    desc: 'Plage ouverte · Navigation libre · Résultat binaire+ · Reprise autorisée',
     color: '#10b981',
-    config: { examOption: 'I', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: true }
+    instructions: [
+      '📖 Navigation totalement libre (toutes les questions accessibles)',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire + bonne réponse affichée',
+      '🔄 Reprise autorisée une fois en cas d\'échec',
+      '🖥️ Retour automatique au terminal après l\'épreuve'
+    ],
+    config: { examOption: 'I', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: true, timerPerQuestion: false }
   },
   { 
     key: 'J', 
-    label: 'Configuration J', 
-    desc: 'Plage ouverte · Résultat binaire+ · No Reply',
+    label: 'Configuration J - Plage Ouverte++', 
+    desc: 'Plage ouverte · Navigation libre · Résultat binaire+ · Pas de reprise',
     color: '#10b981',
-    config: { examOption: 'J', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: false }
+    instructions: [
+      '📖 Navigation totalement libre (toutes les questions accessibles)',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '✅ Résultat binaire + bonne réponse affichée',
+      '🚫 Pas de reprise possible après échec',
+      '🖥️ Retour automatique au terminal après l\'épreuve'
+    ],
+    config: { examOption: 'J', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, timerPerQuestion: false }
   },
   { 
     key: 'K', 
-    label: 'Configuration K', 
-    desc: 'Plage ouverte · Pas de résultat · No Reply',
+    label: 'Configuration K - Plage Ouverte Libre', 
+    desc: 'Plage ouverte · Navigation libre · Pas de résultat · Pas de reprise',
     color: '#10b981',
-    config: { examOption: 'K', openRange: true, requiredQuestions: 0, showBinaryResult: false, showCorrectAnswer: false, allowRetry: false }
+    instructions: [
+      '📖 Navigation totalement libre (toutes les questions accessibles)',
+      '⏱️ Chronomètre global pour toute l\'épreuve',
+      '🔇 Aucun résultat affiché (ni pendant, ni après)',
+      '🚫 Pas de reprise possible',
+      '🏠 Redirection vers l\'accueil après soumission'
+    ],
+    config: { examOption: 'K', openRange: true, requiredQuestions: 0, showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, timerPerQuestion: false }
   }
 ];
 
@@ -113,6 +194,11 @@ const ProfileExamPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  // ✅ Récupération des paramètres URL
+  const urlOption = searchParams.get('option');
+  const urlSessionId = searchParams.get('sessionId');
+  const urlToken = searchParams.get('token');
+
   const [exam, setExam] = useState(null);
   const [config, setConfig] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,16 +210,30 @@ const ProfileExamPage = () => {
   const [selectedExamOption, setSelectedExamOption] = useState('A');
   const [isOptionLocked, setIsOptionLocked] = useState(false);
   const [showConfigSelector, setShowConfigSelector] = useState(false);
+  const [selectedConfigDetails, setSelectedConfigDetails] = useState(null);
+  const [error, setError] = useState(null);
 
   const socketRef = useRef(null);
   const isMounted = useRef(true);
 
-  const urlOption = searchParams.get('option');
-  const urlSessionId = searchParams.get('sessionId');
+  // ✅ Stockage du token dans localStorage
+  useEffect(() => {
+    if (urlToken) {
+      console.log('[ProfileExamPage] 🔑 Token reçu dans l\'URL, stockage...');
+      localStorage.setItem('userToken', urlToken);
+      localStorage.setItem('token', urlToken);
+    }
+  }, [urlToken]);
 
   const getAuthToken = () => {
     return localStorage.getItem('userToken') || localStorage.getItem('token');
   };
+
+  // Mise à jour des détails de configuration sélectionnée
+  useEffect(() => {
+    const details = EXAM_CONFIGURATIONS.find(c => c.key === selectedExamOption);
+    setSelectedConfigDetails(details);
+  }, [selectedExamOption]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -142,13 +242,17 @@ const ProfileExamPage = () => {
       try {
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
         console.log('[ProfileExamPage] 📌 Option depuis URL:', urlOption);
+        console.log('[ProfileExamPage] 🔗 Backend URL utilisé:', NODE_BACKEND_URL);
         
         const token = getAuthToken();
+        const apiUrl = `${NODE_BACKEND_URL}/api/exams/${examId}`;
+        console.log('[ProfileExamPage] 📡 Appel API:', apiUrl);
+        
         const configHeaders = token ? {
           headers: { Authorization: `Bearer ${token}` }
         } : {};
         
-        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, configHeaders);
+        const response = await axios.get(apiUrl, configHeaders);
         
         if (!isMounted.current) return;
         
@@ -190,12 +294,11 @@ const ProfileExamPage = () => {
         setConfig(normalizedExam.config || null);
         
         console.log('[ProfileExamPage] ✅ Examen chargé:', normalizedExam.title);
-        console.log('[ProfileExamPage] 📊 Configuration:', normalizedExam.config);
         
         if (urlOption && ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].includes(urlOption)) {
           setSelectedExamOption(urlOption);
           setIsOptionLocked(true);
-          toast(`Configuration ${urlOption} définie par le superviseur.`, { 
+          toast.success(`Configuration ${urlOption} définie par le superviseur`, { 
             icon: '🎯', 
             duration: 4000,
             style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #f59e0b' }
@@ -203,9 +306,9 @@ const ProfileExamPage = () => {
         } else if (normalizedExam.examOption) {
           setSelectedExamOption(normalizedExam.examOption);
           setIsOptionLocked(true);
-          toast(`Cette épreuve est pré-configurée en ${normalizedExam.examOption}.`, { 
+          toast.success(`Configuration ${normalizedExam.examOption} pré-définie`, { 
             icon: 'ℹ️', 
-            duration: 5000,
+            duration: 4000,
             style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #3b82f6' }
           });
         } else {
@@ -214,15 +317,25 @@ const ProfileExamPage = () => {
         }
       } catch (error) {
         console.error('[ProfileExamPage] ❌ Erreur chargement:', error);
+        
+        let errorMsg = "Épreuve non trouvée ou erreur serveur.";
+        
+        if (error.code === 'ERR_NETWORK') {
+          errorMsg = `Impossible de joindre le serveur à ${NODE_BACKEND_URL}. Vérifiez que le backend est démarré.`;
+          console.error('[ProfileExamPage] 🔴 Erreur réseau - Backend inaccessible:', NODE_BACKEND_URL);
+        } else if (error.response?.status === 401) {
+          errorMsg = "Session expirée. Veuillez vous reconnecter.";
+          localStorage.removeItem('userToken');
+          localStorage.removeItem('token');
+          setTimeout(() => navigate('/login'), 2000);
+        } else if (error.response?.status === 404) {
+          errorMsg = "Épreuve non trouvée.";
+        }
+        
+        setError(errorMsg);
+        
         if (isMounted.current) {
-          if (error.response?.status === 401) {
-            toast.error("Session expirée. Veuillez vous reconnecter.");
-            localStorage.removeItem('userToken');
-            localStorage.removeItem('token');
-            setTimeout(() => navigate('/login'), 2000);
-          } else {
-            toast.error("Épreuve non trouvée ou erreur serveur.");
-          }
+          toast.error(errorMsg);
         }
       } finally {
         if (isMounted.current) setIsLoading(false);
@@ -234,11 +347,13 @@ const ProfileExamPage = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [examId, navigate, urlOption]);
+  }, [examId, navigate, urlOption, NODE_BACKEND_URL]);
 
-  // Connexion WebSocket
+  // Connexion WebSocket avec URL dynamique
   useEffect(() => {
-    const socket = io(NODE_BACKEND_URL, { 
+    console.log('[ProfileExamPage] 🔌 Connexion Socket à:', SOCKET_URL);
+    
+    const socket = io(SOCKET_URL, { 
       path: '/socket.io',
       transports: ['polling'],
       reconnection: true,
@@ -296,7 +411,6 @@ const ProfileExamPage = () => {
         level: level.trim()
       };
 
-      // Récupérer la configuration complète sélectionnée
       const selectedConfig = EXAM_CONFIGURATIONS.find(c => c.key === selectedExamOption);
       
       localStorage.setItem('studentInfoForExam', JSON.stringify({
@@ -319,7 +433,8 @@ const ProfileExamPage = () => {
           examId: examId,
           studentInfo: studentInfoData,
           status: status,
-          examOption: selectedExamOption
+          examOption: selectedExamOption,
+          config: selectedConfig?.config || null
         });
         
         toast.success("Profil enregistré. Redirection...", { 
@@ -329,7 +444,11 @@ const ProfileExamPage = () => {
         });
         
         setTimeout(() => {
-          navigate(`/exam/waiting/${examId}`);
+          if (selectedExamOption === 'A' || selectedExamOption === 'B') {
+            navigate(`/exam/waiting/${examId}`);
+          } else {
+            navigate(`/exam/compose/${examId}`);
+          }
         }, 1500);
       } else {
         toast.error("Connexion au serveur perdue. Rechargement...");
@@ -343,51 +462,11 @@ const ProfileExamPage = () => {
     }
   };
 
-  // ✅ Fonction pour obtenir le libellé de l'option
-  const getOptionLabel = (opt) => {
-    const found = EXAM_CONFIGURATIONS.find(c => c.key === opt);
-    if (found) return found.label;
-    const labels = { A: 'Collective Figée', B: 'Collective Souple', C: 'Personnalisée', D: 'Aléatoire' };
-    return labels[opt] || `Configuration ${opt}`;
-  };
-
-  // ✅ Fonction pour obtenir la description de la configuration
-  const getConfigDescription = () => {
-    if (!config) return null;
-    
-    const descriptions = [];
-    
-    if (config.openRange) {
-      descriptions.push(`📖 Plage ouverte: ${config.requiredQuestions || 0} questions à traiter`);
-    } else {
-      descriptions.push('🔒 Plage fermée');
+  const getButtonText = () => {
+    if (selectedExamOption === 'A' || selectedExamOption === 'B') {
+      return 'Rejoindre la salle d\'attente';
     }
-    
-    if (config.sequencing === 'randomPerStudent') {
-      descriptions.push('🎲 Séquencement aléatoire par étudiant');
-    } else {
-      descriptions.push('📋 Séquencement identique pour tous');
-    }
-    
-    if (config.allowRetry) {
-      descriptions.push('🔄 Reprise autorisée après échec');
-    }
-    
-    if (config.timerPerQuestion) {
-      descriptions.push(`⏱️ ${config.timePerQuestion || 60} secondes par question`);
-    } else {
-      descriptions.push(`⏰ ${config.totalTime || 60} minutes au total`);
-    }
-    
-    if (config.showBinaryResult) {
-      descriptions.push('✅ Résultat binaire affiché après chaque réponse');
-    }
-    
-    if (config.showCorrectAnswer) {
-      descriptions.push('💡 Bonne réponse affichée en cas d\'erreur');
-    }
-    
-    return descriptions;
+    return 'Commencer l\'examen';
   };
 
   if (isLoading) {
@@ -399,29 +478,45 @@ const ProfileExamPage = () => {
       }}>
         <div style={{ width: 48, height: 48, border: '3px solid rgba(59,130,246,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
         <p style={{ color: '#94a3b8', marginTop: 16 }}>Chargement de l'épreuve...</p>
+        <p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 8 }}>Backend: {NODE_BACKEND_URL}</p>
         <Toaster />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  if (!exam) {
+  if (error || !exam) {
     return (
       <div style={{
         minHeight: '100vh',
         background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)',
         display: 'flex', alignItems: 'center', justifyContent: 'center'
       }}>
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: 12, padding: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <AlertCircle size={24} color="#ef4444" />
-          <p style={{ color: '#ef4444' }}>Épreuve non trouvée.</p>
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: 12, padding: 20, maxWidth: 500, textAlign: 'center' }}>
+          <AlertCircle size={48} color="#ef4444" style={{ marginBottom: 16 }} />
+          <p style={{ color: '#ef4444', marginBottom: 16 }}>{error || 'Épreuve non trouvée.'}</p>
+          <p style={{ color: '#64748b', fontSize: '0.75rem', marginBottom: 16 }}>
+            Backend ciblé: {NODE_BACKEND_URL}
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button 
+              onClick={() => window.location.reload()} 
+              style={{ padding: '8px 20px', background: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}
+            >
+              Réessayer
+            </button>
+            <button 
+              onClick={() => navigate('/')} 
+              style={{ padding: '8px 20px', background: '#475569', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}
+            >
+              Accueil
+            </button>
+          </div>
         </div>
         <Toaster />
       </div>
     );
   }
-
-  const configDescriptions = getConfigDescription();
 
   return (
     <div style={{
@@ -504,7 +599,7 @@ const ProfileExamPage = () => {
           marginTop: '60px',
         }}
       >
-        <motion.div variants={itemVariants} style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <motion.div variants={itemVariants} style={{ textAlign: 'center', marginBottom: '24px' }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px',
             padding: '5px 14px', marginBottom: '16px',
@@ -543,142 +638,169 @@ const ProfileExamPage = () => {
               Durée: {exam.duration || config?.totalTime || 60} minutes
             </span>
           </div>
-          
-          <p style={{ fontSize: '0.9375rem', color: 'rgba(203,213,225,0.7)', marginTop: '16px' }}>
-            Renseignez vos informations pour rejoindre la salle d'attente
-          </p>
         </motion.div>
 
-        {/* ✅ AFFICHAGE DE LA CONFIGURATION DE L'ÉPREUVE */}
-        {config && (
+        {selectedConfigDetails && (
           <motion.div variants={itemVariants} style={{
             marginBottom: '24px',
-            padding: '16px',
-            background: 'rgba(99,102,241,0.08)',
-            border: '1px solid rgba(99,102,241,0.2)',
-            borderRadius: '12px',
+            padding: '18px',
+            background: `${selectedConfigDetails.color}10`,
+            border: `1px solid ${selectedConfigDetails.color}40`,
+            borderRadius: '14px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Settings size={16} color="#8b5cf6" />
-              <span style={{ color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Configuration de l'épreuve
-              </span>
-            </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{
-                padding: '4px 12px',
-                borderRadius: '20px',
-                background: selectedExamOption === 'A' ? 'rgba(239,68,68,0.15)' :
-                           selectedExamOption === 'B' ? 'rgba(59,130,246,0.15)' :
-                           selectedExamOption === 'C' ? 'rgba(139,92,246,0.15)' : 'rgba(245,158,11,0.15)',
-                border: `1px solid ${selectedExamOption === 'A' ? '#ef4444' :
-                                    selectedExamOption === 'B' ? '#3b82f6' :
-                                    selectedExamOption === 'C' ? '#8b5cf6' : '#f59e0b'}44`,
-                color: selectedExamOption === 'A' ? '#ef4444' :
-                       selectedExamOption === 'B' ? '#3b82f6' :
-                       selectedExamOption === 'C' ? '#8b5cf6' : '#f59e0b',
-                fontSize: '0.75rem',
-                fontWeight: 700
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: '32px', height: '32px', borderRadius: '8px',
+                background: `${selectedConfigDetails.color}22`, color: selectedConfigDetails.color,
+                fontSize: '0.9rem', fontWeight: 800
               }}>
-                Configuration {selectedExamOption} - {getOptionLabel(selectedExamOption)}
+                {selectedConfigDetails.key}
               </span>
+              <div>
+                <div style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 700 }}>
+                  {selectedConfigDetails.label}
+                </div>
+                <div style={{ color: selectedConfigDetails.color, fontSize: '0.7rem', marginTop: '2px' }}>
+                  {selectedConfigDetails.desc}
+                </div>
+              </div>
             </div>
             
-            {configDescriptions && configDescriptions.length > 0 && (
-              <div style={{ marginTop: '8px' }}>
-                {configDescriptions.map((desc, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', fontSize: '0.7rem', color: '#94a3b8' }}>
-                    <span>{desc}</span>
-                  </div>
+            <div style={{
+              background: 'rgba(0,0,0,0.2)',
+              borderRadius: '10px',
+              padding: '14px 16px',
+              marginTop: '8px'
+            }}>
+              <div style={{ 
+                display: 'flex', alignItems: 'center', gap: '6px', 
+                marginBottom: '10px',
+                color: selectedConfigDetails.color,
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}>
+                <Info size={14} />
+                Instructions pour cette configuration
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                {selectedConfigDetails.instructions.map((instruction, idx) => (
+                  <li key={idx} style={{
+                    color: '#cbd5e1',
+                    fontSize: '0.8rem',
+                    marginBottom: '6px',
+                    lineHeight: 1.5
+                  }}>
+                    {instruction}
+                  </li>
                 ))}
+              </ul>
+            </div>
+            
+            {urlSessionId && (selectedConfigDetails.key === 'G' || selectedConfigDetails.key === 'H' || 
+                              selectedConfigDetails.key === 'I' || selectedConfigDetails.key === 'J') && (
+              <div style={{
+                marginTop: '12px',
+                padding: '8px 12px',
+                background: 'rgba(16,185,129,0.1)',
+                border: '1px solid rgba(16,185,129,0.3)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <Monitor size={14} color="#10b981" />
+                <span style={{ color: '#10b981', fontSize: '0.75rem' }}>
+                  Connecté au terminal · Retour automatique après l'épreuve
+                </span>
               </div>
             )}
           </motion.div>
         )}
 
-        {/* ✅ SÉLECTION DES CONFIGURATIONS A à K */}
-        <motion.div variants={itemVariants} style={{ marginBottom: '24px' }}>
-          <button
-            type="button"
-            onClick={() => setShowConfigSelector(!showConfigSelector)}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: 'rgba(59,130,246,0.15)',
-              border: '1px solid rgba(59,130,246,0.3)',
-              borderRadius: '12px',
-              color: '#60a5fa',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: isOptionLocked ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              opacity: isOptionLocked ? 0.6 : 1
-            }}
-            disabled={isOptionLocked}
-          >
-            <Settings size={16} />
-            {showConfigSelector ? 'Masquer les configurations' : 'Afficher les 11 configurations disponibles (A à K)'}
-          </button>
-          
-          {showConfigSelector && !isOptionLocked && (
-            <div style={{
-              marginTop: '16px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: '12px',
-              maxHeight: '400px',
-              overflowY: 'auto',
-              padding: '4px'
-            }}>
-              {EXAM_CONFIGURATIONS.map((cfg) => (
-                <label
-                  key={cfg.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    padding: '12px',
-                    background: selectedExamOption === cfg.key ? `${cfg.color}15` : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${selectedExamOption === cfg.key ? cfg.color : 'rgba(59,130,246,0.15)'}`,
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    gap: '10px'
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="examOption"
-                    value={cfg.key}
-                    checked={selectedExamOption === cfg.key}
-                    onChange={(e) => setSelectedExamOption(e.target.value)}
-                    style={{ marginTop: '2px', accentColor: cfg.color }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: '28px', height: '28px', borderRadius: '6px',
-                        background: `${cfg.color}22`, color: cfg.color,
-                        fontSize: '0.75rem', fontWeight: 800
-                      }}>
-                        {cfg.key}
-                      </span>
-                      <span style={{ color: '#f8fafc', fontSize: '0.85rem', fontWeight: 600 }}>
-                        {cfg.label}
-                      </span>
+        {!isOptionLocked && (
+          <motion.div variants={itemVariants} style={{ marginBottom: '24px' }}>
+            <button
+              type="button"
+              onClick={() => setShowConfigSelector(!showConfigSelector)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: 'rgba(59,130,246,0.15)',
+                border: '1px solid rgba(59,130,246,0.3)',
+                borderRadius: '12px',
+                color: '#60a5fa',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              <Settings size={16} />
+              {showConfigSelector ? 'Masquer les configurations' : 'Changer de configuration (A à K)'}
+            </button>
+            
+            {showConfigSelector && (
+              <div style={{
+                marginTop: '16px',
+                display: 'grid',
+                gridTemplateColumns: '1fr',
+                gap: '8px',
+                maxHeight: '350px',
+                overflowY: 'auto',
+                padding: '4px'
+              }}>
+                {EXAM_CONFIGURATIONS.map((cfg) => (
+                  <label
+                    key={cfg.key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      padding: '12px',
+                      background: selectedExamOption === cfg.key ? `${cfg.color}15` : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${selectedExamOption === cfg.key ? cfg.color : 'rgba(59,130,246,0.15)'}`,
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      gap: '10px'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="examOption"
+                      value={cfg.key}
+                      checked={selectedExamOption === cfg.key}
+                      onChange={(e) => setSelectedExamOption(e.target.value)}
+                      style={{ marginTop: '2px', accentColor: cfg.color }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: '28px', height: '28px', borderRadius: '6px',
+                          background: `${cfg.color}22`, color: cfg.color,
+                          fontSize: '0.75rem', fontWeight: 800
+                        }}>
+                          {cfg.key}
+                        </span>
+                        <span style={{ color: '#f8fafc', fontSize: '0.85rem', fontWeight: 600 }}>
+                          {cfg.label}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '6px', lineHeight: 1.4 }}>
+                        {cfg.desc}
+                      </p>
                     </div>
-                    <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '6px', lineHeight: 1.4 }}>
-                      {cfg.desc}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-        </motion.div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <motion.div variants={itemVariants}>
@@ -815,7 +937,7 @@ const ProfileExamPage = () => {
               padding: '16px',
               background: isSubmitted
                 ? 'rgba(59,130,246,0.3)'
-                : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                : `linear-gradient(135deg, ${selectedConfigDetails?.color || '#3b82f6'}, ${selectedConfigDetails?.color || '#2563eb'}dd)`,
               border: 'none',
               borderRadius: '12px',
               color: '#fff',
@@ -826,7 +948,7 @@ const ProfileExamPage = () => {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              boxShadow: isSubmitted ? 'none' : '0 4px 20px rgba(59,130,246,0.3)',
+              boxShadow: isSubmitted ? 'none' : `0 4px 20px ${selectedConfigDetails?.color || '#3b82f6'}40`,
             }}
           >
             {isSubmitted ? (
@@ -836,8 +958,8 @@ const ProfileExamPage = () => {
               </>
             ) : (
               <>
-                {selectedExamOption === 'A' || selectedExamOption === 'B' ? 'Rejoindre la salle d\'attente' : 'Commencer l\'examen'}
-                <ArrowRight size={18} />
+                {getButtonText()}
+                <ChevronRight size={18} />
               </>
             )}
           </motion.button>

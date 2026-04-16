@@ -1,7 +1,7 @@
-// src/pages/composition/ExamCompletedPage.jsx
+// src/pages/composition/ExamCompletedPage.jsx - Version COMPLÈTE CORRIGÉE
 // Page de fin d'épreuve pour les options C, F, K (sans affichage de résultat)
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Home, LogOut, Shield } from 'lucide-react';
 
@@ -34,6 +34,10 @@ const ExamCompletedPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
   const { state } = useLocation();
+  const [searchParams] = useSearchParams();
+  
+  // ✅ Récupération du token dans l'URL
+  const urlToken = searchParams.get('token');
 
   const {
     studentInfo,
@@ -58,6 +62,15 @@ const ExamCompletedPage = () => {
     desc: 'Épreuve soumise avec succès',
     color: '#3b82f6',
   };
+
+  // ✅ Stockage du token
+  useEffect(() => {
+    if (urlToken) {
+      console.log('[ExamCompletedPage] 🔑 Token reçu dans l\'URL, stockage...');
+      localStorage.setItem('userToken', urlToken);
+      localStorage.setItem('token', urlToken);
+    }
+  }, [urlToken]);
 
   // ── Countdown + redirection auto ────────────────────────────────────────
   useEffect(() => {

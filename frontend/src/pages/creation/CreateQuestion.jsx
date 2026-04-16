@@ -344,7 +344,8 @@ const CreateQuestion = () => {
   // ── Sauvegarde ─────────────────────────────────────────────────────────────
   // ✅ FIX: utilise POST /api/questions (route unitaire avec .save())
   // → déclenche les hooks Mongoose → cleInterne généré → pas de doublons silencieux
- const handleSave = async () => {
+ // ── Sauvegarde ─────────────────────────────────────────────────────────────
+const handleSave = async () => {
   if (!validateForm()) { 
     toast.error('Veuillez corriger les erreurs avant d\'enregistrer'); 
     return; 
@@ -364,18 +365,24 @@ const CreateQuestion = () => {
     return;
   }
 
-  let bonOpRep = filled.findIndex(o => o === correctAnswer);
+  // Calculer bonOpRep correctement
+  let bonOpRep = -1;
+  if (typeQuestion === 1) {
+    bonOpRep = filled.findIndex(o => o === correctAnswer);
+  } else {
+    // Pour les questions multiples, prendre la première réponse correcte comme référence
+    if (correctAnswers.length > 0) {
+      bonOpRep = filled.findIndex(o => o === correctAnswers[0]);
+    }
+  }
   if (bonOpRep < 0) bonOpRep = 0;
 
   // ✅ Payload COMPLET avec IDs ET noms
   const payload = {
-    // IDs (obligatoires pour la validation backend)
     domaineId: selectedDomainId,
     sousDomaineId: selectedSousDomaineId,
     niveauId: selectedLevelId,
     matiereId: selectedMatiereId,
-    
-    // Noms (pour l'affichage)
     domaine: domainData?.nom || '',
     domaineCode: domainData?.code || '',
     sousDomaine: sousDomaineData?.nom || '',
@@ -383,8 +390,6 @@ const CreateQuestion = () => {
     niveau: levelData?.nom || '',
     matiere: matiereData?.nom || '',
     matiereCode: matiereData?.code || '',
-    
-    // Contenu de la question
     libQuestion,
     libChapitre: libChapitre.trim(),
     options: filled,
@@ -394,54 +399,65 @@ const CreateQuestion = () => {
     points,
     tempsMin,
     explanation,
-    
-    // ✅ Image - Gestion correcte
     imageQuestion: imageQuestion || '',
     imageBase64: imageBase64 || '',
-    imageMetadata: imageMetadata || { 
-      originalName: '', 
-      mimeType: '', 
-      size: 0, 
-      storageType: 'none' 
-    },
-    
+    imageMetadata: imageMetadata || { originalName: '', mimeType: '', size: 0, storageType: 'none' },
     matriculeAuteur: user?.matricule || user?.email || '',
     status: 'pending',
   };
 
   console.log('[CreateQuestion] 📤 Payload:', {
     ...payload,
-    imageBase64: payload.imageBase64 ? `${payload.imageBase64.substring(0, 50)}...` : '(vide)',
-    imageQuestion: payload.imageQuestion || '(vide)'
+    bonOpRep,
+    correctAnswer: typeQuestion === 1 ? correctAnswer : correctAnswers,
+    imageBase64: payload.imageBase64 ? 'present' : 'absent'
   });
 
   setIsLoading(true);
   try {
     let response;
     if (isEditing && editingQuestionId) {
+      console.log('[CreateQuestion] ✏️ Mise à jour question:', editingQuestionId);
       response = await api.put(`/api/questions/${editingQuestionId}`, payload);
+      console.log('[CreateQuestion] 📦 Réponse mise à jour:', response.data);
+      
+      // ✅ Vérifier la réponse
+      if (response.data?.success) {
+        toast.success('Question mise à jour avec succès !');
+        
+        // ✅ FORCER LE RAFRAÎCHISSEMENT DE LA PAGE PRÉCÉDENTE
+        // Méthode 1: sessionStorage
+        sessionStorage.setItem('refreshQuestions', Date.now().toString());
+        // Méthode 2: localStorage
+        localStorage.setItem('forceRefreshQuestions', Date.now().toString());
+        
+        // Rediriger vers la page des questions avec un flag
+        navigate('/teacher/questions', { 
+          state: { refreshed: true, timestamp: Date.now(), questionId: editingQuestionId },
+          replace: true 
+        });
+        return;
+      } else {
+        throw new Error(response.data?.error || 'Erreur lors de la mise à jour');
+      }
     } else {
       response = await api.post('/api/questions', payload);
-    }
-
-    // ✅ Vérifier le format de réponse
-    const responseData = response.data || response;
-    
-    if (responseData.success) {
-      toast.success(isEditing ? 'Question mise à jour !' : 'Question envoyée en validation !');
-      setShowPostSaveModal(true);
-    } else {
-      throw new Error(responseData.error || responseData.message || 'Erreur lors de la création');
+      if (response.data?.success) {
+        toast.success('Question créée et envoyée en validation !');
+        setShowPostSaveModal(true);
+        return;
+      } else {
+        throw new Error(response.data?.error || 'Erreur lors de la création');
+      }
     }
   } catch (err) {
-    console.error('[CreateQuestion] ❌', err);
-    const errorMessage = err.response?.data?.error || err.message || 'Erreur lors de la création';
+    console.error('[CreateQuestion] ❌ Erreur:', err);
+    const errorMessage = err.response?.data?.error || err.message || 'Erreur lors de l\'enregistrement';
     toast.error(errorMessage);
   } finally {
     setIsLoading(false);
   }
-};
-  // ── Réinitialisations après sauvegarde (4 variantes) ──────────────────────
+};  // ── Réinitialisations après sauvegarde (4 variantes) ──────────────────────
   const resetContent = () => {
     setLibQuestion(''); setOptions(['', '', '']); setCorrectAnswer(''); setCorrectAnswers([]);
     setExplanation(''); setImageQuestion(''); setImageBase64(''); setImageMetadata({});

@@ -1,4 +1,4 @@
-// socket-server/server.js - Version COMPLÈTE avec référentiel intégré
+// socket-server/server.js - Version COMPLÈTE avec numérotation séquentielle des questions
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -37,8 +37,8 @@ dotenv.config();
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════════
-const PORT = process.env.PORT || 10000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://na2quizapp.netlify.app';
+const PORT = process.env.PORT || 5000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const JWT_SECRET = process.env.JWT_SECRET || 'na2quiz_secret_key';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isProduction = NODE_ENV === 'production';
@@ -50,7 +50,24 @@ if (!MONGODB_URI) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CORS - Configuration unique et permissive pour Render
+// CONFIGURATIONS COMPLÈTES A à K
+// ═══════════════════════════════════════════════════════════════
+const EXAM_FULL_CONFIGS = {
+  A: { examOption: 'A', label: 'Collective Figée', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: true, timePerQuestion: 60, totalTime: 60, color: '#ef4444' },
+  B: { examOption: 'B', label: 'Collective Souple', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#ef4444' },
+  C: { examOption: 'C', label: 'Personnalisée', openRange: false, sequencing: 'identical', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#ef4444' },
+  D: { examOption: 'D', label: 'Aléatoire', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: true, timePerQuestion: 60, totalTime: 60, color: '#f59e0b' },
+  E: { examOption: 'E', label: 'Aléatoire+', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#f59e0b' },
+  F: { examOption: 'F', label: 'Aléatoire Libre', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#f59e0b' },
+  G: { examOption: 'G', label: 'Plage Ouverte + Reprise', openRange: true, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: true, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#10b981' },
+  H: { examOption: 'H', label: 'Plage Ouverte', openRange: true, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#10b981' },
+  I: { examOption: 'I', label: 'Plage Ouverte+', openRange: true, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: true, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#10b981' },
+  J: { examOption: 'J', label: 'Plage Ouverte++', openRange: true, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#10b981' },
+  K: { examOption: 'K', label: 'Plage Ouverte Libre', openRange: true, sequencing: 'identical', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0, timerPerQuestion: false, timePerQuestion: 60, totalTime: 60, color: '#10b981' }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CORS - Configuration dynamique
 // ═══════════════════════════════════════════════════════════════
 const CORS_ORIGINS = [
   FRONTEND_URL,
@@ -59,6 +76,7 @@ const CORS_ORIGINS = [
   'http://localhost:5000',
   'http://localhost:5001',
   'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
   'http://192.168.0.1:3000',
   'http://192.168.106.51:5000',
   'https://na2quizapp.onrender.com'
@@ -77,6 +95,10 @@ app.use(cors({
     if (CORS_ORIGINS.includes(origin)) return callback(null, true);
     if (origin?.endsWith('.netlify.app')) return callback(null, true);
     if (origin?.endsWith('.onrender.com')) return callback(null, true);
+    
+    if (origin.match(/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/)) {
+      return callback(null, true);
+    }
     
     console.warn(`[CORS] Origine non standard mais acceptée: ${origin}`);
     callback(null, true);
@@ -118,6 +140,24 @@ app.use('/uploads', express.static(path.join(publicDir, 'uploads')));
 // SCHÉMAS MONGOOSE
 // ═══════════════════════════════════════════════════════════════
 
+// === Counter Schema pour la numérotation séquentielle ===
+const counterSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  seq: { type: Number, default: 0 }
+});
+
+const Counter = mongoose.models.Counter || mongoose.model('Counter', counterSchema);
+
+// Fonction pour obtenir la prochaine séquence
+async function getNextSequence(seqName) {
+  const counter = await Counter.findByIdAndUpdate(
+    seqName,
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+  return counter.seq;
+}
+
 // === User Schema ===
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -156,8 +196,11 @@ userSchema.methods.toJSON = function() {
   return obj;
 };
 
-// === Question Schema - VERSION AVEC RÉFÉRENTIEL COMPLET ===
+// === Question Schema - VERSION AVEC RÉFÉRENTIEL COMPLET ET RÉFÉRENCE ===
 const questionSchema = new mongoose.Schema({
+  // ✅ Référence séquentielle unique (Q0001, Q0002, etc.)
+  reference: { type: String, unique: true, sparse: true, index: true },
+  
   // ✅ CHAMPS RÉFÉRENTIEL (IDs pour validation et recherche)
   domaineId: { type: String, required: true },
   domaine: { type: String, required: true },
@@ -212,8 +255,21 @@ questionSchema.index({ status: 1, createdAt: -1 });
 questionSchema.index({ createdBy: 1, status: 1 });
 questionSchema.index({ cleInterne: 1 }, { unique: true, sparse: true });
 questionSchema.index({ libChapitre: 1 });
+questionSchema.index({ reference: 1 });
 
-questionSchema.pre('save', function(next) {
+// ✅ PRE-SAVE HOOK - Génération de la référence pour les questions approuvées
+questionSchema.pre('save', async function(next) {
+  // Générer la référence si la question est approuvée et n'a pas encore de référence
+  if (this.status === 'approved' && !this.reference) {
+    try {
+      const seq = await getNextSequence('question_reference');
+      this.reference = `Q${String(seq).padStart(4, '0')}`;
+      console.log(`[DB] ✅ Référence générée: ${this.reference} pour la question ${this._id}`);
+    } catch (err) {
+      console.error('[DB] Erreur génération référence:', err);
+    }
+  }
+  
   if (!this.cleInterne && this.matiere && this.libQuestion) {
     this.cleInterne = `${this.matiere}::${this.libQuestion}`;
   }
@@ -231,7 +287,21 @@ questionSchema.pre('save', function(next) {
   next();
 });
 
-// === Exam Schema ===
+// ✅ POST-UPDATE HOOK - Générer la référence si la question devient approuvée
+questionSchema.post('findOneAndUpdate', async function(doc) {
+  if (doc && doc.status === 'approved' && !doc.reference) {
+    try {
+      const seq = await getNextSequence('question_reference');
+      doc.reference = `Q${String(seq).padStart(4, '0')}`;
+      await doc.save();
+      console.log(`[DB] ✅ Référence générée post-update: ${doc.reference}`);
+    } catch (err) {
+      console.error('[DB] Erreur génération référence post-update:', err);
+    }
+  }
+});
+
+// === Exam Schema - AVEC TOUTES LES OPTIONS A à K ===
 const examSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, default: '' },
@@ -247,7 +317,7 @@ const examSchema = new mongoose.Schema({
   teacherName: { type: String, default: '' },
   teacherGrade: { type: String, default: '' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', null], default: null },
   cleExterne: { type: String, default: '' },
   
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
@@ -255,7 +325,7 @@ const examSchema = new mongoose.Schema({
   sessionRoom: { type: String, default: 'Salle principale' },
   
   config: {
-    examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+    examOption: { type: String, enum: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', null], default: null },
     openRange: { type: Boolean, default: false },
     requiredQuestions: { type: Number, default: 0 },
     sequencing: { type: String, default: 'identical' },
@@ -282,9 +352,7 @@ examSchema.virtual('questionCount').get(function() {
 examSchema.index({ assignedTo: 1, status: 1 });
 examSchema.index({ createdBy: 1, createdAt: -1 });
 
-// === Result Schema ===
-
-// === Result Schema - VERSION CORRIGÉE (TOUS LES CHAMPS À L'INTÉRIEUR) ===
+// === Result Schema - AVEC TOUTES LES OPTIONS A à K ===
 const resultSchema = new mongoose.Schema({
   examId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   studentInfo: {
@@ -305,14 +373,14 @@ const resultSchema = new mongoose.Schema({
   category: { type: String },
   duration: { type: Number },
   passingScore: { type: Number },
-  examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+  examOption: { type: String, enum: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', null], default: null },
   examQuestions: { type: Array, default: [] },
   pdfPath: { type: String, default: null },
   cleExterne: { type: String, default: '' },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   
   config: {
-    examOption: { type: String, enum: ['A', 'B', 'C', 'D', null], default: null },
+    examOption: { type: String, enum: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', null], default: null },
     openRange: { type: Boolean, default: false },
     requiredQuestions: { type: Number, default: 0 },
     sequencing: { type: String, default: 'identical' },
@@ -329,7 +397,6 @@ const resultSchema = new mongoose.Schema({
   
   questionDetails: { type: Array, default: [] },
   
-  // ✅ Champs de sécurité (DOIVENT ÊTRE À L'INTÉRIEUR du schema)
   qrCodeHash: { type: String, unique: true, sparse: true },
   bulletinUrl: { type: String, default: '' },
   generatedAt: { type: Date, default: Date.now },
@@ -340,7 +407,7 @@ const resultSchema = new mongoose.Schema({
   userAgent: { type: String }
 }, { timestamps: true });
 
-// ✅ Virtual fields (après le schema)
+// Virtual fields
 resultSchema.virtual('fullName').get(function() {
   return `${this.studentInfo.firstName} ${this.studentInfo.lastName}`;
 });
@@ -366,7 +433,7 @@ resultSchema.virtual('correctCount').get(function() {
   return this.questionDetails.filter(q => q.isCorrect === true).length;
 });
 
-// ✅ Indexes (après les virtuals)
+// Indexes
 resultSchema.index({ examId: 1, createdAt: -1 });
 resultSchema.index({ 'studentInfo.matricule': 1 });
 resultSchema.index({ createdAt: -1 });
@@ -374,6 +441,7 @@ resultSchema.index({ percentage: -1 });
 resultSchema.index({ userId: 1 });
 resultSchema.index({ userId: 1, createdAt: -1 });
 resultSchema.index({ qrCodeHash: 1 });
+
 // === Domain Schema (MongoDB) ===
 const subDomainSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -427,6 +495,7 @@ mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 8000 })
     console.log('[DB] ✅ Connecté à MongoDB');
     await cleanIndexes();
     await createDefaultData();
+    await generateReferencesForExistingQuestions();
   })
   .catch(err => console.error('[DB] ❌ Erreur:', err.message));
 
@@ -494,6 +563,42 @@ async function createDefaultData() {
   }
 }
 
+// ✅ Script pour générer les références des questions existantes
+async function generateReferencesForExistingQuestions() {
+  try {
+    const approvedQuestions = await Question.find({ 
+      status: 'approved', 
+      reference: { $exists: false } 
+    }).sort({ approvedAt: 1, createdAt: 1 });
+    
+    if (approvedQuestions.length === 0) {
+      console.log('[DB] ✅ Aucune question existante sans référence');
+      return;
+    }
+    
+    console.log(`[DB] 🔄 Génération de références pour ${approvedQuestions.length} questions existantes...`);
+    
+    let counter = await Counter.findByIdAndUpdate(
+      'question_reference',
+      { $inc: { seq: approvedQuestions.length } },
+      { new: true, upsert: true }
+    );
+    
+    let startSeq = (counter.seq - approvedQuestions.length) + 1;
+    
+    for (let i = 0; i < approvedQuestions.length; i++) {
+      const q = approvedQuestions[i];
+      q.reference = `Q${String(startSeq + i).padStart(4, '0')}`;
+      await q.save();
+      console.log(`[DB] ✅ ${q.reference} - ${q.libQuestion?.substring(0, 50)}...`);
+    }
+    
+    console.log(`[DB] 🎯 ${approvedQuestions.length} questions mises à jour avec leur référence`);
+  } catch (err) {
+    console.error('[DB] Erreur génération références existantes:', err);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MIDDLEWARE AUTH
 // ═══════════════════════════════════════════════════════════════
@@ -527,19 +632,25 @@ const authorize = (...roles) => (req, res, next) => {
 app.get('/', (req, res) => {
   res.json({
     name: 'NA²QUIZ API',
-    version: '3.0.0',
+    version: '5.0.0',
     status: 'running',
     environment: NODE_ENV,
     mongodb: isConnected ? 'connected' : 'disconnected',
-    referentiel: 'Cameroonian Education System (Francophone + Anglophone + Doctorat)',
+    configurations: Object.keys(EXAM_FULL_CONFIGS),
     endpoints: {
       health: '/health',
       api: '/api',
       referentiel: '/api/referentiel',
       terminal: '/terminal.html',
-      socket: '/socket.io'
+      socket: '/socket.io',
+      configs: '/api/configs'
     }
   });
+});
+
+// Route pour récupérer toutes les configurations
+app.get('/api/configs', (req, res) => {
+  res.json({ success: true, data: EXAM_FULL_CONFIGS });
 });
 
 // Servir terminal.html
@@ -566,9 +677,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'UP', db: isConnected ? 'connected' : 'disconnected', timestamp: new Date() });
 });
 
-// ==================== ROUTES RÉFÉRENTIEL (NOUVEAU) ====================
-
-// ✅ GET /api/referentiel/domains - Récupérer tous les domaines
+// ==================== ROUTES RÉFÉRENTIEL ====================
 app.get('/api/referentiel/domains', (req, res) => {
   try {
     const domains = getAllDomaines();
@@ -578,7 +687,6 @@ app.get('/api/referentiel/domains', (req, res) => {
   }
 });
 
-// ✅ GET /api/referentiel/sous-domaines/:domaineId
 app.get('/api/referentiel/sous-domaines/:domaineId', (req, res) => {
   try {
     const { domaineId } = req.params;
@@ -589,7 +697,6 @@ app.get('/api/referentiel/sous-domaines/:domaineId', (req, res) => {
   }
 });
 
-// ✅ GET /api/referentiel/levels/:domaineId/:sousDomaineId
 app.get('/api/referentiel/levels/:domaineId/:sousDomaineId', (req, res) => {
   try {
     const { domaineId, sousDomaineId } = req.params;
@@ -600,7 +707,6 @@ app.get('/api/referentiel/levels/:domaineId/:sousDomaineId', (req, res) => {
   }
 });
 
-// ✅ GET /api/referentiel/matieres/:domaineId/:sousDomaineId
 app.get('/api/referentiel/matieres/:domaineId/:sousDomaineId', (req, res) => {
   try {
     const { domaineId, sousDomaineId } = req.params;
@@ -611,7 +717,6 @@ app.get('/api/referentiel/matieres/:domaineId/:sousDomaineId', (req, res) => {
   }
 });
 
-// ✅ GET /api/referentiel/chapitres/:matiereId
 app.get('/api/referentiel/chapitres/:matiereId', async (req, res) => {
   try {
     const { matiereId } = req.params;
@@ -689,17 +794,13 @@ app.delete('/api/users/:id', protect, authorize('ADMIN_SYSTEME'), async (req, re
 });
 
 // ==================== ROUTES POUR OPÉRATEUR ====================
-
 app.get('/api/exams/assigned', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
     let examsData;
     if (req.user.role === 'OPERATEUR_EVALUATION') {
       examsData = await Exam.find({ 
         status: 'published',
-        $or: [
-          { assignedTo: req.user._id },
-          { assignedTo: null }
-        ]
+        $or: [{ assignedTo: req.user._id }, { assignedTo: null }]
       }).sort({ createdAt: -1 });
     } else {
       examsData = await Exam.find().sort({ createdAt: -1 });
@@ -733,8 +834,7 @@ app.get('/api/operators', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), 
   }
 });
 
-// ==================== QUESTIONS ROUTES (VERSION AVEC RÉFÉRENTIEL) ====================
-
+// ==================== QUESTIONS ROUTES ====================
 app.get('/api/questions/public', async (req, res) => {
   try {
     const { domaineId, sousDomaineId, niveauId, matiereId, limit = 1000 } = req.query;
@@ -765,7 +865,6 @@ app.get('/api/questions/pending', protect, authorize('ADMIN_DELEGUE', 'ADMIN_SYS
   }
 });
 
-// ✅ GET /api/questions - AVEC FILTRES PAR ID RÉFÉRENTIEL
 app.get('/api/questions', protect, async (req, res) => {
   try {
     const { 
@@ -853,7 +952,6 @@ app.get('/api/questions/:id', protect, async (req, res) => {
   }
 });
 
-// ✅ POST /api/questions - AVEC VALIDATION DU RÉFÉRENTIEL
 app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
     const { 
@@ -871,14 +969,12 @@ app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_
     if (!options || !Array.isArray(options) || options.length < 3 || options.length > 5) 
       return res.status(400).json({ success: false, error: '3 à 5 options requises' });
     
-    // ✅ Validation du référentiel
     if (!domaineId) return res.status(400).json({ success: false, error: 'domaineId requis' });
     if (!sousDomaineId) return res.status(400).json({ success: false, error: 'sousDomaineId requis' });
     if (!niveauId) return res.status(400).json({ success: false, error: 'niveauId requis' });
     if (!matiereId) return res.status(400).json({ success: false, error: 'matiereId requis' });
     if (!libChapitre || libChapitre.trim() === '') return res.status(400).json({ success: false, error: 'libChapitre requis' });
     
-    // Validation avec DOMAIN_DATA
     const domainData = DOMAIN_DATA[domaineId];
     if (!domainData) return res.status(400).json({ success: false, error: 'Domaine invalide' });
     
@@ -932,7 +1028,6 @@ app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_
   }
 });
 
-// ✅ POST /api/questions/save - SAUVEGARDE MASSIVE AVEC RÉFÉRENTIEL
 app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   console.log('[SAVE] ===== NOUVELLE REQUÊTE REÇUE =====');
   
@@ -954,7 +1049,6 @@ app.post('/api/questions/save', protect, authorize('ENSEIGNANT', 'ADMIN_DELEGUE'
         throw new Error(`Le chapitre est obligatoire pour la question: ${questionText?.substring(0, 50)}`);
       }
       
-      // Récupération des informations du référentiel
       const domainData = DOMAIN_DATA[q.domaineId];
       const sousDomaineData = domainData?.sousDomaines[q.sousDomaineId];
       const levelData = sousDomaineData?.levels?.find(l => String(l.id) === q.niveauId);
@@ -1042,6 +1136,13 @@ app.put('/api/questions/:id/validate', protect, authorize('ADMIN_DELEGUE', 'ADMI
       return res.status(400).json({ success: false, message: `Cette question a déjà été ${question.status}` });
     }
     
+    // ✅ Générer la référence si la question est approuvée
+    if (approved && !question.reference) {
+      const seq = await getNextSequence('question_reference');
+      question.reference = `Q${String(seq).padStart(4, '0')}`;
+      console.log(`[Validation] ✅ Référence générée: ${question.reference}`);
+    }
+    
     question.status = approved ? 'approved' : 'rejected';
     question.approvedBy = req.user._id;
     question.approvedAt = new Date();
@@ -1069,6 +1170,13 @@ app.patch('/api/questions/:id/status', protect, authorize('ADMIN_DELEGUE', 'ADMI
     
     if (question.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Cette question a déjà été ${question.status}` });
+    }
+    
+    // ✅ Générer la référence si la question devient approuvée
+    if (status === 'approved' && !question.reference) {
+      const seq = await getNextSequence('question_reference');
+      question.reference = `Q${String(seq).padStart(4, '0')}`;
+      console.log(`[Status] ✅ Référence générée: ${question.reference}`);
     }
     
     question.status = status;
@@ -1111,8 +1219,189 @@ app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', '
   }
 });
 
-// ==================== EXAM ROUTES ====================
+// ==================== UPDATE QUESTION (VERSION CORRIGÉE) ====================
+app.put('/api/questions/:id', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      libQuestion, question, options, correctAnswer, bonOpRep, 
+      matiereId, matiere, matiereCode,
+      niveauId, niveau,
+      domaineId, domaine, domaineCode,
+      sousDomaineId, sousDomaine, sousDomaineCode,
+      libChapitre, typeQuestion, points, explanation, 
+      type, difficulty, imageQuestion, imageBase64, imageMetadata,
+      matriculeAuteur
+    } = req.body;
 
+    const existingQuestion = await Question.findById(id);
+    if (!existingQuestion) {
+      return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    }
+
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE'].includes(req.user.role);
+    const isOwner = existingQuestion.createdBy?.toString() === req.user._id?.toString();
+    
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, error: 'Non autorisé à modifier cette question' });
+    }
+
+    const questionText = libQuestion || question;
+    if (!questionText || questionText.trim() === '') {
+      return res.status(400).json({ success: false, error: 'libQuestion requis' });
+    }
+    
+    let cleanOptions = options;
+    if (Array.isArray(options)) {
+      cleanOptions = options.filter(opt => opt && typeof opt === 'string' && opt.trim() !== '');
+    }
+    
+    if (!cleanOptions || cleanOptions.length < 3) {
+      return res.status(400).json({ success: false, error: 'Au moins 3 options sont requises' });
+    }
+    if (cleanOptions.length > 5) {
+      return res.status(400).json({ success: false, error: 'Maximum 5 options autorisées' });
+    }
+
+    if (!domaineId) return res.status(400).json({ success: false, error: 'domaineId requis' });
+    if (!sousDomaineId) return res.status(400).json({ success: false, error: 'sousDomaineId requis' });
+    if (!niveauId) return res.status(400).json({ success: false, error: 'niveauId requis' });
+    if (!matiereId) return res.status(400).json({ success: false, error: 'matiereId requis' });
+    if (!libChapitre || libChapitre.trim() === '') {
+      return res.status(400).json({ success: false, error: 'libChapitre requis' });
+    }
+
+    const domainData = DOMAIN_DATA[domaineId];
+    if (!domainData) return res.status(400).json({ success: false, error: 'Domaine invalide' });
+    
+    const sousDomaineData = domainData.sousDomaines[sousDomaineId];
+    if (!sousDomaineData) return res.status(400).json({ success: false, error: 'Sous-domaine invalide' });
+    
+    const levelData = sousDomaineData.levels?.find(l => String(l.id) === niveauId);
+    if (!levelData) return res.status(400).json({ success: false, error: 'Niveau invalide' });
+    
+    const matiereData = sousDomaineData.matieres?.find(m => String(m.id) === matiereId);
+    if (!matiereData) return res.status(400).json({ success: false, error: 'Matière invalide' });
+
+    let finalBonOpRep = bonOpRep;
+    if (finalBonOpRep === undefined && correctAnswer !== undefined) {
+      finalBonOpRep = cleanOptions.findIndex(opt => opt === correctAnswer);
+    }
+    
+    if (finalBonOpRep === undefined || finalBonOpRep === null) {
+      return res.status(400).json({ success: false, error: 'correctAnswer ou bonOpRep requis' });
+    }
+    
+    if (finalBonOpRep < 0 || finalBonOpRep >= cleanOptions.length) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `bonOpRep (${finalBonOpRep}) invalide. Doit être entre 0 et ${cleanOptions.length - 1}` 
+      });
+    }
+
+    const updateData = {
+      libQuestion: questionText,
+      options: cleanOptions,
+      bonOpRep: finalBonOpRep,
+      
+      domaineId,
+      domaine: domainData.nom,
+      domaineCode: domainData.code,
+      sousDomaineId,
+      sousDomaine: sousDomaineData.nom,
+      sousDomaineCode: sousDomaineData.code,
+      niveauId,
+      niveau: levelData.nom,
+      matiereId,
+      matiere: matiereData.nom,
+      matiereCode: matiereData.code,
+      libChapitre: libChapitre.trim(),
+      
+      typeQuestion: typeQuestion || 1,
+      points: points || 1,
+      explanation: explanation || '',
+      type: type || 'single',
+      difficulty: difficulty || 'moyen',
+      
+      updatedAt: new Date()
+    };
+
+    if (imageQuestion !== undefined) updateData.imageQuestion = imageQuestion;
+    if (imageBase64 !== undefined) updateData.imageBase64 = imageBase64;
+    if (imageMetadata !== undefined) updateData.imageMetadata = imageMetadata;
+
+    if (!isAdmin) {
+      updateData.status = 'pending';
+      updateData.approvedBy = null;
+      updateData.approvedAt = null;
+      updateData.rejectionComment = '';
+    }
+
+    if (matriculeAuteur) updateData.matriculeAuteur = matriculeAuteur;
+
+    const updatedQuestion = await Question.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true, runValidators: false }
+    ).populate('createdBy', 'name email');
+
+    if (!updatedQuestion) {
+      return res.status(404).json({ success: false, error: 'Question non trouvée après mise à jour' });
+    }
+
+    console.log(`[API] ✅ Question ${id} mise à jour par ${req.user.name} (rôle: ${req.user.role})`);
+    
+    res.json({ 
+      success: true, 
+      message: !isAdmin ? 'Question modifiée et renvoyée en validation' : 'Question mise à jour avec succès',
+      data: updatedQuestion 
+    });
+    
+  } catch (err) { 
+    console.error('[API] Erreur PUT /api/questions/:id:', err);
+    
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ success: false, error: errors.join(', ') });
+    }
+    
+    res.status(500).json({ success: false, error: err.message }); 
+  }
+});
+
+// ==================== DELETE QUESTION ====================
+app.delete('/api/questions/:id', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const existingQuestion = await Question.findById(id);
+    if (!existingQuestion) {
+      return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    }
+    
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE'].includes(req.user.role);
+    const isOwner = existingQuestion.createdBy?.toString() === req.user._id?.toString();
+    
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, error: 'Non autorisé à supprimer cette question' });
+    }
+    
+    if (!isAdmin && existingQuestion.status === 'approved') {
+      return res.status(403).json({ success: false, error: 'Impossible de supprimer une question approuvée. Contactez un administrateur.' });
+    }
+    
+    await Question.findByIdAndDelete(id);
+    
+    console.log(`[API] ✅ Question ${id} supprimée par ${req.user.name}`);
+    res.json({ success: true, message: 'Question supprimée avec succès' });
+    
+  } catch (err) {
+    console.error('[API] Erreur DELETE /api/questions/:id:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==================== EXAM ROUTES ====================
 app.get('/api/exams', protect, async (req, res) => {
   try {
     let exams;
@@ -1122,22 +1411,18 @@ app.get('/api/exams', protect, async (req, res) => {
     console.log(`[API] GET /api/exams - Rôle: ${userRole}, ID: ${userId}`);
     
     if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
-      // Les admins voient TOUTES les épreuves
       exams = await Exam.find().sort({ createdAt: -1 });
       console.log(`[API] ✅ Admin: ${exams.length} épreuves trouvées`);
     } else if (userRole === 'ENSEIGNANT') {
-      // Les enseignants voient leurs épreuves + celles publiées
       exams = await Exam.find({ 
         $or: [{ createdBy: userId }, { status: 'published' }] 
       }).sort({ createdAt: -1 });
     } else if (userRole === 'OPERATEUR_EVALUATION') {
-      // Les opérateurs voient les épreuves qui leur sont assignées
       exams = await Exam.find({ 
         assignedTo: userId,
         status: 'published'
       }).sort({ createdAt: -1 });
     } else {
-      // Les apprenants voient seulement les épreuves publiées
       exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
     }
     
@@ -1280,13 +1565,10 @@ app.get('/api/operator/exams/all', protect, authorize('OPERATEUR_EVALUATION'), a
   }
 });
 
-
-// GET /api/exams/assigned-to-me - Pour les opérateurs
 app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
     const filter = { assignedTo: req.user._id };
     
-    // Les admins peuvent voir toutes les épreuves assignées
     if (req.user.role !== 'OPERATEUR_EVALUATION') {
       delete filter.assignedTo;
     }
@@ -1300,7 +1582,6 @@ app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION', 
   }
 });
 
-// GET /api/debug/exams - Route de diagnostic (admin seulement)
 app.get('/api/debug/exams', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
   try {
     const totalExams = await Exam.countDocuments();
@@ -1322,7 +1603,6 @@ app.get('/api/debug/exams', protect, authorize('ADMIN_SYSTEME'), async (req, res
     res.status(500).json({ success: false, error: err.message });
   }
 });
-// ==================== ROUTES POUR ÉPREUVES PAR RÔLE ====================
 
 app.get('/api/exams/by-role', protect, async (req, res) => {
   try {
@@ -1344,16 +1624,6 @@ app.get('/api/exams/by-role', protect, async (req, res) => {
     res.json({ success: true, data: exams, count: exams.length });
   } catch (err) {
     console.error('[API] Erreur GET /api/exams/by-role:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION'), async (req, res) => {
-  try {
-    const exams = await Exam.find({ assignedTo: req.user._id }).sort({ scheduledDate: 1, createdAt: -1 });
-    res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) {
-    console.error('[API] Erreur:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1393,8 +1663,6 @@ app.get('/api/results/student', protect, authorize('APPRENANT', 'ADMIN_SYSTEME')
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
-
-// ✅ POST /api/results
 
 app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
@@ -1489,7 +1757,6 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
     
     const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
     
-    // ✅ Générer un hash unique pour le QR code
     const crypto = await import('crypto');
     const qrCodeHash = crypto.createHash('sha256')
       .update(`${examId}_${studentInfo.matricule}_${Date.now()}_${Math.random()}`)
@@ -1535,7 +1802,6 @@ app.post('/api/results', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async
         timerDisplayMode: config.timerDisplayMode || 'permanent'
       },
       questionDetails: questionResults,
-      // ✅ Nouveaux champs de sécurité
       qrCodeHash: qrCodeHash,
       generatedAt: new Date(),
       generatedBy: req.user?._id,
@@ -1588,8 +1854,6 @@ app.get('/api/results/my-results', protect, authorize('APPRENANT', 'ADMIN_SYSTEM
   }
 });
 
-// Dans server.js - Remplacer la route GET /api/results
-
 app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
   try {
     const userRole = req.user.role;
@@ -1598,7 +1862,6 @@ app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'EN
     
     let filter = {};
     
-    // Filtres communs
     if (examId) filter.examId = examId;
     if (status === 'passed') filter.passed = true;
     if (status === 'failed') filter.passed = false;
@@ -1617,19 +1880,14 @@ app.get('/api/results', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'EN
       ];
     }
     
-    // ✅ Filtrage par rôle
     if (userRole === 'ENSEIGNANT') {
-      // L'enseignant ne voit que les résultats de ses épreuves
       const teacherExams = await Exam.find({ createdBy: userId }).select('_id');
       const examIds = teacherExams.map(e => e._id);
       filter.examId = { $in: examIds };
       if (examId) filter.examId = examId;
     } else if (userRole === 'OPERATEUR_EVALUATION') {
-      // L'opérateur voit les résultats des épreuves qu'il a supervisées
-      // (à implémenter selon votre logique de supervision)
       filter = { ...filter };
     }
-    // ADMIN_SYSTEME et ADMIN_DELEGUE voient tout
     
     const results = await Result.find(filter)
       .populate('examId', 'title domain subject level passingScore examOption')
@@ -1818,14 +2076,18 @@ app.get('/api/test-token', protect, async (req, res) => {
 });
 
 app.get('/api/server-info', (req, res) => {
-  const networkInterfaces = os.networkInterfaces();
-  const ips = [];
-  for (const [name, interfaces] of Object.entries(networkInterfaces)) {
-    for (const iface of interfaces) {
-      if (iface.family === 'IPv4' && !iface.internal) ips.push({ interface: name, address: iface.address });
-    }
-  }
-  res.json({ port: PORT, availableIps: ips, mongodbConnected: isConnected, environment: NODE_ENV });
+  const localIPs = getLocalIPs();
+  const primaryIP = getPrimaryLocalIP();
+  res.json({
+    port: PORT,
+    hostname: os.hostname(),
+    platform: os.platform(),
+    primaryIP,
+    availableIps: localIPs.map(({ name, address }) => ({ interface: name, address })),
+    mongodbConnected: isConnected,
+    environment: NODE_ENV,
+    uptime: process.uptime()
+  });
 });
 
 // ==================== STATISTIQUES AVANCÉES ====================
@@ -2013,7 +2275,6 @@ function escapeHtml(text) {
   });
 }
 
-// Dans server.js - Remplacer la route /api/bulletin/:resultId
 app.get('/api/bulletin/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId).populate('examId');
@@ -2021,7 +2282,6 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
     
     const exam = result.examId;
     
-    // ✅ Récupérer le token
     let token = req.headers.authorization?.split(' ')[1];
     if (!token && req.query.token) {
       token = req.query.token;
@@ -2037,24 +2297,20 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
       }
     }
     
-    // ✅ Niveaux d'accès
     const isAdmin = user && (user.role === 'ADMIN_SYSTEME' || user.role === 'ADMIN_DELEGUE');
     const isOwner = result.userId?.toString() === user?._id?.toString();
     const isStudent = result.studentInfo?.matricule === user?.matricule;
     
-    // Si pas admin et pas propriétaire, accès restreint ou refusé
     if (!isAdmin && !isOwner && !isStudent && user) {
       return res.status(403).send('<!DOCTYPE html><html><head><title>Accès non autorisé</title></head><body><h1>Accès non autorisé</h1></body></html>');
     }
     
-    // ✅ Générer un hash unique pour le QR code
     const crypto = await import('crypto');
     const qrHash = crypto.createHash('sha256')
       .update(`${result._id}${process.env.JWT_SECRET}${result.createdAt}`)
       .digest('hex')
       .substring(0, 16);
     
-    // ✅ URL de vérification sécurisée
     const verifyUrl = `${FRONTEND_URL}/verify/${qrHash}`;
     
     const questions = result.examQuestions?.length ? result.examQuestions : exam?.questions || [];
@@ -2106,11 +2362,9 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
               <\/tr>`;
     });
     
-    // ✅ QR code
     const qrData = encodeURIComponent(`${verifyUrl}|ID:${result._id}|MAT:${result.studentInfo?.matricule||''}|PCT:${result.percentage}%`);
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}&bgcolor=ffffff&color=1e293b`;
     
-    // ✅ HTML avec DOCTYPE au tout début
     const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -2216,6 +2470,7 @@ app.get('/api/bulletin/:resultId', async (req, res) => {
     res.status(500).send('<!DOCTYPE html><html><head><title>Erreur</title></head><body><h1>Erreur lors de la génération du bulletin</h1></body></html>');
   }
 });
+
 app.get('/api/bulletin/verify/:resultId', async (req, res) => {
   try {
     const result = await Result.findById(req.params.resultId).select('studentInfo score percentage passed examTitle createdAt');
@@ -2226,12 +2481,83 @@ app.get('/api/bulletin/verify/:resultId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ROUTE NETWORK-INFO - Pour la détection automatique des IPs (UNE SEULE FOIS)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Retourne toutes les IPs locales de la machine (IPv4 non-loopback)
+ */
+function getLocalIPs() {
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (
+        addr.family === 'IPv4' &&
+        !addr.internal &&
+        addr.address !== '0.0.0.0'
+      ) {
+        ips.push({ name, address: addr.address });
+      }
+    }
+  }
+  return ips;
+}
+
+/**
+ * Retourne l'IP principale du réseau local
+ */
+function getPrimaryLocalIP() {
+  const ips = getLocalIPs();
+  const priority = [
+    (ip) => ip.address.startsWith('192.168.'),
+    (ip) => ip.address.startsWith('10.'),
+    (ip) => /^172\.(1[6-9]|2\d|3[01])\./.test(ip.address),
+  ];
+  for (const test of priority) {
+    const found = ips.find(test);
+    if (found) return found.address;
+  }
+  return ips[0]?.address || 'localhost';
+}
+
+app.get('/api/network-info', (req, res) => {
+  const localIPs = getLocalIPs();
+  const primaryIP = getPrimaryLocalIP();
+  const PORT = process.env.PORT || 5000;
+
+  res.json({
+    success: true,
+    hostname: os.hostname(),
+    platform: os.platform(),
+    primaryIP,
+    port: PORT,
+    localIPs: localIPs.map(({ name, address }) => ({
+      interface: name,
+      ip: address,
+      backendUrl: `http://${address}:${PORT}`,
+      frontendUrl: `http://${address}:3000`,
+      terminalUrl: `http://${address}:${PORT}/terminal.html`,
+    })),
+    recommended: {
+      backend: `http://${primaryIP}:${PORT}`,
+      frontend: `http://${primaryIP}:3000`,
+      terminal: `http://${primaryIP}:${PORT}/terminal.html`,
+    },
+    qrData: `http://${primaryIP}:3000`,
+    environment: process.env.NODE_ENV || 'development',
+    uptime: process.uptime(),
+    mongoConnected: mongoose.connection.readyState === 1,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ==================== SOCKET.IO ====================
 const activeSessions = new Map();
 const activeDistributedExams = new Map();
 const pendingReconnections = new Map();
-
-// Rate limiting pour les connexions
 const connectionAttempts = new Map();
 
 const rateLimitSocket = (ip) => {
@@ -2239,7 +2565,7 @@ const rateLimitSocket = (ip) => {
   const attempts = connectionAttempts.get(ip) || [];
   const recent = attempts.filter(t => now - t < 60000);
   
-  if (recent.length >= 30) {   // ✅ CORRIGÉ: relevé de 10 → 30 pour absorber les reconnexions légitimes
+  if (recent.length >= 30) {
     return false;
   }
   
@@ -2248,11 +2574,9 @@ const rateLimitSocket = (ip) => {
   return true;
 };
 
-// ✅ 1. CRÉER io D'ABORD
 const io = new Server(server, {
   cors: { 
     origin: (origin, callback) => {
-      // ✅ Accepter toutes les origines nécessaires pour le polling
       if (!origin) return callback(null, true);
       
       const allowedOrigins = [
@@ -2272,16 +2596,19 @@ const io = new Server(server, {
         return callback(null, true);
       }
       
-      // ⚠️ En production, on accepte quand même pour dépannage
-      console.warn(`[Socket] ⚠️ Origine non standard mais acceptée: ${origin}`);
+      if (origin.match(/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/)) {
+        return callback(null, true);
+      }
+      
+      console.warn(`[Socket] ⚠️ Origine acceptée: ${origin}`);
       callback(null, true);
     },
     credentials: true, 
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
   },
-  transports: ['polling'],     // ✅ UNIQUEMENT polling
-  allowUpgrades: false,        // ✅ Désactiver les upgrades
+  transports: ['polling'],
+  allowUpgrades: false,
   pingTimeout: 60000,
   pingInterval: 25000,
   cookie: false,
@@ -2293,7 +2620,6 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e6
 });
 
-// ✅ 2. ENSUITE AJOUTER LE MIDDLEWARE io.use()
 io.use((socket, next) => {
   const clientIp = socket.handshake.address;
   if (rateLimitSocket(clientIp)) {
@@ -2304,12 +2630,10 @@ io.use((socket, next) => {
   }
 });
 
-// ✅ 3. AJOUTER LE MIDDLEWARE POUR LES ERREURS DE CONNEXION
 io.engine.on('connection_error', (err) => {
   console.log('[Socket] ❌ Erreur de connexion:', err.message, err.req?.headers?.origin);
 });
 
-// ✅ 4. PUIS DÉFINIR LES FONCTIONS DE STATS
 const emitRealtimeStats = (examId) => {
   if (!examId) return;
   const students = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'composing');
@@ -2328,7 +2652,6 @@ const emitSessionUpdate = () => {
   io.emit('sessionUpdate', { activeSessions: sessionsToSend });
 };
 
-// ✅ 5. ENFIN LE GESTIONNAIRE DE CONNEXION
 io.on('connection', (socket) => {
   console.log(`[Socket] 🔌 Nouvelle connexion: ${socket.id}`);
   
@@ -2406,11 +2729,6 @@ io.on('connection', (socket) => {
     socket.emit('pong');
   });
   
-  // ══════════════════════════════════════════════════════════════
-  // HANDLERS MÉTIER — distribution, démarrage, fin d'épreuve
-  // ══════════════════════════════════════════════════════════════
-
-  // ── 1. Terminal prêt (heartbeat d'enregistrement) ─────────────
   socket.on('terminalReady', (data) => {
     const session = activeSessions.get(socket.id);
     if (session) {
@@ -2421,7 +2739,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── 2. Distribuer l'épreuve → tous les terminaux ──────────────
   socket.on('distributeExam', (data) => {
     const { examId, examOption } = data || {};
     if (!examId) {
@@ -2431,27 +2748,10 @@ io.on('connection', (socket) => {
 
     console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${examOption} par ${socket.id}`);
 
-    // Récupérer la config complète depuis EXAM_CONFIGURATIONS côté serveur
-    // (on transmet la config minimale ; le client connaît le mapping complet)
-    const CONFIGS = {
-      A: { openRange: false, sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
-      B: { openRange: false, sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
-      C: { openRange: false, sequencing: 'identical',        showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
-      D: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
-      E: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
-      F: { openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
-      G: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: true  },
-      H: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: false, allowRetry: false },
-      I: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: true  },
-      J: { openRange: true,  sequencing: 'identical',        showBinaryResult: true,  showCorrectAnswer: true,  allowRetry: false },
-      K: { openRange: true,  sequencing: 'identical',        showBinaryResult: false, showCorrectAnswer: false, allowRetry: false },
-    };
-    const config = { ...(CONFIGS[examOption] || CONFIGS['C']), examOption };
+    const config = EXAM_FULL_CONFIGS[examOption] || EXAM_FULL_CONFIGS['C'];
 
-    // Mémoriser la distribution active
     activeDistributedExams.set(examId, { examId, examOption, config, distributedAt: Date.now() });
 
-    // Mettre à jour le statut de tous les terminaux connectés
     let terminalCount = 0;
     for (const [sid, session] of activeSessions) {
       if (session.type === 'terminal') {
@@ -2471,7 +2771,6 @@ io.on('connection', (socket) => {
     socket.emit('distributeExamConfirm', { success: true, terminalCount, examId, examOption });
   });
 
-  // ── 3. Accusé de réception du terminal ───────────────────────
   socket.on('terminalReadyForExam', (data) => {
     const { examId, examOption, terminalId } = data || {};
     const session = activeSessions.get(socket.id);
@@ -2485,7 +2784,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── 4. Démarrer l'épreuve → tous les étudiants en attente ─────
   socket.on('startExam', (data) => {
     const { examId, option } = data || {};
     if (!examId) return;
@@ -2493,7 +2791,6 @@ io.on('connection', (socket) => {
     console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${option}`);
 
     let startedCount = 0;
-    const studentsInRoom = io.sockets.adapter.rooms.get(`exam:${examId}`) || new Set();
 
     for (const [sid, session] of activeSessions) {
       if (session.type === 'student' && session.currentExamId === examId && session.status === 'waiting') {
@@ -2506,7 +2803,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Notifier aussi la room exam:<examId> (étudiants inscrits via join)
     io.to(`exam:${examId}`).emit('examStarted', { examId, examOption: option });
 
     console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés`);
@@ -2515,14 +2811,12 @@ io.on('connection', (socket) => {
     emitRealtimeStats(examId);
   });
 
-  // ── 5. Fin / clôture d'épreuve ───────────────────────────────
   socket.on('finishExam', (data) => {
     const { examId } = data || {};
     if (!examId) return;
 
     console.log(`[Socket] 🏁 Fin épreuve ${examId}`);
 
-    // Forcer la fin pour les étudiants encore en composition
     for (const [sid, session] of activeSessions) {
       if (session.type === 'student' && session.currentExamId === examId && session.status === 'composing') {
         session.status = 'forced-finished';
@@ -2533,7 +2827,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Notifier les terminaux
     for (const [sid, session] of activeSessions) {
       if (session.type === 'terminal' && session.currentExamId === examId) {
         session.status = 'connected';
@@ -2550,7 +2843,6 @@ io.on('connection', (socket) => {
     emitSessionUpdate();
   });
 
-  // ── 6. Avancement de question (options A et B) ────────────────
   socket.on('advanceQuestionForOptionA', (data) => {
     const { examId, nextQuestionIndex } = data || {};
     if (!examId) return;
@@ -2565,7 +2857,6 @@ io.on('connection', (socket) => {
     io.to(`exam:${examId}`).emit('showQuestion', { examId, questionIndex });
   });
 
-  // ── 7. Mise à jour de progression étudiant ───────────────────
   socket.on('studentProgressUpdate', (data) => {
     const session = activeSessions.get(socket.id);
     if (session && data) {
@@ -2580,7 +2871,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── 8. Soumission de l'examen ─────────────────────────────────
   socket.on('examSubmitting', (data) => {
     const session = activeSessions.get(socket.id);
     if (session) {
@@ -2602,20 +2892,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── 9. Demande de comptage des étudiants en attente ──────────
   socket.on('getWaitingStudents', (data, callback) => {
     const { examId } = data || {};
     const waiting = Array.from(activeSessions.values()).filter(
       s => s.type === 'student' && s.currentExamId === examId && s.status === 'waiting'
     );
     const count = waiting.length;
-    // Mettre à jour le compteur chez tous les terminaux de cet examen
     io.to('surveillance').emit('waitingCountUpdate', { examId, count });
     if (typeof callback === 'function') callback({ count });
   });
 
-  // ── 10. Enregistrement étudiant en salle d'attente ────────────
-  // Accepte les deux noms d'événement (WaitingPage envoie studentReadyForExam)
   const handleStudentWaiting = (data) => {
     const { examId, examOption, studentInfo, sessionId: stuSessionId, config } = data || {};
     if (!examId) return;
@@ -2650,8 +2936,8 @@ io.on('connection', (socket) => {
     console.log(`[Socket] ⏳ Étudiant en attente pour ${examId} — option ${examOption} — total: ${waitingCount}`);
   };
 
-  socket.on('joinWaiting',            handleStudentWaiting);
-  socket.on('studentReadyForExam',    handleStudentWaiting);
+  socket.on('joinWaiting', handleStudentWaiting);
+  socket.on('studentReadyForExam', handleStudentWaiting);
 
   socket.on('disconnect', (reason) => {
     console.log(`[Socket] ❌ Déconnexion: ${socket.id}, raison: ${reason}`);
@@ -2684,7 +2970,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// ✅ 6. HEARTBEAT (après io.on)
 setInterval(() => {
   const now = Date.now();
   for (const [socketId, session] of activeSessions) {
@@ -2697,7 +2982,6 @@ setInterval(() => {
   }
 }, 15000);
 
-// ✅ 7. ROUTES SOCKET POUR L'API
 app.get('/api/active-sessions', (req, res) => {
   const sessions = Array.from(activeSessions.values());
   res.json({ success: true, count: sessions.length, sessions });
@@ -2715,15 +2999,49 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} introuvable` });
 });
 
-// ==================== DÉMARRAGE ====================
+// ═══════════════════════════════════════════════════════════════
+// DÉMARRAGE
+// ═══════════════════════════════════════════════════════════════
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`[NA²QUIZ] 🚀 Serveur Socket.IO`);
-  console.log(`[NA²QUIZ] 🌍 Environnement: ${NODE_ENV}`);
-  console.log(`[NA²QUIZ] 📡 Port: ${PORT}`);
-  console.log(`[NA²QUIZ] 🌐 Frontend: ${FRONTEND_URL}`);
-  console.log(`[NA²QUIZ] 💾 MongoDB: ${isConnected ? '✅ Connecté' : '❌ Déconnecté'}`);
-  console.log(`${'='.repeat(60)}\n`);
+  const localIPs  = getLocalIPs();
+  const primaryIP = getPrimaryLocalIP();
+
+  // ─── Fonctions d'affichage ────────────────────────────────────
+  const LINE   = '═'.repeat(64);
+  const row = (label, value) => {
+    const content = `${label}${String(value)}`;
+    return `║  ${content.padEnd(60)}║`;
+  };
+
+  console.log('');
+  console.log(`╔${LINE}╗`);
+  console.log(`║${'  NA²QUIZ — Serveur Socket.IO v5.0.0'.padEnd(64)}║`);
+  console.log(`╠${LINE}╣`);
+  console.log(row('🌍 Environnement : ', NODE_ENV));
+  console.log(row('🖥️  Hostname      : ', os.hostname()));
+  console.log(row('📡 Port          : ', PORT));
+  console.log(row('💾 MongoDB       : ', isConnected ? '✅ Connecté' : '❌ Déconnecté'));
+  console.log(row('🎛️  Configs       : ', Object.keys(EXAM_FULL_CONFIGS).join(', ')));
+  console.log(`╠${LINE}╣`);
+  console.log(`║${'  📍 ACCÈS LOCAUX — utilisables depuis tout le réseau'.padEnd(64)}║`);
+  console.log(`╠${LINE}╣`);
+
+  if (localIPs.length === 0) {
+    console.log(row('⚠️  ', 'Aucune interface réseau locale détectée'));
+  } else {
+    localIPs.forEach(({ name, address }) => {
+      console.log(row(`🔌 [${name.padEnd(14)}] `, `http://${address}:${PORT}`));
+      console.log(row('   Frontend  → ', `http://${address}:3000`));
+      console.log(row('   Terminal  → ', `http://${address}:${PORT}/terminal.html`));
+      if (localIPs.length > 1) console.log(`╠${LINE}╣`);
+    });
+    if (localIPs.length === 1) console.log(`╠${LINE}╣`);
+  }
+
+  console.log(row('🌐 IP principale : ', `http://${primaryIP}:3000`));
+  console.log(row('ℹ️  API réseau    : ', `http://${primaryIP}:${PORT}/api/network-info`));
+  console.log(`╚${LINE}╝`);
+  console.log('');
 });
 
 export default app;
