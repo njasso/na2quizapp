@@ -812,13 +812,64 @@ app.get('/api/exams/assigned', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN
   }
 });
 
+// ==================== ASSIGNATION D'UNE ÉPREUVE À UN OPÉRATEUR ====================
 app.put('/api/exams/:id/assign', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
-    const { operatorId } = req.body;
-    const exam = await Exam.findByIdAndUpdate(req.params.id, { assignedTo: operatorId }, { new: true });
-    if (!exam) return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
-    res.json({ success: true, data: exam });
+    const { id } = req.params;
+    const { operatorId, scheduledDate, sessionRoom } = req.body;
+    
+    // Vérifier que l'épreuve existe
+    const exam = await Exam.findById(id);
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    }
+    
+    // ✅ VALIDATION DE LA DATE - Ne pas autoriser les dates passées
+    if (scheduledDate) {
+      const proposedDate = new Date(scheduledDate);
+      const now = new Date();
+      // Comparer les dates sans les heures/minutes pour les dates de jour
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const proposedDay = new Date(proposedDate.getFullYear(), proposedDate.getMonth(), proposedDate.getDate());
+      
+      if (proposedDay < today) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Impossible d\'assigner une épreuve à une date passée. Veuillez sélectionner une date future ou aujourd\'hui.' 
+        });
+      }
+    }
+    
+    // ✅ Vérifier si l'opérateur existe (si operatorId fourni)
+    if (operatorId) {
+      const operator = await User.findById(operatorId);
+      if (!operator || operator.role !== 'OPERATEUR_EVALUATION') {
+        return res.status(404).json({ success: false, message: 'Opérateur non trouvé ou rôle invalide' });
+      }
+    }
+    
+    // Mettre à jour l'épreuve
+    const updatedExam = await Exam.findByIdAndUpdate(
+      id, 
+      { 
+        assignedTo: operatorId || null,
+        scheduledDate: scheduledDate || null,
+        sessionRoom: sessionRoom || 'Salle principale',
+        updatedAt: new Date()
+      }, 
+      { new: true }
+    ).populate('assignedTo', 'name email');
+    
+    console.log(`[API] ✅ Épreuve ${exam.title} ${operatorId ? 'assignée à' : 'désassignée de'} ${operatorId || 'aucun opérateur'}`);
+    
+    res.json({ 
+      success: true, 
+      message: operatorId ? 'Épreuve assignée avec succès' : 'Épreuve désassignée avec succès',
+      data: updatedExam 
+    });
+    
   } catch (err) {
+    console.error('[API] Erreur assignation:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

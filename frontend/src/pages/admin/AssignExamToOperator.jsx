@@ -1,10 +1,11 @@
-// src/pages/admin/AssignExamToOperator.jsx - Version CORRIGÉE
+// src/pages/admin/AssignExamToOperator.jsx - Version CORRIGÉE avec validation des dates
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   ArrowLeft, RefreshCw, Calendar, User, Monitor, Tag, Layers, 
-  CheckCircle, Shield, Users, PlusCircle, X, Clock, BookOpen
+  CheckCircle, Shield, Users, PlusCircle, X, Clock, BookOpen,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -21,8 +22,29 @@ const AssignExamToOperator = () => {
   const [scheduledDate, setScheduledDate] = useState('');
   const [sessionRoom, setSessionRoom] = useState('Salle principale');
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateError, setDateError] = useState('');
 
   const isAdmin = hasRole('ADMIN_SYSTEME') || hasRole('ADMIN_DELEGUE');
+
+  // ✅ Vérifier si la date est valide (future ou aujourd'hui)
+  const isValidDate = (dateString) => {
+    if (!dateString) return true; // Pas de date = pas de restriction
+    const selectedDate = new Date(dateString);
+    const now = new Date();
+    // Comparer les dates sans les heures/minutes pour les dates de jour
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    
+    return selectedDay >= today;
+  };
+
+  // ✅ Vérifier si l'épreuve a déjà une date passée
+  const isExamDatePassed = (exam) => {
+    if (!exam.scheduledDate) return false;
+    const examDate = new Date(exam.scheduledDate);
+    const now = new Date();
+    return examDate < now;
+  };
 
   useEffect(() => {
     if (!isAdmin) {
@@ -44,30 +66,22 @@ const AssignExamToOperator = () => {
       console.log('[AssignExam] examsRes:', examsRes);
       console.log('[AssignExam] operatorsRes:', operatorsRes);
       
-      // ✅ CORRECTION: La réponse est déjà dans examsRes directement
-      // grâce à l'intercepteur axios
       let examsData = [];
       if (examsRes && Array.isArray(examsRes)) {
         examsData = examsRes;
-        console.log('[AssignExam] Format 1: examsRes est un tableau');
       } else if (examsRes && examsRes.data && Array.isArray(examsRes.data)) {
         examsData = examsRes.data;
-        console.log('[AssignExam] Format 2: examsRes.data est un tableau');
       } else if (examsRes && examsRes.data && examsRes.data.data && Array.isArray(examsRes.data.data)) {
         examsData = examsRes.data.data;
-        console.log('[AssignExam] Format 3: examsRes.data.data est un tableau');
       }
       
       let operatorsData = [];
       if (operatorsRes && Array.isArray(operatorsRes)) {
         operatorsData = operatorsRes;
-        console.log('[AssignExam] Format 1: operatorsRes est un tableau');
       } else if (operatorsRes && operatorsRes.data && Array.isArray(operatorsRes.data)) {
         operatorsData = operatorsRes.data;
-        console.log('[AssignExam] Format 2: operatorsRes.data est un tableau');
       } else if (operatorsRes && operatorsRes.data && operatorsRes.data.data && Array.isArray(operatorsRes.data.data)) {
         operatorsData = operatorsRes.data.data;
-        console.log('[AssignExam] Format 3: operatorsRes.data.data est un tableau');
       }
       
       console.log(`[AssignExam] ${examsData.length} épreuves, ${operatorsData.length} opérateurs`);
@@ -90,11 +104,28 @@ const AssignExamToOperator = () => {
     }
   };
 
-  const handleAssign = async () => {
+  // ✅ Validation de la date avant assignation
+  const validateAssignment = () => {
+    setDateError('');
+    
     if (!selectedExam || !selectedOperator) {
       toast.error('Sélectionnez une épreuve et un opérateur');
-      return;
+      return false;
     }
+    
+    // Vérifier si la date programmée est valide
+    if (scheduledDate && !isValidDate(scheduledDate)) {
+      const errorMsg = 'Impossible d\'assigner à une date passée. Veuillez sélectionner une date future ou aujourd\'hui.';
+      setDateError(errorMsg);
+      toast.error(errorMsg);
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleAssign = async () => {
+    if (!validateAssignment()) return;
     
     try {
       console.log('[AssignExam] Assignation:', { selectedExam, selectedOperator, scheduledDate, sessionRoom });
@@ -109,6 +140,7 @@ const AssignExamToOperator = () => {
       setSelectedOperator('');
       setScheduledDate('');
       setSessionRoom('Salle principale');
+      setDateError('');
       loadData();
     } catch (error) {
       console.error('Erreur assignation:', error);
@@ -127,6 +159,30 @@ const AssignExamToOperator = () => {
       console.error('Erreur désassignation:', error);
       toast.error('Erreur lors de la suppression');
     }
+  };
+
+  // ✅ Formater la date pour l'affichage avec indication si dépassée
+  const formatDate = (dateString) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    const now = new Date();
+    const isPassed = date < now;
+    return {
+      formatted: date.toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      isPassed
+    };
+  };
+
+  // ✅ Obtenir la date minimale pour l'input (aujourd'hui)
+  const getMinDate = () => {
+    const today = new Date();
+    return today.toISOString().slice(0, 16);
   };
 
   const filteredExams = exams.filter(e =>
@@ -264,16 +320,25 @@ const AssignExamToOperator = () => {
               <input
                 type="datetime-local"
                 value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
+                onChange={(e) => {
+                  setScheduledDate(e.target.value);
+                  setDateError('');
+                }}
+                min={getMinDate()}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
                   background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(59,130,246,0.2)',
+                  border: `1px solid ${dateError ? '#ef4444' : 'rgba(59,130,246,0.2)'}`,
                   borderRadius: 10,
                   color: '#f8fafc'
                 }}
               />
+              {dateError && (
+                <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <AlertCircle size={12} /> {dateError}
+                </p>
+              )}
             </div>
             
             <div>
@@ -314,7 +379,8 @@ const AssignExamToOperator = () => {
               cursor: !selectedExam || !selectedOperator ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: 8
+              gap: 8,
+              opacity: !selectedExam || !selectedOperator ? 0.6 : 1
             }}
           >
             <CheckCircle size={18} /> Assigner l'épreuve
@@ -338,6 +404,9 @@ const AssignExamToOperator = () => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 16 }}>
             {assignedExams.map(exam => {
               const operator = operators.find(op => op._id === exam.assignedTo);
+              const dateInfo = formatDate(exam.scheduledDate);
+              const isDatePassed = dateInfo?.isPassed || false;
+              
               return (
                 <motion.div
                   key={exam._id}
@@ -345,9 +414,10 @@ const AssignExamToOperator = () => {
                   animate={{ opacity: 1, y: 0 }}
                   style={{
                     background: 'rgba(15,23,42,0.7)',
-                    border: '1px solid rgba(245,158,11,0.3)',
+                    border: `1px solid ${isDatePassed ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
                     borderRadius: 16,
-                    padding: 16
+                    padding: 16,
+                    opacity: isDatePassed ? 0.7 : 1
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -388,8 +458,17 @@ const AssignExamToOperator = () => {
                       <User size={12} /> Opérateur: {operator?.name || 'Inconnu'}
                     </p>
                     {exam.scheduledDate && (
-                      <p style={{ color: '#94a3b8', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        <Calendar size={12} /> Date: {new Date(exam.scheduledDate).toLocaleString()}
+                      <p style={{ 
+                        color: isDatePassed ? '#ef4444' : '#94a3b8', 
+                        fontSize: '0.75rem', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 6, 
+                        marginTop: 4 
+                      }}>
+                        <Calendar size={12} /> 
+                        Date: {dateInfo?.formatted}
+                        {isDatePassed && <span style={{ marginLeft: 6, fontSize: '0.65rem' }}>(Dépassée)</span>}
                       </p>
                     )}
                     {exam.sessionRoom && (
@@ -398,6 +477,15 @@ const AssignExamToOperator = () => {
                       </p>
                     )}
                   </div>
+                  
+                  {isDatePassed && (
+                    <div style={{ marginTop: 8, padding: 6, background: 'rgba(239,68,68,0.1)', borderRadius: 6 }}>
+                      <p style={{ color: '#ef4444', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <AlertCircle size={10} />
+                        ⚠️ Date d'assignation dépassée. Veuillez reprogrammer.
+                      </p>
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
