@@ -10,13 +10,25 @@ import {
   AlertCircle, Clock, Settings, Info, ChevronRight, Monitor
 } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
-
-const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
-const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
+import { getCurrentBackendUrl, updateApiBaseUrl } from '../../services/api';
 
 console.log('[ProfileExamPage] 🌍 Environnement:', ENV_CONFIG.environment);
-console.log('[ProfileExamPage] 🔗 Backend URL:', NODE_BACKEND_URL);
-console.log('[ProfileExamPage] 🔌 Socket URL:', SOCKET_URL);
+console.log('[ProfileExamPage] 🔌 Socket URL:', ENV_CONFIG.SOCKET_URL);
+
+// ✅ Fonction pour obtenir l'URL dynamique du backend
+const getBackendUrl = () => {
+  const currentHostname = window.location.hostname;
+  const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+  const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
+  
+  if (isLocalNetwork) {
+    return `http://${currentHostname}:5000`;
+  }
+  if (isLocalhost) {
+    return 'http://localhost:5000';
+  }
+  return ENV_CONFIG.BACKEND_URL;
+};
 
 // ══════════════════════════════════════════════════════════════
 //  CONFIGURATIONS DES ÉPREUVES (A à K) AVEC INSTRUCTIONS
@@ -240,12 +252,15 @@ const ProfileExamPage = () => {
 
     const fetchExam = async () => {
       try {
+        // ✅ Récupérer l'URL dynamique du backend
+        const currentBackendUrl = getBackendUrl();
+        
         console.log('[ProfileExamPage] 🔍 Chargement examen:', examId);
         console.log('[ProfileExamPage] 📌 Option depuis URL:', urlOption);
-        console.log('[ProfileExamPage] 🔗 Backend URL utilisé:', NODE_BACKEND_URL);
+        console.log('[ProfileExamPage] 🔗 Backend URL utilisé:', currentBackendUrl);
         
         const token = getAuthToken();
-        const apiUrl = `${NODE_BACKEND_URL}/api/exams/${examId}`;
+        const apiUrl = `${currentBackendUrl}/api/exams/${examId}`;
         console.log('[ProfileExamPage] 📡 Appel API:', apiUrl);
         
         const configHeaders = token ? {
@@ -321,8 +336,9 @@ const ProfileExamPage = () => {
         let errorMsg = "Épreuve non trouvée ou erreur serveur.";
         
         if (error.code === 'ERR_NETWORK') {
-          errorMsg = `Impossible de joindre le serveur à ${NODE_BACKEND_URL}. Vérifiez que le backend est démarré.`;
-          console.error('[ProfileExamPage] 🔴 Erreur réseau - Backend inaccessible:', NODE_BACKEND_URL);
+          const currentBackendUrl = getBackendUrl();
+          errorMsg = `Impossible de joindre le serveur à ${currentBackendUrl}. Vérifiez que le backend est démarré.`;
+          console.error('[ProfileExamPage] 🔴 Erreur réseau - Backend inaccessible:', currentBackendUrl);
         } else if (error.response?.status === 401) {
           errorMsg = "Session expirée. Veuillez vous reconnecter.";
           localStorage.removeItem('userToken');
@@ -347,17 +363,18 @@ const ProfileExamPage = () => {
     return () => {
       isMounted.current = false;
     };
-  }, [examId, navigate, urlOption, NODE_BACKEND_URL]);
+  }, [examId, navigate, urlOption]);
 
   // Connexion WebSocket avec URL dynamique
   useEffect(() => {
-    console.log('[ProfileExamPage] 🔌 Connexion Socket à:', SOCKET_URL);
+    const socketUrl = ENV_CONFIG.SOCKET_URL;
+    console.log('[ProfileExamPage] 🔌 Connexion Socket à:', socketUrl);
     
-    const socket = io(SOCKET_URL, { 
+    const socket = io(socketUrl, { 
       path: '/socket.io',
       transports: ['polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       upgrade: false
     });
@@ -478,7 +495,7 @@ const ProfileExamPage = () => {
       }}>
         <div style={{ width: 48, height: 48, border: '3px solid rgba(59,130,246,0.1)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
         <p style={{ color: '#94a3b8', marginTop: 16 }}>Chargement de l'épreuve...</p>
-        <p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 8 }}>Backend: {NODE_BACKEND_URL}</p>
+        <p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 8 }}>Backend: {getBackendUrl()}</p>
         <Toaster />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
@@ -496,7 +513,7 @@ const ProfileExamPage = () => {
           <AlertCircle size={48} color="#ef4444" style={{ marginBottom: 16 }} />
           <p style={{ color: '#ef4444', marginBottom: 16 }}>{error || 'Épreuve non trouvée.'}</p>
           <p style={{ color: '#64748b', fontSize: '0.75rem', marginBottom: 16 }}>
-            Backend ciblé: {NODE_BACKEND_URL}
+            Backend ciblé: {getBackendUrl()}
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
             <button 

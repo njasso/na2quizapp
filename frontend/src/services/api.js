@@ -42,6 +42,20 @@ export const updateApiBaseUrl = () => {
   return api.defaults.baseURL;
 };
 
+export const getCurrentBackendUrl = () => {
+  const currentHostname = window.location.hostname;
+  const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+  const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
+  
+  if (isLocalNetwork) {
+    return `http://${currentHostname}:5000`;
+  }
+  if (isLocalhost) {
+    return 'http://localhost:5000';
+  }
+  return ENV_CONFIG.BACKEND_URL;
+};
+
 // ==================== CLIENT AXIOS ====================
 
 const api = axios.create({
@@ -443,6 +457,23 @@ export const getAnalyticsDashboardData = async () => {
     throw error;
   }
 };
+
+// ✅ Fonction pour forcer la mise à jour de la configuration Socket
+export const forceSocketUrlUpdate = () => {
+  const currentHostname = window.location.hostname;
+  const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+  
+  if (isLocalNetwork && ENV_CONFIG.SOCKET_URL.includes('localhost')) {
+    const newSocketUrl = `http://${currentHostname}:5000`;
+    console.log('[API] 🔄 Mise à jour forcée Socket URL:', newSocketUrl);
+    ENV_CONFIG.SOCKET_URL = newSocketUrl;
+    return newSocketUrl;
+  }
+  return ENV_CONFIG.SOCKET_URL;
+};
+
+// Appeler la mise à jour au chargement
+forceSocketUrlUpdate();
 
 // ==================== EXPORT PAR DÉFAUT ====================
 export default api;

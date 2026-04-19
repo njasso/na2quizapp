@@ -1,15 +1,30 @@
-// src/pages/composition/ResultsPage.jsx — Version Ultime Corrigée
+// src/pages/composition/ResultsPage.jsx — Version Ultime Corrigée avec URL dynamique
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useLocation, useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
 import { CheckCircle, XCircle, Award, User, FileText, Settings } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+// ✅ Fonction pour obtenir l'URL dynamique du backend
+const getBackendUrl = () => {
+  const currentHostname = window.location.hostname;
+  const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
+  const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
+  
+  if (isLocalNetwork) {
+    return `http://${currentHostname}:5000`;
+  }
+  if (isLocalhost) {
+    return 'http://localhost:5000';
+  }
+  return ENV_CONFIG.BACKEND_URL;
+};
 
-console.log('[ResultsPage] Backend URL:', NODE_BACKEND_URL);
+console.log('[ResultsPage] 🌍 Environnement:', ENV_CONFIG.environment);
+console.log('[ResultsPage] 🔗 Backend URL (dynamique):', getBackendUrl());
+console.log('[ResultsPage] 🔌 Terminal URL:', ENV_CONFIG.TERMINAL_URL);
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURATIONS DES RÉSULTATS
@@ -50,6 +65,10 @@ const ResultsPage = () => {
   const { examId } = useParams();
   const { state } = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // ✅ Récupération du token dans l'URL
+  const urlToken = searchParams.get('token');
 
   const {
     submittedAnswers,
@@ -78,6 +97,15 @@ const ResultsPage = () => {
   const examOption = config?.examOption || passedResultSnapshot?.examOption || passedResultSnapshot?.config?.examOption;
   const displayType = getResultDisplayType(examOption);
   const allowRetry = config?.allowRetry || passedResultSnapshot?.config?.allowRetry;
+
+  // ✅ Stockage du token dans localStorage
+  useEffect(() => {
+    if (urlToken) {
+      console.log('[ResultsPage] 🔑 Token reçu dans l\'URL, stockage...');
+      localStorage.setItem('userToken', urlToken);
+      localStorage.setItem('token', urlToken);
+    }
+  }, [urlToken]);
 
   // ═══════════════════════════════════════════════════════════════
   // REDIRECTION SELON REPRISE
@@ -217,8 +245,13 @@ const ResultsPage = () => {
 
         const token = getAuthToken();
         const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+        
+        // ✅ Utiliser l'URL dynamique
+        const backendUrl = getBackendUrl();
+        const apiUrl = `${backendUrl}/api/exams/${examId}`;
+        console.log('[ResultsPage] 📡 Appel API:', apiUrl);
 
-        const response = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, { 
+        const response = await axios.get(apiUrl, { 
           timeout: 10000,
           ...axiosConfig 
         });
@@ -265,6 +298,7 @@ const ResultsPage = () => {
       <div style={styles.loadingContainer}>
         <div style={styles.spinner} />
         <p style={{ color: '#94a3b8', marginTop: '16px' }}>Chargement des résultats...</p>
+        <p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 8 }}>Backend: {getBackendUrl()}</p>
         <Toaster />
       </div>
     );
@@ -435,7 +469,7 @@ const ResultsPage = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// STYLES
+// STYLES (inchangés)
 // ═══════════════════════════════════════════════════════════════
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
