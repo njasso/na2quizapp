@@ -1,11 +1,12 @@
-// src/pages/teacher/TeacherQuestionsPage.jsx - Version COMPLÈTE CORRIGÉE
+// src/pages/teacher/TeacherQuestionsPage.jsx - Version AVEC FILTRES DOMAINE, MATIÈRE & CHAPITRE
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, ArrowLeft, RefreshCw, Search, Eye, Edit, Trash2,
   CheckCircle, XCircle, Clock, PlusCircle,
-  AlertCircle, Filter, Bell, BellOff, Image as ImageIcon, XCircle as XCircleIcon
+  AlertCircle, Filter, Bell, BellOff, Image as ImageIcon, XCircle as XCircleIcon,
+  BookOpen
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -29,6 +30,7 @@ const TeacherQuestionsPage = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterDomaine, setFilterDomaine] = useState('');
   const [filterMatiere, setFilterMatiere] = useState('');
+  const [filterChapitre, setFilterChapitre] = useState('');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -56,10 +58,35 @@ const TeacherQuestionsPage = () => {
     return uniqueMatieres.map(m => ({ id: m, nom: m }));
   }, [questions, filterDomaine]);
   
-  // Réinitialiser le filtre matière quand le domaine change
+  // ✅ Calculer les chapitres disponibles en fonction du domaine et de la matière sélectionnés
+  const availableChapitres = useMemo(() => {
+    let filteredQuestionsForChapitres = [...questions];
+    
+    if (filterDomaine) {
+      filteredQuestionsForChapitres = filteredQuestionsForChapitres.filter(q => 
+        q.domaine === filterDomaine || q.domaineId === filterDomaine
+      );
+    }
+    
+    if (filterMatiere) {
+      filteredQuestionsForChapitres = filteredQuestionsForChapitres.filter(q => 
+        q.matiere === filterMatiere || q.matiereId === filterMatiere
+      );
+    }
+    
+    const uniqueChapitres = [...new Set(filteredQuestionsForChapitres.map(q => q.libChapitre).filter(Boolean))];
+    return uniqueChapitres.sort();
+  }, [questions, filterDomaine, filterMatiere]);
+  
+  // Réinitialiser les filtres dépendants quand le domaine ou la matière change
   useEffect(() => {
     setFilterMatiere('');
+    setFilterChapitre('');
   }, [filterDomaine]);
+  
+  useEffect(() => {
+    setFilterChapitre('');
+  }, [filterMatiere]);
   
   // Forcer le rechargement après édition
   useEffect(() => {
@@ -165,7 +192,7 @@ const TeacherQuestionsPage = () => {
     fetchMyQuestions();
   }, [user]);
   
-  // Filtrage des questions
+  // FILTRAGE AVEC DOMAINE, MATIÈRE ET CHAPITRE
   useEffect(() => {
     let filtered = [...questions];
     
@@ -195,18 +222,24 @@ const TeacherQuestionsPage = () => {
       filtered = filtered.filter(q => q.matiere === filterMatiere || q.matiereId === filterMatiere);
     }
     
+    // ✅ FILTRE PAR CHAPITRE
+    if (filterChapitre) {
+      filtered = filtered.filter(q => q.libChapitre === filterChapitre);
+    }
+    
     setFilteredQuestions(filtered);
-  }, [questions, searchTerm, filterStatus, filterDomaine, filterMatiere]);
+  }, [questions, searchTerm, filterStatus, filterDomaine, filterMatiere, filterChapitre]);
   
-  // Réinitialiser tous les filtres
+  // Fonction pour réinitialiser tous les filtres
   const resetFilters = () => {
     setSearchTerm('');
     setFilterStatus('');
     setFilterDomaine('');
     setFilterMatiere('');
+    setFilterChapitre('');
   };
   
-  // Statistiques par domaine
+  // Statistiques avec breakdown par domaine
   const getStatsByDomaine = () => {
     const stats = {};
     questions.forEach(q => {
@@ -222,7 +255,6 @@ const TeacherQuestionsPage = () => {
     return stats;
   };
   
-  // Charger les questions depuis l'API
   const fetchMyQuestions = async () => {
     setLoading(true);
     try {
@@ -273,84 +305,6 @@ const TeacherQuestionsPage = () => {
     }
   };
   
-  // Supprimer une question
-  const deleteQuestion = async (id) => {
-    if (!window.confirm('⚠️ Supprimer cette question définitivement ?')) return;
-    try {
-      await api.delete(`/api/questions/${id}`);
-      setQuestions(questions.filter(q => q._id !== id));
-      toast.success('Question supprimée');
-    } catch (error) {
-      console.error('Erreur suppression:', error);
-      toast.error('Erreur lors de la suppression');
-    }
-  };
-  
-  // Voir les détails d'une question
-  const viewQuestionDetail = (question) => {
-    setSelectedQuestion(question);
-  };
-  
-  // Éditer une question
-  const handleEditQuestion = (question) => {
-    sessionStorage.setItem('editQuestion', JSON.stringify({
-      _id: question._id,
-      libQuestion: question.libQuestion,
-      options: question.options || [],
-      correctAnswer: question.correctAnswer || (question.options && question.options[question.bonOpRep]),
-      bonOpRep: question.bonOpRep,
-      typeQuestion: question.typeQuestion || 1,
-      points: question.points || 1,
-      tempsMin: question.tempsMin || 1,
-      explanation: question.explanation || '',
-      domaine: question.domaine,
-      niveau: question.niveau,
-      matiere: question.matiere,
-      sousDomaine: question.sousDomaine || '',
-      libChapitre: question.libChapitre || '',
-      imageQuestion: question.imageQuestion || '',
-      imageBase64: question.imageBase64 || '',
-      imageMetadata: question.imageMetadata || {},
-      status: question.status,
-      domaineId: question.domaineId,
-      sousDomaineId: question.sousDomaineId,
-      niveauId: question.niveauId,
-      matiereId: question.matiereId
-    }));
-    
-    navigate('/create/question', { 
-      state: { editQuestion: question, isEditing: true }
-    });
-  };
-  
-  // Gestion des notifications
-  const markNotificationAsRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  };
-  
-  const markAllNotificationsAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
-  
-  const clearNotifications = () => {
-    setNotifications([]);
-  };
-  
-  const unreadCount = notifications.filter(n => !n.read).length;
-  
-  // Obtenir l'URL de l'image
-  const getImageUrl = (question) => {
-    if (!question) return null;
-    let imagePath = question.imageQuestion || question.imageBase64 || null;
-    if (!imagePath) return null;
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
-    if (imagePath.startsWith('data:')) return imagePath;
-    if (imagePath.startsWith('/uploads/')) return `${BACKEND_URL}${imagePath}`;
-    if (imagePath.includes('qcm-')) return `${BACKEND_URL}/uploads/questions/${imagePath}`;
-    return imagePath;
-  };
-  
-  // Badge de statut
   const getStatusBadge = (status) => {
     switch(status) {
       case 'pending': return { label: 'En attente', color: '#f59e0b', icon: <Clock size={12} /> };
@@ -385,7 +339,78 @@ const TeacherQuestionsPage = () => {
     return null;
   };
   
-  // Statistiques générales
+  const deleteQuestion = async (id) => {
+    if (!window.confirm('⚠️ Supprimer cette question définitivement ?')) return;
+    try {
+      await api.delete(`/api/questions/${id}`);
+      setQuestions(questions.filter(q => q._id !== id));
+      toast.success('Question supprimée');
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+      toast.error('Erreur lors de la suppression');
+    }
+  };
+  
+  const viewQuestionDetail = (question) => {
+    setSelectedQuestion(question);
+  };
+  
+  const handleEditQuestion = (question) => {
+    sessionStorage.setItem('editQuestion', JSON.stringify({
+      _id: question._id,
+      libQuestion: question.libQuestion,
+      options: question.options || [],
+      correctAnswer: question.correctAnswer || (question.options && question.options[question.bonOpRep]),
+      bonOpRep: question.bonOpRep,
+      typeQuestion: question.typeQuestion || 1,
+      points: question.points || 1,
+      tempsMin: question.tempsMin || 1,
+      explanation: question.explanation || '',
+      domaine: question.domaine,
+      niveau: question.niveau,
+      matiere: question.matiere,
+      sousDomaine: question.sousDomaine || '',
+      libChapitre: question.libChapitre || '',
+      imageQuestion: question.imageQuestion || '',
+      imageBase64: question.imageBase64 || '',
+      imageMetadata: question.imageMetadata || {},
+      status: question.status,
+      domaineId: question.domaineId,
+      sousDomaineId: question.sousDomaineId,
+      niveauId: question.niveauId,
+      matiereId: question.matiereId
+    }));
+    
+    navigate('/create/question', { 
+      state: { editQuestion: question, isEditing: true }
+    });
+  };
+  
+  const markNotificationAsRead = (id) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+  
+  const markAllNotificationsAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+  
+  const clearNotifications = () => {
+    setNotifications([]);
+  };
+  
+  const unreadCount = notifications.filter(n => !n.read).length;
+  
+  const getImageUrl = (question) => {
+    if (!question) return null;
+    let imagePath = question.imageQuestion || question.imageBase64 || null;
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+    if (imagePath.startsWith('data:')) return imagePath;
+    if (imagePath.startsWith('/uploads/')) return `${BACKEND_URL}${imagePath}`;
+    if (imagePath.includes('qcm-')) return `${BACKEND_URL}/uploads/questions/${imagePath}`;
+    return imagePath;
+  };
+  
   const stats = {
     total: questions.length,
     pending: questions.filter(q => q.status === 'pending').length,
@@ -394,7 +419,7 @@ const TeacherQuestionsPage = () => {
   };
   
   const statsByDomaine = getStatsByDomaine();
-  const hasActiveFilters = searchTerm || filterStatus || filterDomaine || filterMatiere;
+  const hasActiveFilters = searchTerm || filterStatus || filterDomaine || filterMatiere || filterChapitre;
   
   return (
     <div style={{
@@ -409,7 +434,7 @@ const TeacherQuestionsPage = () => {
       }} />
       
       <div style={{ maxWidth: 1200, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-        {/* Header */}
+        {/* Header - inchangé */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32, flexWrap: 'wrap' }}>
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -669,7 +694,7 @@ const TeacherQuestionsPage = () => {
               ))}
             </select>
             
-            {/* Filtre par matière (dépend du domaine sélectionné) */}
+            {/* Filtre par matière */}
             <select 
               value={filterMatiere} 
               onChange={e => setFilterMatiere(e.target.value)}
@@ -688,6 +713,28 @@ const TeacherQuestionsPage = () => {
               <option value="">Toutes les matières</option>
               {availableMatieres.map(mat => (
                 <option key={mat.id} value={mat.id}>{mat.nom}</option>
+              ))}
+            </select>
+            
+            {/* ✅ FILTRE PAR CHAPITRE (dépend du domaine et de la matière sélectionnés) */}
+            <select 
+              value={filterChapitre} 
+              onChange={e => setFilterChapitre(e.target.value)}
+              disabled={availableChapitres.length === 0}
+              style={{ 
+                padding: '8px 12px', 
+                background: 'rgba(0,0,0,0.3)', 
+                border: '1px solid rgba(99,102,241,0.2)', 
+                borderRadius: 8, 
+                color: '#f8fafc', 
+                fontSize: '0.8rem', 
+                outline: 'none',
+                opacity: availableChapitres.length === 0 ? 0.5 : 1
+              }}
+            >
+              <option value="">Tous les chapitres</option>
+              {availableChapitres.map(chapitre => (
+                <option key={chapitre} value={chapitre}>{chapitre}</option>
               ))}
             </select>
           </div>
@@ -713,6 +760,11 @@ const TeacherQuestionsPage = () => {
               {filterMatiere && (
                 <span style={{ padding: '2px 8px', background: 'rgba(16,185,129,0.2)', borderRadius: 4, fontSize: '0.65rem', color: '#10b981' }}>
                   📚 {availableMatieres.find(m => m.id === filterMatiere)?.nom || filterMatiere}
+                </span>
+              )}
+              {filterChapitre && (
+                <span style={{ padding: '2px 8px', background: 'rgba(245,158,11,0.2)', borderRadius: 4, fontSize: '0.65rem', color: '#f59e0b' }}>
+                  📖 {filterChapitre}
                 </span>
               )}
             </div>
@@ -755,7 +807,7 @@ const TeacherQuestionsPage = () => {
         ) : filteredQuestions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#64748b', background: 'rgba(15,23,42,0.5)', borderRadius: 24 }}>
             <FileText size={48} color="#1e293b" style={{ marginBottom: 16 }} />
-            <p>{searchTerm || filterDomaine || filterMatiere || filterStatus ? 'Aucune question ne correspond à vos filtres' : (isSaisisseur ? 'Vous n\'avez pas encore saisi de questions' : 'Vous n\'avez pas encore créé de questions')}</p>
+            <p>{searchTerm || filterDomaine || filterMatiere || filterChapitre || filterStatus ? 'Aucune question ne correspond à vos filtres' : (isSaisisseur ? 'Vous n\'avez pas encore saisi de questions' : 'Vous n\'avez pas encore créé de questions')}</p>
             {hasActiveFilters ? (
               <button onClick={resetFilters} style={{ marginTop: 20, padding: '8px 20px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, color: '#60a5fa', cursor: 'pointer' }}>
                 Réinitialiser les filtres
@@ -806,6 +858,11 @@ const TeacherQuestionsPage = () => {
                           <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(59,130,246,0.1)', borderRadius: 4, color: '#60a5fa' }}>
                             {q.domaine}
                           </span>
+                          {q.libChapitre && (
+                            <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(245,158,11,0.1)', borderRadius: 4, color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <BookOpen size={10} /> {q.libChapitre}
+                            </span>
+                          )}
                           {imageUrl && (
                             <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(59,130,246,0.15)', borderRadius: 4, color: '#60a5fa', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                               <ImageIcon size={10} /> Image
