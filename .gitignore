@@ -46,3 +46,4 @@ results/*.pdf
 .idea/
 *.swp
 deploy.sh
+package-lock.json

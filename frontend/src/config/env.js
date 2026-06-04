@@ -1,4 +1,4 @@
-// src/config/env.js - VERSION FINALE (IP réseau prioritaire sur .env)
+// src/config/env.js - VERSION CORRIGÉE POUR PRODUCTION
 const currentHostname = window.location.hostname;
 const currentPort = window.location.port;
 const currentOrigin = window.location.origin;
@@ -16,36 +16,44 @@ const isProduction = !isLocalhost && !isLocalNetwork;
 const SERVER_PORT = 5000;
 
 // ═══════════════════════════════════════════════════════════════
-// ✅ CONSTRUCTION DYNAMIQUE - IP RÉSEAU PRIORITAIRE
+// ✅ URLS DE PRODUCTION CORRECTES
+// ═══════════════════════════════════════════════════════════════
+
+// URLs de production (sans slash final)
+const PRODUCTION_BACKEND_URL = 'https://apisummative.na2quizappschool.uk';
+const PRODUCTION_SOCKET_URL = 'https://apisummative.na2quizappschool.uk';
+
+// ═══════════════════════════════════════════════════════════════
+// ✅ CONSTRUCTION DYNAMIQUE
 // ═══════════════════════════════════════════════════════════════
 
 const resolveBackendUrl = () => {
-  // ── PRIORITÉ 1 : IP réseau (fonctionne partout) ──────────────
+  // ── PRIORITÉ 1 : IP réseau (développement local) ─────────────
   if (isLocalNetwork) {
     const url = `http://${currentHostname}:${SERVER_PORT}`;
     console.log('[ENV] 📡 Backend (IP réseau - prioritaire):', url);
     return url;
   }
   
-  // ── PRIORITÉ 2 : .env (uniquement pour localhost/dev) ────────
-  if (isLocalhost && process.env.REACT_APP_BACKEND_URL) {
-    console.log('[ENV] 📡 Backend (.env - localhost):', process.env.REACT_APP_BACKEND_URL);
-    return process.env.REACT_APP_BACKEND_URL;
-  }
-  
-  // ── PRIORITÉ 3 : localhost par défaut ────────────────────────
+  // ── PRIORITÉ 2 : localhost ───────────────────────────────────
   if (isLocalhost) {
+    // Utiliser .env si disponible, sinon localhost par défaut
+    if (process.env.REACT_APP_BACKEND_URL) {
+      console.log('[ENV] 📡 Backend (.env - localhost):', process.env.REACT_APP_BACKEND_URL);
+      return process.env.REACT_APP_BACKEND_URL;
+    }
     const url = `http://localhost:${SERVER_PORT}`;
     console.log('[ENV] 📡 Backend (localhost):', url);
     return url;
   }
   
-  // ── PRIORITÉ 4 : Production ──────────────────────────────────
-  console.log('[ENV] 📡 Backend (production)');
-  return 'https://na2quizapp.onrender.com';
+  // ── PRIORITÉ 3 : Production ──────────────────────────────────
+  // ✅ CORRECTION : Utiliser la bonne URL de production
+  console.log('[ENV] 📡 Backend (production):', PRODUCTION_BACKEND_URL);
+  return PRODUCTION_BACKEND_URL;
 };
 
-// ✅ Même logique pour le Socket (même serveur)
+// ✅ Même logique pour le Socket
 const resolveSocketUrl = () => {
   if (isLocalNetwork) {
     const url = `http://${currentHostname}:${SERVER_PORT}`;
@@ -53,19 +61,19 @@ const resolveSocketUrl = () => {
     return url;
   }
   
-  if (isLocalhost && process.env.REACT_APP_SOCKET_URL) {
-    console.log('[ENV] 🔌 Socket (.env - localhost):', process.env.REACT_APP_SOCKET_URL);
-    return process.env.REACT_APP_SOCKET_URL;
-  }
-  
   if (isLocalhost) {
+    if (process.env.REACT_APP_SOCKET_URL) {
+      console.log('[ENV] 🔌 Socket (.env - localhost):', process.env.REACT_APP_SOCKET_URL);
+      return process.env.REACT_APP_SOCKET_URL;
+    }
     const url = `http://localhost:${SERVER_PORT}`;
     console.log('[ENV] 🔌 Socket (localhost):', url);
     return url;
   }
   
-  console.log('[ENV] 🔌 Socket (production)');
-  return 'https://na2quizapp.onrender.com';
+  // ✅ CORRECTION : Utiliser la bonne URL de production
+  console.log('[ENV] 🔌 Socket (production):', PRODUCTION_SOCKET_URL);
+  return PRODUCTION_SOCKET_URL;
 };
 
 const BACKEND_URL = resolveBackendUrl();
