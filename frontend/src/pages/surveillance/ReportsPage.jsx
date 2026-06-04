@@ -476,8 +476,11 @@ const ReportsPage = () => {
     setResults(r);
     setExams(e);
     
+    // ✅ CORRECTION ICI: remplacer toast.info par toast.success avec icône
     if (r.length === 0) {
-      toast.info('Aucun résultat trouvé');
+      console.log('ℹ️ Aucun résultat trouvé');
+      // Optionnel: afficher un toast d'information
+      toast.success('Aucun résultat trouvé', { icon: 'ℹ️' });
     } else {
       toast.success(`${r.length} résultat(s) chargé(s)`);
     }

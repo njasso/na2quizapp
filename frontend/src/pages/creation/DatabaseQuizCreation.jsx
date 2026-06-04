@@ -1,4 +1,5 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - Version complète corrigée
+// src/pages/creation/DatabaseQuizCreation.jsx - Version corrigée
+// ✅ Modification clé: Utilisation de getPublicQuestions pour ne récupérer que les questions validées
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,7 +19,7 @@ import DOMAIN_DATA, {
   getLevelNom,
   getMatiereNom
 } from '../../data/domainConfig';
-import { getQuestions, createExam } from '../../services/api';
+import { getPublicQuestions, createExam } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import ENV_CONFIG from '../../config/env';
@@ -151,8 +152,22 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
         </div>
       )}
       
+      {/* Badge "Validée" pour indiquer que la question est approuvée */}
+      <div style={{ position: 'absolute', top: 8, left: 8 }}>
+        <span style={{
+          fontSize: '0.55rem',
+          padding: '2px 6px',
+          background: '#10b981',
+          color: 'white',
+          borderRadius: 4,
+          fontWeight: 600
+        }}>
+          ✅ Validée
+        </span>
+      </div>
+      
       {imageSrc && (
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 8, marginTop: 20 }}>
           <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 60, borderRadius: 4, objectFit: 'contain' }} />
         </div>
       )}
@@ -372,142 +387,113 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Chargement des questions - Version corrigée
+  // ✅ CHARGEMENT DES QUESTIONS - Utilisation de getPublicQuestions (uniquement les questions validées)
   const loadAvailableQuestions = async () => {
-  if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
-    toast.error('Veuillez sélectionner tous les critères');
-    return;
-  }
-
-  setFetchingQuestions(true);
-  try {
-    console.log('🔍 Recherche avec les IDs:', {
-      domaineId: selectedDomainId,
-      sousDomaineId: selectedSousDomaineId,
-      niveauId: selectedLevelId,
-      matiereId: selectedMatiereId,
-      libChapitre: searchChapitre
-    });
-    
-    // ✅ Utiliser getQuestions directement
-    const response = await getQuestions({
-      domaineId: selectedDomainId,
-      sousDomaineId: selectedSousDomaineId,
-      niveauId: selectedLevelId,
-      matiereId: selectedMatiereId,
-      libChapitre: searchChapitre || undefined,
-      status: 'approved',
-      showAll: true,
-      limit: 1000
-    });
-
-    console.log('📦 Réponse brute de l\'API:', response);
-    
-    // ✅ CORRECTION: Parser correctement la réponse
-    let allQuestions = [];
-    
-    // Cas 1: La réponse est directement un tableau
-    if (Array.isArray(response)) {
-      allQuestions = response;
-      console.log('✅ Cas 1: Tableau direct,', allQuestions.length, 'questions');
-    }
-    // Cas 2: La réponse a une propriété 'data' qui est un tableau
-    else if (response?.data && Array.isArray(response.data)) {
-      allQuestions = response.data;
-      console.log('✅ Cas 2: response.data est un tableau,', allQuestions.length, 'questions');
-    }
-    // Cas 3: La réponse a une propriété 'questions' qui est un tableau
-    else if (response?.questions && Array.isArray(response.questions)) {
-      allQuestions = response.questions;
-      console.log('✅ Cas 3: response.questions est un tableau,', allQuestions.length, 'questions');
-    }
-    // Cas 4: La réponse a une structure imbriquée response.data.questions
-    else if (response?.data?.questions && Array.isArray(response.data.questions)) {
-      allQuestions = response.data.questions;
-      console.log('✅ Cas 4: response.data.questions est un tableau,', allQuestions.length, 'questions');
-    }
-    // Cas 5: La réponse a une structure response.data.data
-    else if (response?.data?.data && Array.isArray(response.data.data)) {
-      allQuestions = response.data.data;
-      console.log('✅ Cas 5: response.data.data est un tableau,', allQuestions.length, 'questions');
-    }
-    // Cas 6: Vérifier si la réponse a une propriété 'success' et 'data'
-    else if (response?.success && response?.data && Array.isArray(response.data)) {
-      allQuestions = response.data;
-      console.log('✅ Cas 6: response.success avec data tableau,', allQuestions.length, 'questions');
-    }
-    else {
-      console.error('❌ Structure de réponse non reconnue:', Object.keys(response || {}));
-    }
-
-    console.log(`📊 Total questions trouvées: ${allQuestions.length}`);
-    
-    if (allQuestions.length === 0) {
-      toast.error(`Aucune question trouvée pour ${matiereNom || 'cette matière'} (niveau ${levelNom || 'ce niveau'})`);
-      setAvailableQuestions([]);
-      setFetchingQuestions(false);
+    if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
+      toast.error('Veuillez sélectionner tous les critères');
       return;
     }
-    
-    // Enrichir les questions avec les noms
-    const normalized = allQuestions.map((q, idx) => {
-      const qDomaineId = q.domaineId || selectedDomainId;
-      const qSousDomaineId = q.sousDomaineId || selectedSousDomaineId;
-      const qNiveauId = q.niveauId || selectedLevelId;
-      const qMatiereId = q.matiereId || selectedMatiereId;
-      
-      return {
-        id: q._id || q.id || idx,
-        _id: q._id,
-        libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
-        text: q.libQuestion || q.question || q.text,
-        question: q.libQuestion || q.question || q.text,
-        options: q.options || [],
-        correctAnswer: q.correctAnswer || (q.options && typeof q.bonOpRep === 'number' ? q.options[q.bonOpRep] : ''),
-        bonOpRep: q.bonOpRep,
-        points: q.points || 1,
-        explanation: q.explanation || '',
-        typeQuestion: q.typeQuestion || (Array.isArray(q.correctAnswer) ? 2 : 1),
-        tempsMinParQuestion: q.tempsMinParQuestion || 60,
-        tempsMin: q.tempsMin || 1,
-        domaineId: qDomaineId,
-        sousDomaineId: qSousDomaineId,
-        niveauId: qNiveauId,
-        matiereId: qMatiereId,
-        domaineNom: getDomainNom(qDomaineId) || q.domaine || domainNom,
-        sousDomaineNom: getSousDomaineNom(qDomaineId, qSousDomaineId) || q.sousDomaine || sousDomaineNom,
-        niveauNom: getLevelNom(qDomaineId, qSousDomaineId, qNiveauId) || q.niveau || levelNom,
-        matiereNom: getMatiereNom(qDomaineId, qSousDomaineId, qMatiereId) || q.matiere || matiereNom,
-        libChapitre: q.libChapitre || '',
-        imageQuestion: q.imageQuestion || '',
-        imageBase64: q.imageBase64 || '',
-        imageMetadata: q.imageMetadata || {},
-        matriculeAuteur: q.matriculeAuteur || '',
-        dateCrea: q.dateCrea || new Date().toISOString(),
-        status: q.status
-      };
-    });
 
-    console.log(`✅ ${normalized.length} questions normalisées`);
-    if (normalized.length > 0) {
-      console.log('📝 Exemple de question normalisée:', {
-        libQuestion: normalized[0].libQuestion?.substring(0, 50),
-        matiereNom: normalized[0].matiereNom,
-        niveauNom: normalized[0].niveauNom
+    setFetchingQuestions(true);
+    try {
+      console.log('🔍 Recherche des questions validées avec les IDs:', {
+        domaineId: selectedDomainId,
+        sousDomaineId: selectedSousDomaineId,
+        niveauId: selectedLevelId,
+        matiereId: selectedMatiereId,
+        libChapitre: searchChapitre
       });
+      
+      // ✅ Utilisation de getPublicQuestions - NE RENVOIE QUE LES QUESTIONS APPROUVÉES
+      const result = await getPublicQuestions({
+        domaineId: selectedDomainId,
+        sousDomaineId: selectedSousDomaineId,
+        niveauId: selectedLevelId,
+        matiereId: selectedMatiereId,
+        libChapitre: searchChapitre || undefined,
+        limit: 1000
+      });
+
+      console.log('📦 Réponse de getPublicQuestions:', result);
+      
+      let allQuestions = [];
+      if (result.questions && Array.isArray(result.questions)) {
+        allQuestions = result.questions;
+      } else if (Array.isArray(result)) {
+        allQuestions = result;
+      } else if (result.data && Array.isArray(result.data)) {
+        allQuestions = result.data;
+      }
+
+      console.log(`📊 Total questions validées trouvées: ${allQuestions.length}`);
+      
+      if (allQuestions.length === 0) {
+        toast.info(`Aucune question validée trouvée pour ${matiereNom || 'cette matière'} (niveau ${levelNom || 'ce niveau'})`);
+        setAvailableQuestions([]);
+        setFetchingQuestions(false);
+        return;
+      }
+      
+      // Normaliser les questions
+      const normalized = allQuestions.map((q, idx) => {
+        const qDomaineId = q.domaineId || selectedDomainId;
+        const qSousDomaineId = q.sousDomaineId || selectedSousDomaineId;
+        const qNiveauId = q.niveauId || selectedLevelId;
+        const qMatiereId = q.matiereId || selectedMatiereId;
+        
+        return {
+          id: q._id || q.id || idx,
+          _id: q._id,
+          libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
+          text: q.libQuestion || q.question || q.text,
+          question: q.libQuestion || q.question || q.text,
+          options: q.options || [],
+          correctAnswer: q.correctAnswer || (q.options && typeof q.bonOpRep === 'number' ? q.options[q.bonOpRep] : ''),
+          bonOpRep: q.bonOpRep,
+          points: q.points || 1,
+          explanation: q.explanation || '',
+          typeQuestion: q.typeQuestion || (Array.isArray(q.correctAnswer) ? 2 : 1),
+          tempsMinParQuestion: q.tempsMinParQuestion || 60,
+          tempsMin: q.tempsMin || 1,
+          domaineId: qDomaineId,
+          sousDomaineId: qSousDomaineId,
+          niveauId: qNiveauId,
+          matiereId: qMatiereId,
+          domaineNom: getDomainNom(qDomaineId) || q.domaine || domainNom,
+          sousDomaineNom: getSousDomaineNom(qDomaineId, qSousDomaineId) || q.sousDomaine || sousDomaineNom,
+          niveauNom: getLevelNom(qDomaineId, qSousDomaineId, qNiveauId) || q.niveau || levelNom,
+          matiereNom: getMatiereNom(qDomaineId, qSousDomaineId, qMatiereId) || q.matiere || matiereNom,
+          libChapitre: q.libChapitre || '',
+          imageQuestion: q.imageQuestion || '',
+          imageBase64: q.imageBase64 || '',
+          imageMetadata: q.imageMetadata || {},
+          matriculeAuteur: q.matriculeAuteur || '',
+          dateCrea: q.dateCrea || new Date().toISOString(),
+          status: q.status || 'approved'
+        };
+      });
+
+      console.log(`✅ ${normalized.length} questions validées normalisées`);
+      if (normalized.length > 0) {
+        console.log('📝 Exemple de question normalisée:', {
+          libQuestion: normalized[0].libQuestion?.substring(0, 50),
+          matiereNom: normalized[0].matiereNom,
+          niveauNom: normalized[0].niveauNom,
+          status: normalized[0].status
+        });
+      }
+      
+      setAvailableQuestions(normalized);
+      toast.success(`${normalized.length} question(s) validée(s) trouvée(s)`);
+      
+    } catch (error) {
+      console.error('Erreur chargement questions:', error);
+      toast.error('Impossible de charger les questions: ' + (error.message || 'Erreur inconnue'));
+      setAvailableQuestions([]);
+    } finally {
+      setFetchingQuestions(false);
     }
-    
-    setAvailableQuestions(normalized);
-    toast.success(`${normalized.length} questions trouvées`);
-    
-  } catch (error) {
-    console.error('Erreur chargement questions:', error);
-    toast.error('Impossible de charger les questions: ' + error.message);
-    setAvailableQuestions([]);
-  } finally {
-    setFetchingQuestions(false);
-  }
-};
+  };
 
   // Recharger quand les critères changent
   useEffect(() => {
@@ -904,7 +890,7 @@ const DatabaseQuizCreation = () => {
               />
             </div>
 
-            {/* Paramètres avancés (garder le même code que l'original) */}
+            {/* Paramètres avancés */}
             <div style={{ marginTop: 16, borderTop: '1px solid rgba(99,102,241,0.2)', paddingTop: 16 }}>
               <button
                 onClick={() => setAdvancedOpen(!advancedOpen)}
@@ -1237,10 +1223,10 @@ const DatabaseQuizCreation = () => {
             border: '1px solid rgba(99,102,241,0.2)', borderRadius: 24, padding: 24
           }}>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20 }}>
-              Questions disponibles
+              Questions validées
               {availableQuestions.length > 0 && (
-                <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#a5b4fc' }}>
-                  ({availableQuestions.length})
+                <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#10b981' }}>
+                  ({availableQuestions.length} validée(s))
                 </span>
               )}
             </h2>
@@ -1263,7 +1249,7 @@ const DatabaseQuizCreation = () => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <p style={{ color: '#64748b', fontSize: '0.7rem' }}>
-                {filteredQuestions.length} question(s) trouvée(s)
+                {filteredQuestions.length} question(s) validée(s) trouvée(s)
               </p>
               <motion.button
                 whileHover={{ scale: 1.05 }}
@@ -1299,7 +1285,7 @@ const DatabaseQuizCreation = () => {
             ) : filteredQuestions.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
                 <AlertCircle size={32} style={{ marginBottom: 12 }} />
-                <p>Aucune question trouvée</p>
+                <p>Aucune question validée trouvée</p>
                 <p style={{ fontSize: '0.7rem' }}>Vérifiez que des questions ont été validées pour ces critères</p>
               </div>
             ) : (

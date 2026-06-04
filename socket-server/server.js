@@ -1993,6 +1993,27 @@ app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE',
   }
 });
 
+app.delete('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: 'Résultat non trouvé' });
+    
+    const isAdmin = ['ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'OPERATEUR_EVALUATION'].includes(req.user.role);
+    const isOwner = result.examId?.createdBy?.toString() === req.user._id?.toString();
+    
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    
+    await Result.findByIdAndDelete(req.params.id);
+    console.log(`[API] ✅ Résultat ${req.params.id} supprimé par ${req.user.name}`);
+    res.json({ success: true, message: 'Résultat supprimé avec succès' });
+  } catch (err) {
+    console.error('[API] Erreur suppression résultat:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ==================== IA ROUTES ====================
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
@@ -2687,14 +2708,44 @@ io.engine.on('connection_error', (err) => {
 
 const emitRealtimeStats = (examId) => {
   if (!examId) return;
-  const students = Array.from(activeSessions.values()).filter(s => s.type === 'student' && s.currentExamId === examId && s.status === 'composing');
-  const stats = { 
-    examId, 
-    activeStudentsCount: students.length, 
-    averageScore: students.length > 0 ? students.reduce((a, b) => a + (b.score || 0), 0) / students.length : 0, 
-    averageProgress: students.length > 0 ? students.reduce((a, b) => a + (b.progress || 0), 0) / students.length : 0, 
-    lastUpdate: new Date() 
+
+  // ✅ Inclure composing + finished pour les stats complètes
+  const students = Array.from(activeSessions.values()).filter(
+    s => s.type === 'student' && s.currentExamId === examId &&
+         ['composing', 'finished', 'forced-finished', 'submitting'].includes(s.status)
+  );
+  const composing = students.filter(s => s.status === 'composing').length;
+  const finished  = students.filter(s => ['finished','forced-finished'].includes(s.status)).length;
+
+  // ✅ Utiliser percentage (0-100) et non score brut
+  const percentages = students.map(s => s.percentage || 0);
+  const sorted      = [...percentages].sort((a, b) => a - b);
+  const n           = sorted.length;
+
+  const avg     = n > 0 ? sorted.reduce((a, b) => a + b, 0) / n : 0;
+  const median  = n > 0
+    ? (n % 2 === 0 ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[Math.floor(n/2)])
+    : 0;
+  const highest = n > 0 ? sorted[n - 1] : 0;
+  const lowest  = n > 0 ? sorted[0]     : 0;
+  const passRate = n > 0 ? (percentages.filter(p => p >= 50).length / n) * 100 : 0;
+
+  const stats = {
+    examId,
+    activeStudentsCount: composing,
+    totalStudents:       students.length,
+    finishedStudents:    finished,
+    averageScore:  Math.round(avg * 10) / 10,
+    medianScore:   Math.round(median * 10) / 10,
+    highestScore:  Math.round(highest * 10) / 10,
+    lowestScore:   Math.round(lowest * 10) / 10,
+    passRate:      Math.round(passRate * 10) / 10,
+    averageProgress: students.length > 0
+      ? Math.round(students.reduce((a, b) => a + (b.progress || 0), 0) / students.length)
+      : 0,
+    lastUpdate: new Date()
   };
+
   io.to('surveillance').emit('realtimeExamStats', stats);
 };
 

@@ -1,4 +1,4 @@
-// src/pages/composition/ExamCompletedPage.jsx - Version COMPLÈTE CORRIGÉE
+// src/pages/composition/ExamCompletedPage.jsx - Version CORRIGÉE
 // Page de fin d'épreuve pour les options C, F, K (sans affichage de résultat)
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -8,7 +8,8 @@ import { Home, LogOut, Shield } from 'lucide-react';
 // ── Labels configurations ────────────────────────────────────────────────────
 const OPTION_LABELS = {
   C: { label: 'Configuration C', desc: 'Plage fermée · Séquentiel figé · Même QCM · Sans résultat', color: '#ef4444' },
-  F: { label: 'Configuration F', desc: 'Plage fermée · Séquentiel aléatoire · QCM aléatoire · Sans résultat', color: '#f59e0b' },
+  // ✅ CORRECTION: Config F = Séquentiel figé (et non aléatoire)
+  F: { label: 'Configuration F', desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Sans résultat', color: '#f59e0b' },
   K: { label: 'Configuration K', desc: 'Plage ouverte · Sans résultat · No Reply', color: '#10b981' },
 };
 

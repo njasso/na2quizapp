@@ -1,4 +1,4 @@
-// src/pages/composition/ResultsPage.jsx — Version Ultime Corrigée avec URL dynamique
+// src/pages/composition/ResultsPage.jsx — Version Finale Corrigée
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -7,33 +7,19 @@ import { toast, Toaster } from 'react-hot-toast';
 import { CheckCircle, XCircle, Award, User, FileText, Settings } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
-// ✅ Fonction pour obtenir l'URL dynamique du backend
 const getBackendUrl = () => {
   const currentHostname = window.location.hostname;
   const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
   const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
-  
-  if (isLocalNetwork) {
-    return `http://${currentHostname}:5000`;
-  }
-  if (isLocalhost) {
-    return 'http://localhost:5000';
-  }
+  if (isLocalNetwork) return `http://${currentHostname}:5000`;
+  if (isLocalhost) return 'http://localhost:5000';
   return ENV_CONFIG.BACKEND_URL;
 };
 
-console.log('[ResultsPage] 🌍 Environnement:', ENV_CONFIG.environment);
-console.log('[ResultsPage] 🔗 Backend URL (dynamique):', getBackendUrl());
-console.log('[ResultsPage] 🔌 Terminal URL:', ENV_CONFIG.TERMINAL_URL);
-
-// ═══════════════════════════════════════════════════════════════
-// CONFIGURATIONS DES RÉSULTATS
-// ═══════════════════════════════════════════════════════════════
 const getResultDisplayType = (configOption) => {
   const binaryOnly = ['A', 'D', 'G', 'H'];
   const binaryPlus = ['B', 'E', 'I', 'J'];
   const noResult = ['C', 'F', 'K'];
-  
   if (noResult.includes(configOption)) return 'none';
   if (binaryOnly.includes(configOption)) return 'binary';
   if (binaryPlus.includes(configOption)) return 'binaryPlus';
@@ -42,45 +28,31 @@ const getResultDisplayType = (configOption) => {
 
 const getOptionLabel = (opt) => {
   const labels = {
-    A: 'Fermée · Figée · Binaire',
-    B: 'Fermée · Figée · Binaire+',
-    C: 'Fermée · Figée · Sans résultat',
-    D: 'Fermée · Aléatoire · Binaire',
-    E: 'Fermée · Aléatoire · Binaire+',
-    F: 'Fermée · Aléatoire · Sans résultat',
-    G: 'Ouverte · Binaire · Reprise OK',
-    H: 'Ouverte · Binaire · No Reply',
-    I: 'Ouverte · Binaire+ · Reprise OK',
-    J: 'Ouverte · Binaire+ · No Reply',
+    A: 'Fermée · Figée · Binaire', B: 'Fermée · Figée · Binaire+',
+    C: 'Fermée · Figée · Sans résultat', D: 'Fermée · Aléatoire · Binaire',
+    E: 'Fermée · Aléatoire · Binaire+', F: 'Fermée · Aléatoire · Sans résultat',
+    G: 'Ouverte · Binaire · Reprise OK', H: 'Ouverte · Binaire · No Reply',
+    I: 'Ouverte · Binaire+ · Reprise OK', J: 'Ouverte · Binaire+ · No Reply',
     K: 'Ouverte · Sans résultat · No Reply',
   };
   return labels[opt] || `Configuration ${opt}`;
 };
 
-const getAuthToken = () => {
-  return localStorage.getItem('userToken') || localStorage.getItem('token');
-};
+const getAuthToken = () => localStorage.getItem('userToken') || localStorage.getItem('token');
 
 const ResultsPage = () => {
   const { examId } = useParams();
   const { state } = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
-  // ✅ Récupération du token dans l'URL
+
   const urlToken = searchParams.get('token');
 
   const {
-    submittedAnswers,
-    studentInfo,
-    submittedScore,
-    submittedPercentage,
-    examTitle: passedExamTitle,
-    passingScore: passedPassingScore,
-    examQuestions: passedExamQuestions,
-    resultSnapshot: passedResultSnapshot,
-    terminalSessionId: passedTerminalSessionId,
-    resultId: passedResultId,
+    submittedAnswers, studentInfo, submittedScore, submittedPercentage,
+    examTitle: passedExamTitle, passingScore: passedPassingScore,
+    examQuestions: passedExamQuestions, resultSnapshot: passedResultSnapshot,
+    terminalSessionId: passedTerminalSessionId, resultId: passedResultId,
   } = state || {};
 
   const [exam, setExam] = useState(null);
@@ -88,27 +60,24 @@ const ResultsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [countdown, setCountdown] = useState(120);
   const [redirectTimerActive, setRedirectTimerActive] = useState(true);
-  
+
   const questionDetailsRef = useRef([]);
   const countdownIntervalRef = useRef(null);
-  const isTerminalContext = !!passedTerminalSessionId;
-  const resultId = passedResultId || state?.resultId || '';
-  
+
   const examOption = config?.examOption || passedResultSnapshot?.examOption || passedResultSnapshot?.config?.examOption;
   const displayType = getResultDisplayType(examOption);
   const allowRetry = config?.allowRetry || passedResultSnapshot?.config?.allowRetry;
+  const isTerminalContext = !!passedTerminalSessionId;
 
-  // ✅ Stockage du token dans localStorage
   useEffect(() => {
     if (urlToken) {
-      console.log('[ResultsPage] 🔑 Token reçu dans l\'URL, stockage...');
       localStorage.setItem('userToken', urlToken);
       localStorage.setItem('token', urlToken);
     }
   }, [urlToken]);
 
   // ═══════════════════════════════════════════════════════════════
-  // REDIRECTION SELON REPRISE
+  // REDIRECTION CORRIGÉE — Dashboard au lieu de l'accueil
   // ═══════════════════════════════════════════════════════════════
   const handleRedirect = useCallback(() => {
     localStorage.removeItem('studentInfoForExam');
@@ -118,68 +87,55 @@ const ResultsPage = () => {
       localStorage.removeItem(`exam_${examId}_attempts`);
       localStorage.removeItem(`exam_${examId}_showResult`);
     }
-    
-    if (allowRetry && passedTerminalSessionId) {
-      // ✅ Reprise OK → retour au terminal
-      const redirectUrl = `${ENV_CONFIG.TERMINAL_URL}${passedTerminalSessionId ? `?sessionId=${passedTerminalSessionId}` : ''}`;
-      window.location.replace(redirectUrl);
-    } else {
-      // ✅ No Reply → retour accueil
-      navigate('/', { replace: true });
-    }
-  }, [allowRetry, passedTerminalSessionId, examId, navigate]);
 
-  // Timer redirection
+    // Désactiver le mode kiosque si actif
+    if (window.NA2QUIZ?.deactivateKiosk) {
+      window.NA2QUIZ.deactivateKiosk();
+    }
+
+    if (allowRetry && isTerminalContext) {
+      window.location.replace(ENV_CONFIG.TERMINAL_URL);
+    } else {
+      // ✅ Redirection vers le Dashboard (pas l'accueil)
+      navigate('/evaluate', { replace: true });
+    }
+  }, [allowRetry, isTerminalContext, examId, navigate]);
+
   useEffect(() => {
     if (isLoading || !redirectTimerActive) return;
-    
     countdownIntervalRef.current = setInterval(() => {
       setCountdown(prev => {
-        if (prev <= 1) {
-          handleRedirect();
-          return 0;
-        }
+        if (prev <= 1) { handleRedirect(); return 0; }
         return prev - 1;
       });
     }, 1000);
-    
-    return () => {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    };
+    return () => { if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current); };
   }, [isLoading, redirectTimerActive, handleRedirect]);
 
   const extendStay = useCallback(() => {
     setRedirectTimerActive(false);
     toast.success("Temps prolongé.", { duration: 4000 });
-    setTimeout(() => {
-      setRedirectTimerActive(true);
-      setCountdown(120);
-    }, 300000);
+    setTimeout(() => { setRedirectTimerActive(true); setCountdown(120); }, 300000);
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
   // NORMALISATION QUESTIONS
   // ═══════════════════════════════════════════════════════════════
   const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
-    let correctAnswerIndex = -1;
     let correctAnswerText = '';
-    
     if (typeof q.bonOpRep === 'number') {
-      correctAnswerIndex = q.bonOpRep;
-      correctAnswerText = q.options?.[correctAnswerIndex] || '';
+      correctAnswerText = q.options?.[q.bonOpRep] || '';
     } else if (q.correctAnswer) {
       correctAnswerText = q.correctAnswer;
     }
-    
+
     let finalStudentAnswer = 'Non répondu';
     if (studentAnswer && studentAnswer !== 'Non répondu') {
       finalStudentAnswer = studentAnswer;
     } else if (submittedAnswers) {
-      finalStudentAnswer = submittedAnswers[q._id] 
-        || submittedAnswers[questionIndex]
-        || 'Non répondu';
+      finalStudentAnswer = submittedAnswers[q._id] || submittedAnswers[questionIndex] || 'Non répondu';
     }
-    
+
     let isCorrect = false;
     if (finalStudentAnswer !== 'Non répondu') {
       if (typeof q.bonOpRep === 'number') {
@@ -189,16 +145,12 @@ const ResultsPage = () => {
         isCorrect = finalStudentAnswer === q.correctAnswer;
       }
     }
-    
+
     return {
-      _id: q._id,
-      questionText: q.libQuestion || q.question || q.text || 'Question sans texte',
-      options: q.options || [],
-      studentAnswer: finalStudentAnswer,
-      correctAnswer: correctAnswerText,
-      isCorrect,
-      points: q.points || 1,
-      explanation: q.explanation || '',
+      _id: q._id, questionText: q.libQuestion || q.question || q.text || '',
+      options: q.options || [], studentAnswer: finalStudentAnswer,
+      correctAnswer: correctAnswerText, isCorrect,
+      points: q.points || 1, explanation: q.explanation || '',
     };
   };
 
@@ -228,13 +180,11 @@ const ResultsPage = () => {
     const fetchAndProcessResults = async () => {
       try {
         if (passedResultSnapshot?.examQuestions?.length > 0) {
-          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => 
+          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) =>
             normalizeQuestionForDisplay(q, null, idx)
           );
-          
           setExam({
-            _id: examId,
-            title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
+            _id: examId, title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
             questions: passedResultSnapshot.examQuestions || [],
             passingScore: passedResultSnapshot.passingScore || passedPassingScore || 70,
           });
@@ -245,38 +195,25 @@ const ResultsPage = () => {
 
         const token = getAuthToken();
         const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-        
-        // ✅ Utiliser l'URL dynamique
         const backendUrl = getBackendUrl();
-        const apiUrl = `${backendUrl}/api/exams/${examId}`;
-        console.log('[ResultsPage] 📡 Appel API:', apiUrl);
-
-        const response = await axios.get(apiUrl, { 
-          timeout: 10000,
-          ...axiosConfig 
-        });
-        
+        const response = await axios.get(`${backendUrl}/api/exams/${examId}`, { timeout: 10000, ...axiosConfig });
         const examData = response.data;
         const questionsArray = examData.questions || [];
-        
-        questionDetailsRef.current = questionsArray.map((q, idx) => 
+
+        questionDetailsRef.current = questionsArray.map((q, idx) =>
           normalizeQuestionForDisplay(q, null, idx)
         );
-        
         setExam({ ...examData, questions: questionsArray });
         setConfig(examData.config || null);
-        
       } catch (error) {
         console.error("Erreur chargement:", error);
         if (passedExamQuestions?.length > 0) {
-          questionDetailsRef.current = passedExamQuestions.map((q, idx) => 
+          questionDetailsRef.current = passedExamQuestions.map((q, idx) =>
             normalizeQuestionForDisplay(q, null, idx)
           );
           setExam({
-            _id: examId,
-            title: passedExamTitle || 'Titre inconnu',
-            questions: passedExamQuestions,
-            passingScore: passedPassingScore || 70,
+            _id: examId, title: passedExamTitle || 'Titre inconnu',
+            questions: passedExamQuestions, passingScore: passedPassingScore || 70,
           });
           setConfig(passedResultSnapshot?.config || null);
         } else {
@@ -297,29 +234,29 @@ const ResultsPage = () => {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.spinner} />
-        <p style={{ color: '#94a3b8', marginTop: '16px' }}>Chargement des résultats...</p>
-        <p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 8 }}>Backend: {getBackendUrl()}</p>
+        <p style={{ color: '#94a3b8', marginTop: 16 }}>Chargement des résultats...</p>
         <Toaster />
       </div>
     );
   }
 
-  // ✅ C, F, K : Aucun résultat
+  // Configs C, F, K : Aucun résultat
   if (displayType === 'none') {
     return (
       <div style={styles.container}>
         <div style={styles.noResultCard}>
           <div style={styles.checkIcon}>✓</div>
           <h1 style={styles.noResultTitle}>Épreuve terminée</h1>
-          <p style={styles.noResultText}>
-            {studentInfo?.firstName} {studentInfo?.lastName}
-          </p>
+          <p style={styles.noResultText}>{studentInfo?.firstName} {studentInfo?.lastName}</p>
           <p style={styles.noResultSubtext}>
             Vos réponses ont bien été enregistrées.<br />
             Les résultats de cette configuration (<strong>{examOption}</strong>) ne sont pas communiqués.
           </p>
-          <button onClick={() => navigate('/', { replace: true })} style={styles.homeButton}>
-            Retour à l'accueil
+          <button onClick={() => {
+            if (window.NA2QUIZ?.deactivateKiosk) window.NA2QUIZ.deactivateKiosk();
+            navigate('/evaluate', { replace: true });
+          }} style={styles.homeButton}>
+            Retour au tableau de bord
           </button>
         </div>
       </div>
@@ -336,9 +273,8 @@ const ResultsPage = () => {
     <div style={styles.container}>
       <div style={styles.bgGrid} />
       <div style={styles.bgGlow} />
-      
+
       <main style={styles.main}>
-        {/* Timer redirection */}
         {!isLoading && redirectTimerActive && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={styles.redirectBanner(countdown)}>
             <div style={styles.redirectInfo}>
@@ -353,23 +289,14 @@ const ResultsPage = () => {
         )}
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={styles.resultCard}>
-          
-          {/* En-tête */}
           <div style={styles.header}>
-            <div style={styles.badge}>
-              <span style={styles.badgeDot} />
-              <span>RÉSULTATS</span>
-            </div>
+            <div style={styles.badge}><span style={styles.badgeDot} /><span>RÉSULTATS</span></div>
             <h1 style={styles.title}>Bulletin de Résultats</h1>
           </div>
 
-          {/* Infos étudiant + Performance */}
           <div style={styles.infoGrid}>
             <div style={styles.infoBox}>
-              <div style={styles.infoHeader}>
-                <User size={20} color="#3b82f6" />
-                <h2>Informations</h2>
-              </div>
+              <div style={styles.infoHeader}><User size={20} color="#3b82f6" /><h2>Informations</h2></div>
               <p><span>Nom:</span> {studentInfo?.lastName || 'N/A'}</p>
               <p><span>Prénom:</span> {studentInfo?.firstName || 'N/A'}</p>
               <p><span>Niveau:</span> {studentInfo?.level || 'N/A'}</p>
@@ -377,32 +304,19 @@ const ResultsPage = () => {
             </div>
 
             <div style={styles.perfBox(passStatus)}>
-              <div style={styles.infoHeader}>
-                <Award size={20} color={passStatus ? '#10b981' : '#ef4444'} />
-                <h2>Performance</h2>
-              </div>
+              <div style={styles.infoHeader}><Award size={20} color={passStatus ? '#10b981' : '#ef4444'} /><h2>Performance</h2></div>
               <p><span>Titre:</span> {exam?.title || passedExamTitle || 'N/A'}</p>
               <p><span>Points:</span> {submittedScore} / {totalPoints} pts</p>
               <p><span>Bonnes rép.:</span> {correctCount} / {totalQuestions}</p>
               <p><span>Pourcentage:</span> <span style={{ color: passStatus ? '#10b981' : '#ef4444', fontWeight: 600 }}>{submittedPercentage.toFixed(2)}%</span></p>
-              
-              {/* Note /20 */}
-              <div style={styles.noteBox}>
-                <span>NOTE / 20</span>
-                <span style={styles.noteValue}>{note20}</span>
-              </div>
-              
+              <div style={styles.noteBox}><span>NOTE / 20</span><span style={styles.noteValue}>{note20}</span></div>
               <p><span>Statut:</span> <span style={{ color: passStatus ? '#10b981' : '#ef4444', fontWeight: 600 }}>{passStatus ? 'RÉUSSI' : 'ÉCHOUÉ'}</span></p>
             </div>
           </div>
 
-          {/* Configuration */}
           {config && (
             <div style={styles.configBox}>
-              <div style={styles.configHeader}>
-                <Settings size={14} color="#8b5cf6" />
-                <span>Configuration de l'épreuve</span>
-              </div>
+              <div style={styles.configHeader}><Settings size={14} color="#8b5cf6" /><span>Configuration de l'épreuve</span></div>
               <div style={styles.configGrid}>
                 <span>Option:</span><span>{getOptionLabel(config.examOption)} ({config.examOption})</span>
                 {config.openRange && <><span>Plage ouverte:</span><span>{config.requiredQuestions} questions</span></>}
@@ -412,20 +326,15 @@ const ResultsPage = () => {
             </div>
           )}
 
-          {/* ✅ Résultat Binaire (toujours affiché) */}
           <div style={styles.binaryResult(passStatus)}>
             <h3>{passStatus ? '🎉 FÉLICITATIONS !' : '😔 DOMMAGE...'}</h3>
             <p style={styles.binaryPercentage}>{submittedPercentage.toFixed(1)}%</p>
             <p>Score : {submittedScore} / {totalPoints} pts</p>
           </div>
 
-          {/* ✅ Détails des réponses - UNIQUEMENT pour BINARY+ */}
           {displayType === 'binaryPlus' && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={styles.detailsSection}>
-              <div style={styles.detailsHeader}>
-                <FileText size={20} color="#3b82f6" />
-                <h2>Détails des Réponses</h2>
-              </div>
+              <div style={styles.detailsHeader}><FileText size={20} color="#3b82f6" /><h2>Détails des Réponses</h2></div>
               <div style={styles.detailsList}>
                 {questionDetailsRef.current.map((qDetail, index) => (
                   <div key={qDetail._id || index} style={styles.detailItem(qDetail.isCorrect)}>
@@ -452,15 +361,12 @@ const ResultsPage = () => {
                       <span>Bonne réponse: <span style={{ color: '#10b981' }}>{qDetail.correctAnswer}</span></span>
                       <span>Points: {qDetail.points}</span>
                     </div>
-                    {qDetail.explanation && (
-                      <div style={styles.explanation}>💡 {qDetail.explanation}</div>
-                    )}
+                    {qDetail.explanation && <div style={styles.explanation}>💡 {qDetail.explanation}</div>}
                   </div>
                 ))}
               </div>
             </motion.div>
           )}
-
         </motion.div>
       </main>
       <Toaster />
@@ -469,7 +375,7 @@ const ResultsPage = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// STYLES (inchangés)
+// STYLES
 // ═══════════════════════════════════════════════════════════════
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
@@ -485,7 +391,7 @@ const styles = {
   header: { textAlign: 'center', marginBottom: '32px' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '5px 14px', marginBottom: '16px', background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '999px' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 8px #3b82f6' },
-  title: { fontFamily: "'Sora', sans-serif", fontSize: '2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' },
+  title: { fontFamily: "'Sora', sans-serif", fontSize: '2rem', fontWeight: 700, color: '#f8fafc' },
   infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' },
   infoBox: { background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '16px', padding: '20px' },
   perfBox: (pass) => ({ background: pass ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${pass ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: '16px', padding: '20px' }),
@@ -496,7 +402,7 @@ const styles = {
   configHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' },
   configGrid: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: '0.78rem', color: '#e2e8f0' },
   binaryResult: (pass) => ({ marginTop: '24px', padding: '20px', background: pass ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${pass ? '#10b981' : '#ef4444'}40`, borderRadius: '16px', textAlign: 'center' }),
-  binaryPercentage: { fontSize: '2.5rem', fontWeight: 800, color: 'inherit' },
+  binaryPercentage: { fontSize: '2.5rem', fontWeight: 800 },
   detailsSection: { marginTop: '32px' },
   detailsHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: '#f8fafc' },
   detailsList: { display: 'flex', flexDirection: 'column', gap: '16px' },
@@ -514,7 +420,7 @@ const styles = {
   noResultTitle: { fontFamily: "'Sora', sans-serif", fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginBottom: '12px' },
   noResultText: { color: '#94a3b8', fontSize: '1rem', marginBottom: '8px' },
   noResultSubtext: { color: '#64748b', fontSize: '0.875rem', marginBottom: '32px' },
-  homeButton: { padding: '12px 32px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }
+  homeButton: { padding: '12px 32px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' },
 };
 
 export default ResultsPage;

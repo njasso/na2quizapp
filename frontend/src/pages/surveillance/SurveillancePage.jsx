@@ -62,7 +62,6 @@ const SurveillancePage = () => {
   const [selectedExamId, setSelectedExamId] = useState('');
   const [selectedExamOption, setSelectedExamOption] = useState('A');
   const [realtimeStats, setRealtimeStats] = useState(null);
-  const [currentQIdx, setCurrentQIdx] = useState({});
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
@@ -71,11 +70,15 @@ const SurveillancePage = () => {
   const [sessionHistory, setSessionHistory] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [showAlerts, setShowAlerts] = useState(false);
-  const [autoAdvanceOptionA, setAutoAdvanceOptionA] = useState(true);
   const [rankingExamId, setRankingExamId] = useState('');
   const [rankingsData, setRankingsData] = useState([]);
   const [isLoadingRankings, setIsLoadingRankings] = useState(false);
   const [waitingCounts, setWaitingCounts] = useState({});
+  // ✅ États temps réel supplémentaires (événements précédemment ignorés)
+  const [submittingStudents, setSubmittingStudents] = useState(new Set());
+  const [finishedStudents,   setFinishedStudents]   = useState(new Set());
+  const [disconnectedIds,    setDisconnectedIds]    = useState(new Set());
+  const [examFinishedIds,    setExamFinishedIds]    = useState(new Set());
   const [accessDenied, setAccessDenied] = useState(false);
 
   const socketRef = useRef(null);
@@ -287,6 +290,49 @@ const SurveillancePage = () => {
       toast.error(alert.message, { duration: 8000, icon: '⚠️' }); 
     });
 
+    // ✅ Étudiant en cours de soumission
+    socket.on('studentSubmitting', (data) => {
+      setSubmittingStudents(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
+      setActiveSessions(prev => prev.map(session =>
+        session.socketId === data.studentId ? { ...session, status: 'submitting', lastUpdate: Date.now() } : session
+      ));
+      addAlertRef.current({ type: 'submit', message: `📤 Soumission en cours — examId: ${data.examId?.slice(0,8)}`, severity: 'low' });
+    });
+
+    // ✅ Étudiant a terminé et résultat enregistré
+    socket.on('studentFinished', (data) => {
+      setSubmittingStudents(prev => { const s = new Set(prev); s.delete(data.studentId); return s; });
+      setFinishedStudents(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
+      setActiveSessions(prev => prev.map(session =>
+        session.socketId === data.studentId ? { ...session, status: 'finished', lastUpdate: Date.now() } : session
+      ));
+      toast.success('✅ Un étudiant a soumis son épreuve', { duration: 3000 });
+    });
+
+    // ✅ Étudiant déconnecté pendant la composition
+    socket.on('studentDisconnected', (data) => {
+      setDisconnectedIds(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
+      setActiveSessions(prev => prev.map(session =>
+        session.socketId === data.studentId
+          ? { ...session, isOnline: false, lastUpdate: Date.now() }
+          : session
+      ));
+      if (data.studentInfo) {
+        addAlertRef.current({ type: 'disconnect', message: `⚠️ ${data.studentInfo.firstName || ''} ${data.studentInfo.lastName || ''} déconnecté(e)`, severity: 'medium' });
+      }
+    });
+
+    // ✅ Clôture épreuve confirmée par le serveur
+    socket.on('examFinishedConfirm', (data) => {
+      setExamFinishedIds(prev => { const s = new Set(prev); s.add(data.examId); return s; });
+      toast.success('🏁 Épreuve clôturée — sessions nettoyées', { duration: 4000 });
+      // Purger les sessions de cette épreuve
+      setActiveSessions(prev => prev.filter(s => s.currentExamId !== data.examId));
+      setSubmittingStudents(new Set());
+      setFinishedStudents(new Set());
+      setDisconnectedIds(new Set());
+    });
+
     return () => { 
       if (socketRef.current) {
         socketRef.current.removeAllListeners();
@@ -380,17 +426,6 @@ const SurveillancePage = () => {
     toast.success('Fin d\'épreuve envoyée.');
   }, [selectedExamId]);
 
-  const handleAdvanceQuestion = useCallback(() => {
-    if (!socketRef.current?.connected) { toast.error('Socket non connecté'); return; }
-    const nextIdx = (currentQIdx[selectedExamId] ?? -1) + 1;
-    const exam = exams.find(e => e._id === selectedExamId);
-    if (exam && nextIdx >= (exam.questions?.length || 0)) { toast('Fin de l\'épreuve'); return; }
-    if (selectedExamOption === 'B') socketRef.current.emit('displayQuestion', { examId: selectedExamId, questionIndex: nextIdx });
-    else if (selectedExamOption === 'A') socketRef.current.emit('advanceQuestionForOptionA', { examId: selectedExamId, nextQuestionIndex: nextIdx });
-    setCurrentQIdx(prev => ({ ...prev, [selectedExamId]: nextIdx }));
-    toast.success(`Question ${nextIdx + 1}`);
-  }, [selectedExamId, currentQIdx, selectedExamOption, exams]);
-
   const exportLogs = useCallback(() => {
     const uniqueSessions = getUniqueSessions(activeSessions);
     const logs = { timestamp: new Date().toISOString(), activeSessions: uniqueSessions, sessionHistory: sessionHistory.slice(0, 50), alerts: alerts.slice(0, 50), realtimeStats };
@@ -483,7 +518,7 @@ useEffect(() => {
   // ── Chart données ────────────────────────────────────────────
   const chartData = {
     labels: ['Moyenne', 'Médiane', 'Max', 'Min'],
-    datasets: [{ label: 'Scores (%)', data: realtimeStats ? [realtimeStats.averageScore, realtimeStats.medianScore, realtimeStats.highestScore, realtimeStats.lowestScore] : [0, 0, 0, 0], backgroundColor: ['rgba(59,130,246,0.65)', 'rgba(139,92,246,0.65)', 'rgba(16,185,129,0.65)', 'rgba(239,68,68,0.65)'], borderColor: ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444'], borderWidth: 2, borderRadius: 6 }],
+    datasets: [{ label: 'Scores (%)', data: realtimeStats ? [realtimeStats.averageScore ?? 0, realtimeStats.medianScore ?? 0, realtimeStats.highestScore ?? 0, realtimeStats.lowestScore ?? 0] : [0, 0, 0, 0], backgroundColor: ['rgba(59,130,246,0.65)', 'rgba(139,92,246,0.65)', 'rgba(16,185,129,0.65)', 'rgba(239,68,68,0.65)'], borderColor: ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444'], borderWidth: 2, borderRadius: 6 }],
   };
   const chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } }, title: { display: false } }, scales: { y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8' } } } };
 
@@ -525,14 +560,19 @@ useEffect(() => {
   };
 
   // Composant StudentCard
-  const StudentCard = React.memo(({ student, examTitle, examInfo, backendUrl, onAlert }) => {
+  const StudentCard = React.memo(({ student, examTitle, examInfo, backendUrl, onAlert, isSubmitting = false, isOffline = false }) => {
     const statusConfig = {
-      composing: { color: '#3b82f6', label: 'En cours' },
-      finished: { color: '#10b981', label: 'Terminé' },
-      'forced-finished': { color: '#f59e0b', label: 'Clôturé' },
-      waiting: { color: '#8b5cf6', label: 'En attente' },
+      composing:        { color: '#3b82f6', label: 'En cours' },
+      submitting:       { color: '#f59e0b', label: 'Soumission…' },
+      finished:         { color: '#10b981', label: 'Terminé' },
+      'forced-finished':{ color: '#f59e0b', label: 'Clôturé' },
+      waiting:          { color: '#8b5cf6', label: 'En attente' },
     };
-    const cfg = statusConfig[student.status] || statusConfig.composing;
+    // ✅ Priorité : isOffline > isSubmitting > status
+    const effectiveStatus = isOffline ? 'offline' : isSubmitting ? 'submitting' : student.status;
+    const cfg = isOffline
+      ? { color: '#ef4444', label: '⚡ Hors ligne' }
+      : statusConfig[effectiveStatus] || statusConfig.composing;
     const timeSinceLastUpdate = Date.now() - (student.lastUpdate || Date.now());
     const isStalled = student.status === 'composing' && timeSinceLastUpdate > 300000 && student.progress < 100;
 
@@ -627,12 +667,16 @@ useEffect(() => {
               </div>
             </div>
 
-            {selectedExamOption === 'A' && <div style={{ marginBottom: '16px', padding: '8px 12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}><label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={autoAdvanceOptionA} onChange={e => setAutoAdvanceOptionA(e.target.checked)} style={{ accentColor: '#ef4444' }} /><span style={{ color: '#ef4444', fontSize: '0.8rem' }}>Avancement automatique des questions (60s)</span></label><p style={{ color: '#64748b', fontSize: '0.7rem', marginTop: '4px' }}>{autoAdvanceOptionA ? '✓ Avancement automatique actif' : '✗ Avancement manuel uniquement'}</p></div>}
+            {/* ✅ Option A : avancement automatique géré côté étudiant (timer par question) */}
+            {selectedExamOption === 'A' && (
+              <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+                ⏱ Config A : avancement automatique par timer question côté candidat
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDistributeExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(59,130,246,0.25)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>📡 Distribuer l'épreuve</motion.button>
               {selectedExamId && <motion.button initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleStartExam} disabled={isStartingExam} style={{ padding: '12px', borderRadius: '10px', border: 'none', background: isStartingExam ? 'rgba(16,185,129,0.5)' : 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', fontWeight: 700, cursor: isStartingExam ? 'wait' : 'pointer', fontSize: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: isStartingExam ? 'none' : '0 4px 14px rgba(16,185,129,0.3)', opacity: isStartingExam ? 0.7 : 1 }}>{isStartingExam ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> Démarrage en cours...</> : <><Play size={15} /> COMMENCER L'ÉPREUVE <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem' }}>{waitingCounts[selectedExamId] || 0} en attente</span></>}</motion.button>}
-              {selectedExamId && (selectedExamOption === 'B' || selectedExamOption === 'A') && <motion.button initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleAdvanceQuestion} style={{ padding: '12px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #4f46e5, #6366f1)', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(79,70,229,0.3)', marginTop: '10px' }}><ArrowRight size={15} /> QUESTION SUIVANTE {currentQIdx[selectedExamId] !== undefined && <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem' }}>Q{(currentQIdx[selectedExamId] ?? 0) + 1} → Q{(currentQIdx[selectedExamId] ?? 0) + 2}</span>}</motion.button>}
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleFinishExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(239,68,68,0.25)' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>⏹ Terminer l'épreuve (tous)</motion.button>
             </div>
           </motion.div>
@@ -651,11 +695,13 @@ useEffect(() => {
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><BarChart3 size={18} color="#8b5cf6" /> Statistiques Temps Réel</h2>
             {realtimeStats ? <>
               <div style={{ marginBottom: '14px' }}><p style={{ color: '#64748b', fontSize: '0.75rem', marginBottom: '3px' }}>Épreuve active</p><p style={{ color: '#f1f5f9', fontWeight: 600, fontSize: '0.9rem' }}>{getExamTitle(realtimeStats.examId)}</p></div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px' }}>{[
-                { label: 'Participants', value: realtimeStats.activeStudentsCount, color: '#3b82f6' },
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' }}>{[
+                { label: 'En cours', value: realtimeStats.activeStudentsCount ?? 0, color: '#3b82f6' },
+                { label: 'Terminés', value: realtimeStats.finishedStudents ?? 0, color: '#10b981' },
                 { label: 'Taux réussite', value: `${(realtimeStats.passRate ?? 0).toFixed(1)}%`, color: '#10b981' },
                 { label: 'Moyenne', value: `${(realtimeStats.averageScore ?? 0).toFixed(1)}%`, color: '#8b5cf6' },
                 { label: 'Médiane', value: `${(realtimeStats.medianScore ?? 0).toFixed(1)}%`, color: '#f59e0b' },
+                { label: 'Max / Min', value: `${(realtimeStats.highestScore ?? 0)}% / ${(realtimeStats.lowestScore ?? 0)}%`, color: '#ef4444' },
               ].map(stat => <div key={stat.label} style={{ background: `${stat.color}12`, border: `1px solid ${stat.color}25`, padding: '10px', borderRadius: '10px' }}><p style={{ color: '#64748b', fontSize: '0.68rem', marginBottom: '3px' }}>{stat.label}</p><p style={{ color: stat.color, fontSize: '1.3rem', fontWeight: 700, lineHeight: 1 }}>{stat.value}</p></div>)}</div>
               <div style={{ height: '160px' }}><Bar data={chartData} options={chartOptions} /></div>
               <p style={{ color: '#475569', fontSize: '0.68rem', marginTop: '10px', textAlign: 'right' }}>Mise à jour : {new Date(realtimeStats.lastUpdate).toLocaleTimeString()}</p>
@@ -666,7 +712,7 @@ useEffect(() => {
         {/* LIGNE 2 : Étudiants en composition */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}>
           <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}><Users size={18} color="#3b82f6" /> Étudiants en Composition {['composing', 'finished', 'forced-finished'].map(st => { const cnt = studentsActive.filter(s => s.status === st).length; if (!cnt) return null; const colors = { composing: '#3b82f6', finished: '#10b981', 'forced-finished': '#f59e0b' }; const labels = { composing: 'en cours', finished: 'terminé', 'forced-finished': 'clôturé' }; return <span key={st} style={{ background: `${colors[st]}15`, color: colors[st], padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>{cnt} {labels[st]}</span>; })}</h2>
-          {studentsActive.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Users size={32} color="#1e293b" style={{ marginBottom: '12px' }} /><p style={{ color: '#475569', fontSize: '0.85rem' }}>Aucun étudiant en composition pour l'instant.</p></div> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '14px' }}><AnimatePresence>{studentsActive.map(student => <StudentCard key={student.socketId || student.sessionId || student.studentInfo?.matricule || Math.random()} student={student} examTitle={getExamTitle(student.currentExamId)} examInfo={getExamInfo(student.currentExamId)} backendUrl={NODE_BACKEND_URL} onAlert={addAlert} />)}</AnimatePresence></div>}
+          {studentsActive.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Users size={32} color="#1e293b" style={{ marginBottom: '12px' }} /><p style={{ color: '#475569', fontSize: '0.85rem' }}>Aucun étudiant en composition pour l'instant.</p></div> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '14px' }}><AnimatePresence>{studentsActive.map(student => <StudentCard key={student.socketId || student.sessionId || student.studentInfo?.matricule || Math.random()} student={student} examTitle={getExamTitle(student.currentExamId)} examInfo={getExamInfo(student.currentExamId)} backendUrl={NODE_BACKEND_URL} onAlert={addAlert} isSubmitting={submittingStudents.has(student.socketId)} isOffline={disconnectedIds.has(student.socketId)} />)}</AnimatePresence></div>}
         </motion.div>
 
         {/* LIGNE 3 : Classement */}

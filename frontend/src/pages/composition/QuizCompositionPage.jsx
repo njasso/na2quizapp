@@ -1,4 +1,4 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION ULTIME CORRIGÉE
+// src/pages/composition/QuizCompositionPage.jsx - VERSION ULTIME (Environnement dynamique)
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,13 +14,120 @@ import {
 } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
-const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
-const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
+// ═══════════════════════════════════════════════════════════════
+// ✅ DÉTECTION DYNAMIQUE DE L'ENVIRONNEMENT RÉSEAU
+// ═══════════════════════════════════════════════════════════════
 
-console.log('[QuizCompositionPage] Backend URL:', NODE_BACKEND_URL);
-console.log('[QuizCompositionPage] Socket URL:', SOCKET_URL);
+/**
+ * Résout dynamiquement l'URL du backend en fonction du contexte réseau
+ * ORDRE DE PRIORITÉ (corrigé) :
+ *   0. backendUrl transmis par WaitingPage dans navigate() state
+ *   1. IP réseau dans window.location.hostname (192.168.x.x / 10.x.x.x)
+ *   2. .env SEULEMENT si hostname = localhost ou 127.0.0.1
+ *   3. Fallback ENV_CONFIG
+ *
+ * POURQUOI .env en 2ème : REACT_APP_BACKEND_URL=http://localhost:5000 est
+ * souvent défini pour le dev local. Si on le lit en priorité 1, toutes les
+ * connexions depuis un terminal réseau (192.168.x.x) sont cassées.
+ */
 
-// Timer component avec support des modes d'affichage
+// ── Lecture du state React Router (passé par WaitingPage via navigate) ──────
+const _getUrlFromNavigateState = (key) => {
+  try {
+    // React Router v6 stocke le state dans history.state.usr
+    const s = window.history.state?.usr || window.history.state?.state || window.history.state;
+    const val = s?.[key];
+    if (val && typeof val === 'string' && val.startsWith('http') && !val.includes('undefined')) {
+      return val;
+    }
+  } catch {}
+  return null;
+};
+
+const getBackendUrl = () => {
+  // ── PRIORITÉ 0 : URL résolue transmise par WaitingPage ──────────────────
+  // WaitingPage a déjà détecté la bonne IP → on la réutilise directement
+  const fromState = _getUrlFromNavigateState('backendUrl');
+  if (fromState) {
+    console.log('[QuizCompositionPage] 📡 Backend (navigate state):', fromState);
+    return fromState;
+  }
+
+  const hostname = window.location.hostname;
+
+  // ── PRIORITÉ 1 : IP réseau détectée (RFC 1918) ──────────────────────────
+  // DOIT passer avant .env — sinon REACT_APP_BACKEND_URL=localhost
+  // court-circuite toutes les connexions depuis un terminal réseau.
+  const isNetworkIP = (
+    hostname !== 'localhost' &&
+    hostname !== '127.0.0.1' &&
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+  );
+  if (isNetworkIP) {
+    const url = `http://${hostname}:5000`;
+    console.log('[QuizCompositionPage] 📡 Backend (IP réseau):', url);
+    return url;
+  }
+
+  // ── PRIORITÉ 2 : .env (uniquement pour localhost dev) ───────────────────
+  if (process.env.REACT_APP_BACKEND_URL) {
+    console.log('[QuizCompositionPage] 📡 Backend (.env):', process.env.REACT_APP_BACKEND_URL);
+    return process.env.REACT_APP_BACKEND_URL;
+  }
+
+  // ── PRIORITÉ 3 : Fallback ENV_CONFIG ────────────────────────────────────
+  console.log('[QuizCompositionPage] 📡 Backend (ENV_CONFIG):', ENV_CONFIG.BACKEND_URL);
+  return ENV_CONFIG.BACKEND_URL;
+};
+
+const getSocketUrl = () => {
+  // ── PRIORITÉ 0 : Socket URL transmis par WaitingPage ────────────────────
+  const fromState = _getUrlFromNavigateState('socketUrl');
+  if (fromState) {
+    console.log('[QuizCompositionPage] 🔌 Socket (navigate state):', fromState);
+    return fromState;
+  }
+
+  const hostname = window.location.hostname;
+
+  // ── PRIORITÉ 1 : IP réseau ───────────────────────────────────────────────
+  const isNetworkIP = (
+    hostname !== 'localhost' &&
+    hostname !== '127.0.0.1' &&
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+  );
+  if (isNetworkIP) {
+    const url = `http://${hostname}:5000`;
+    console.log('[QuizCompositionPage] 🔌 Socket (IP réseau):', url);
+    return url;
+  }
+
+  // ── PRIORITÉ 2 : .env ────────────────────────────────────────────────────
+  if (process.env.REACT_APP_SOCKET_URL) {
+    console.log('[QuizCompositionPage] 🔌 Socket (.env):', process.env.REACT_APP_SOCKET_URL);
+    return process.env.REACT_APP_SOCKET_URL;
+  }
+
+  // ── PRIORITÉ 3 : Fallback ────────────────────────────────────────────────
+  console.log('[QuizCompositionPage] 🔌 Socket (ENV_CONFIG):', ENV_CONFIG.SOCKET_URL);
+  return ENV_CONFIG.SOCKET_URL;
+};
+
+// Initialisation immédiate avec log détaillé
+const NODE_BACKEND_URL = getBackendUrl();
+const SOCKET_URL = getSocketUrl();
+
+console.log('╔══════════════════════════════════════════════════════════════╗');
+console.log('║     QuizCompositionPage - Configuration Réseau Détectée      ║');
+console.log('╠══════════════════════════════════════════════════════════════╣');
+console.log(`║  🌐 Hostname      : ${(window.location.hostname || 'inconnu').padEnd(42)}║`);
+console.log(`║  📡 Backend URL   : ${NODE_BACKEND_URL.padEnd(42)}║`);
+console.log(`║  🔌 Socket URL    : ${SOCKET_URL.padEnd(42)}║`);
+console.log('╚══════════════════════════════════════════════════════════════╝');
+
+// ═══════════════════════════════════════════════════════════════
+// COMPOSANT TIMER
+// ═══════════════════════════════════════════════════════════════
 const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick, displayMode = 'permanent', onDisplayShown }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const [hasShown, setHasShown] = useState(false);
@@ -87,115 +194,282 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURATIONS DES CONTRÔLES DE NAVIGATION
 // ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// RÉFÉRENTIEL OFFICIEL DES CONFIGURATIONS D'ÉVALUATION A → K
+// Source : INVENTAIRE DES CONFIGURATIONS DE L'EVALUATION SOMMATIVE
+// Colonnes : Plage · Séquencement · Affichage QCM · Renvoi Résultat · Type Résultat · Reprise
+// ══════════════════════════════════════════════════════════════
+const EXAM_CONFIGURATIONS = {
+  A: {
+    code: 'A',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'Même QCM pour tous les apprenants',
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire renvoyé',
+    reprise: 'Pas de Reprise',
+    // Comportement technique
+    isOpenRange: false,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binary',          // ✓ ou ✗ uniquement
+    allowRetry: false,
+    autoAdvance: true,             // avancement auto par timer/question
+    timerPerQuestion: true,
+    disablePrev: true,
+    disableNext: true,
+    // Label affiché à l'apprenant
+    label: 'Configuration A',
+    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Renvoi dynamique du Résultat · Résultat Binaire · Pas de Reprise',
+    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Avancement automatique par timer',
+  },
+  B: {
+    code: 'B',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'Même QCM pour tous les apprenants',
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire + renvoyé',
+    reprise: 'Pas de Reprise',
+    isOpenRange: false,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binaryPlus',      // ✓/✗ + bonne réponse affichée
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: true,
+    disableNext: true,
+    label: 'Configuration B',
+    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Renvoi dynamique du Résultat · Résultat Binaire + · Pas de Reprise',
+    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Résultat Binaire + renvoyé',
+  },
+  C: {
+    code: 'C',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'Même QCM pour tous les apprenants',
+    affichageResultat: 'Pas de Renvoi dynamique du Résultat',
+    typeResultat: null,
+    reprise: 'Pas de Reprise',
+    isOpenRange: false,
+    shufflePerStudent: false,
+    showResult: false,
+    resultType: 'none',            // aucun résultat communiqué à l'apprenant
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: true,
+    disableNext: true,
+    label: 'Configuration C',
+    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Pas de Renvoi du Résultat · Pas de Reprise',
+    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Résultat non communiqué',
+  },
+  D: {
+    code: 'D',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'QCM aléatoire par Apprenant',
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire renvoyé',
+    reprise: 'Pas de Reprise',
+    isOpenRange: false,
+    shufflePerStudent: true,       // chaque apprenant a ses questions dans un ordre différent
+    showResult: true,
+    resultType: 'binary',
+    allowRetry: false,
+    autoAdvance: true,             // avancement automatique après chaque réponse
+    timerPerQuestion: true,
+    disablePrev: true,
+    disableNext: true,
+    label: 'Configuration D',
+    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Renvoi dynamique du Résultat · Résultat Binaire · Pas de Reprise',
+    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Avancement automatique après chaque réponse',
+  },
+  E: {
+    code: 'E',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'QCM aléatoire par Apprenant',
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire + renvoyé',
+    reprise: 'Pas de Reprise',
+    isOpenRange: false,
+    shufflePerStudent: true,
+    showResult: true,
+    resultType: 'binaryPlus',
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: true,
+    disableNext: true,
+    label: 'Configuration E',
+    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Renvoi dynamique du Résultat · Résultat Binaire + · Pas de Reprise',
+    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Résultat Binaire + renvoyé',
+  },
+  F: {
+    code: 'F',
+    plage: 'Plage fermée',
+    sequencement: 'Séquentiel figé',
+    qcmMode: 'QCM aléatoire par Apprenant',
+    affichageResultat: 'Pas de Renvoi dynamique du Résultat',
+    typeResultat: null,
+    reprise: 'Pas de Reprise',
+    isOpenRange: false,
+    shufflePerStudent: true,
+    showResult: false,
+    resultType: 'none',
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: true,
+    disableNext: true,
+    label: 'Configuration F',
+    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Pas de Renvoi du Résultat · Pas de Reprise',
+    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Résultat non communiqué',
+  },
+  G: {
+    code: 'G',
+    plage: 'Plage Ouverte',
+    sequencement: null,
+    qcmMode: null,
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire renvoyé',
+    reprise: 'Reprise OK',
+    isOpenRange: true,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binary',
+    allowRetry: true,              // l'apprenant peut recommencer si échec
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: false,
+    disableNext: false,
+    label: 'Configuration G',
+    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire · Reprise OK si échec',
+    lockMessage: null,
+  },
+  H: {
+    code: 'H',
+    plage: 'Plage Ouverte',
+    sequencement: null,
+    qcmMode: null,
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire renvoyé',
+    reprise: 'No Reply',
+    isOpenRange: true,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binary',
+    allowRetry: false,             // No Reply = pas de retour possible
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: false,
+    disableNext: false,
+    label: 'Configuration H',
+    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire · No Reply (pas de reprise)',
+    lockMessage: null,
+  },
+  I: {
+    code: 'I',
+    plage: 'Plage Ouverte',
+    sequencement: null,
+    qcmMode: null,
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire + renvoyé',
+    reprise: 'Reprise OK',
+    isOpenRange: true,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binaryPlus',
+    allowRetry: true,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: false,
+    disableNext: false,
+    label: 'Configuration I',
+    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire + · Reprise OK si échec',
+    lockMessage: null,
+  },
+  J: {
+    code: 'J',
+    plage: 'Plage Ouverte',
+    sequencement: null,
+    qcmMode: null,
+    affichageResultat: 'Renvoi dynamique du Résultat',
+    typeResultat: 'Résultat Binaire + renvoyé',
+    reprise: 'No Reply',
+    isOpenRange: true,
+    shufflePerStudent: false,
+    showResult: true,
+    resultType: 'binaryPlus',
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: false,
+    disableNext: false,
+    label: 'Configuration J',
+    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire + · No Reply (pas de reprise)',
+    lockMessage: null,
+  },
+  K: {
+    code: 'K',
+    plage: 'Plage Ouverte',
+    sequencement: null,
+    qcmMode: null,
+    affichageResultat: 'Pas de Renvoi dynamique du Résultat',
+    typeResultat: null,
+    reprise: 'No Reply',
+    isOpenRange: true,
+    shufflePerStudent: false,
+    showResult: false,
+    resultType: 'none',
+    allowRetry: false,
+    autoAdvance: false,
+    timerPerQuestion: false,
+    disablePrev: false,
+    disableNext: false,
+    label: 'Configuration K',
+    instruction: 'Plage Ouverte · Pas de Renvoi du Résultat · No Reply (pas de reprise)',
+    lockMessage: null,
+  },
+};
+
+// Helper : récupérer la config officielle d'une option
+const getExamConfig = (option) => EXAM_CONFIGURATIONS[option] || EXAM_CONFIGURATIONS['C'];
+
+// ✅ getNavigationControl lit EXAM_CONFIGURATIONS (source unique de vérité)
 const getNavigationControl = (configOption) => {
-  switch(configOption) {
-    case 'A':
-      return {
-        disablePrev: true,
-        disableNext: true,
-        disableSubmit: true,
-        isLocked: true,
-        lockMessage: '🔒 Navigation contrôlée par le superviseur',
-        autoAdvance: true,
-        timerPerQuestion: true
-      };
-    case 'B':
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: true,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-    case 'C':
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: false,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-    case 'D':
-      return {
-        disablePrev: true,
-        disableNext: true,
-        disableSubmit: true,
-        isLocked: true,
-        lockMessage: '🎲 Avancement automatique après réponse',
-        autoAdvance: true,
-        timerPerQuestion: true
-      };
-    case 'E':
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: false,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-    case 'F':
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: false,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-    case 'G':
-    case 'H':
-    case 'I':
-    case 'J':
-    case 'K':
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: false,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-    default:
-      return {
-        disablePrev: false,
-        disableNext: false,
-        disableSubmit: false,
-        isLocked: false,
-        lockMessage: null,
-        autoAdvance: false,
-        timerPerQuestion: false
-      };
-  }
+  const cfg = getExamConfig(configOption);
+  return {
+    disablePrev:    cfg.disablePrev,
+    disableNext:    cfg.disableNext,
+    // Configs A et D : soumission bloquée (auto-avance gère la fin)
+    disableSubmit:  cfg.autoAdvance,
+    isLocked:       !cfg.isOpenRange,
+    lockMessage:    cfg.lockMessage,
+    autoAdvance:    cfg.autoAdvance,
+    timerPerQuestion: cfg.timerPerQuestion,
+  };
 };
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURATIONS DES RÉSULTATS
 // ═══════════════════════════════════════════════════════════════
+// ✅ Lit directement EXAM_CONFIGURATIONS — plus de listes parallèles à maintenir
 const getResultDisplayType = (configOption) => {
-  const binaryOnly = ['A', 'D', 'G', 'H'];
-  const binaryPlus = ['B', 'E', 'I', 'J'];
-  const noResult = ['C', 'F', 'K'];
-  
-  if (noResult.includes(configOption)) return 'none';
-  if (binaryOnly.includes(configOption)) return 'binary';
-  if (binaryPlus.includes(configOption)) return 'binaryPlus';
-  return 'binaryPlus';
+  return getExamConfig(configOption).resultType; // 'binary' | 'binaryPlus' | 'none'
 };
 
+// ═══════════════════════════════════════════════════════════════
+// COMPOSANT PRINCIPAL
+// ═══════════════════════════════════════════════════════════════
 const QuizCompositionPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
-  // ✅ Récupération du token dans l'URL (AU DÉBUT)
+  // Récupération du token dans l'URL
   const urlToken = searchParams.get('token');
   const urlSessionId = searchParams.get('sessionId');
 
@@ -219,7 +493,6 @@ const QuizCompositionPage = () => {
   const [socket, setSocket] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showConfetti, setShowConfetti] = useState(false);
-  const [lastSaveTime, setLastSaveTime] = useState(Date.now());
   
   // États pour les modes d'affichage du timer
   const [timerDisplayStep, setTimerDisplayStep] = useState(0);
@@ -245,9 +518,8 @@ const QuizCompositionPage = () => {
   const studentInfoRef = useRef(studentInfo);
   const terminalSessionIdRef = useRef(null);
   const stableSessionIdRef = useRef(null);
-  const autoSaveIntervalRef = useRef(null);
 
-  // ✅ STOCKAGE DU TOKEN DANS LOCALSTORAGE (hook au début)
+  // Stockage du token
   useEffect(() => {
     if (urlToken) {
       console.log('[QuizCompositionPage] 🔑 Token reçu dans l\'URL, stockage...');
@@ -265,7 +537,7 @@ const QuizCompositionPage = () => {
   const navControl = getNavigationControl(config?.examOption);
   const resultDisplayType = getResultDisplayType(config?.examOption);
 
-  // Fonction pour récupérer le token JWT
+  // Récupération du token JWT
   const getAuthToken = () => {
     return localStorage.getItem('userToken') || localStorage.getItem('token');
   };
@@ -279,16 +551,14 @@ const QuizCompositionPage = () => {
   useEffect(() => { examRef.current = exam; }, [exam]);
   useEffect(() => { studentInfoRef.current = studentInfo; }, [studentInfo]);
 
-  // Fonction pour déterminer si le timer doit être affiché
+  // Timer display logic
   const shouldShowTimer = useCallback(() => {
     const mode = config?.timerDisplayMode || 'permanent';
     const progress = (currentQuestionIndex + 1) / (questions.length || 1);
     
     switch(mode) {
-      case 'once':
-        return !timerHasShown;
-      case 'twice':
-        return !timerHasShown || (quizFinished && !timerHasShown);
+      case 'once': return !timerHasShown;
+      case 'twice': return !timerHasShown || (quizFinished && !timerHasShown);
       case 'fourTimes':
         if (!timerHasShown) return true;
         if (progress >= 0.25 && timerDisplayStep < 1) return true;
@@ -296,8 +566,7 @@ const QuizCompositionPage = () => {
         if (progress >= 0.75 && timerDisplayStep < 3) return true;
         return false;
       case 'permanent':
-      default:
-        return true;
+      default: return true;
     }
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, quizFinished, timerHasShown, timerDisplayStep]);
 
@@ -312,6 +581,7 @@ const QuizCompositionPage = () => {
     }
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, timerDisplayStep, timerHasShown]);
 
+  // Utilitaires
   const shuffleArray = (array) => {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -463,7 +733,11 @@ const QuizCompositionPage = () => {
         formattedAnswers[idx] = answer || null;
       });
 
-      const res = await axios.post(`${NODE_BACKEND_URL}/api/results`, {
+      // ✅ LOG: URL de soumission
+      const submitUrl = `${NODE_BACKEND_URL}/api/results`;
+      console.log('[QuizCompositionPage] 📤 Soumission vers:', submitUrl);
+
+      const res = await axios.post(submitUrl, {
         examId: examRef.current._id,
         studentInfo: studentData,
         answers: formattedAnswers,
@@ -560,7 +834,6 @@ const QuizCompositionPage = () => {
 
     if (!examRef.current || !total) return;
 
-    // A & D : séquentiel figé par question → avancer ou soumettre
     if (opt === 'A' || opt === 'D') {
       if (idx < total - 1) {
         const nextIndex = idx + 1;
@@ -575,7 +848,6 @@ const QuizCompositionPage = () => {
         handleSubmitExam(false);
       }
     } else {
-      // Timer global → soumettre automatiquement
       toast("Temps global écoulé ! Soumission automatique…");
       handleSubmitExam(false);
     }
@@ -626,7 +898,6 @@ const QuizCompositionPage = () => {
     handleSubmitExam(true);
   }, [navControl.disableSubmit, handleSubmitExam]);
 
-  // Feedback selon la configuration
   const handleOptionChange = useCallback((questionId, selectedOption, questionIndex) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
@@ -635,7 +906,6 @@ const QuizCompositionPage = () => {
 
     const currentAttempts = attemptsRef.current[questionId] || 0;
 
-    // Vérifier la limite de tentatives
     if (configRef.current?.allowRetry && currentAttempts >= 2) {
       toast.error("Vous avez déjà utilisé votre seconde chance.");
       return;
@@ -644,7 +914,6 @@ const QuizCompositionPage = () => {
       return;
     }
 
-    // Vérifier si la réponse est correcte
     let isCorrect = false;
     if (typeof currentQ.bonOpRep === 'number') {
       const selectedIndex = currentQ.options.findIndex(opt => opt === selectedOption);
@@ -653,7 +922,6 @@ const QuizCompositionPage = () => {
       isCorrect = selectedOption === currentQ.correctAnswer;
     }
 
-    // Stocker la réponse
     const newAnswers = {
       ...answersRef.current,
       [questionIndex]: selectedOption,
@@ -666,7 +934,6 @@ const QuizCompositionPage = () => {
     attemptsRef.current = newAttempts;
     setAttempts(newAttempts);
 
-    // Feedback
     if (configRef.current?.showBinaryResult) {
       toast[isCorrect ? 'success' : 'error'](
         isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
@@ -680,7 +947,6 @@ const QuizCompositionPage = () => {
       }
     }
 
-    // Auto-avancement pour A et D
     const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
     const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1 && !isCorrect;
     
@@ -719,6 +985,7 @@ const QuizCompositionPage = () => {
       navigate(`/exam/profile/${examId}`, { replace: true });
       return;
     }
+    
     setStudentInfo(parsed.info);
     setConfig(parsed.config);
     configRef.current = parsed.config;
@@ -735,7 +1002,11 @@ const QuizCompositionPage = () => {
         const token = getAuthToken();
         const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-        const res = await axios.get(`${NODE_BACKEND_URL}/api/exams/${examId}`, {
+        // ✅ LOG: URL de la requête
+        const apiUrl = `${NODE_BACKEND_URL}/api/exams/${examId}`;
+        console.log('[QuizCompositionPage] 📡 fetchExam → appel API:', apiUrl);
+
+        const res = await axios.get(apiUrl, {
           timeout: 10000,
           ...axiosConfig
         });
@@ -768,19 +1039,24 @@ const QuizCompositionPage = () => {
         setExam({ ...examData, questions: fetchedQuestions });
         examRef.current = { ...examData, questions: fetchedQuestions };
 
-        // ✅ Configuration du timer
+        // Configuration du timer
         const navCtrl = getNavigationControl(parsed.examOption);
         if (navCtrl.timerPerQuestion && fetchedQuestions.length > 0) {
           const firstQuestionTime = fetchedQuestions[0]?.tempsMinParQuestion || (safeConfig.timePerQuestion || 60);
           setRemainingTime(firstQuestionTime);
         } else {
-          setRemainingTime((safeConfig.totalTime || examData.duration || 60) * 60);
+          const globalTimeSec = (examData.duration || safeConfig.totalTime || 60) * 60;
+          console.log(`[QuizCompositionPage] ⏱ Timer global: ${examData.duration || 60} min = ${globalTimeSec}s`);
+          setRemainingTime(globalTimeSec);
         }
 
         setQuizStarted(true);
 
+        // Plage fermée : attendre le signal du superviseur
         const opt = parsed.examOption;
-        if (opt === 'A' || opt === 'B') {
+        const closedRangeOptions = ['A', 'B', 'C', 'D', 'E', 'F'];
+        
+        if (closedRangeOptions.includes(opt)) {
           setWaitingForStart(true);
           waitingForStartRef.current = true;
         } else {
@@ -790,6 +1066,8 @@ const QuizCompositionPage = () => {
 
       } catch (error) {
         console.error("Erreur chargement examen:", error);
+        console.error("   URL tentée:", `${NODE_BACKEND_URL}/api/exams/${examId}`);
+        console.error("   Hostname:", window.location.hostname);
         toast.error("Échec du chargement de l'examen.");
         navigate('/', { replace: true });
       } finally {
@@ -800,6 +1078,8 @@ const QuizCompositionPage = () => {
     fetchExam();
 
     // Connexion socket
+    console.log('[QuizCompositionPage] 🔌 Connexion socket à:', SOCKET_URL);
+    
     const newSocket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 20,
@@ -829,7 +1109,8 @@ const QuizCompositionPage = () => {
         examId: examId
       });
 
-      const currentStatus = configRef.current?.examOption === 'B' || configRef.current?.examOption === 'A' ? 'waiting' : 'composing';
+      const closedRangeOptions = ['A', 'B', 'C', 'D', 'E', 'F'];
+      const currentStatus = closedRangeOptions.includes(parsed.examOption) ? 'waiting' : 'composing';
 
       newSocket.emit('studentReadyForExam', {
         examId,
@@ -860,22 +1141,6 @@ const QuizCompositionPage = () => {
       setTimeout(() => sendProgressUpdate(qIdx), 500);
     });
 
-    newSocket.on('displayQuestion', (data) => {
-      if (data.examId !== examId) return;
-      const idx = data.questionIndex ?? 0;
-      if (examRef.current && idx >= examRef.current.questions.length) {
-        if (!quizFinishedRef.current && !submittingRef.current) handleSubmitExam(false);
-        return;
-      }
-      
-      currentQuestionIndexRef.current = idx;
-      setCurrentQuestionIndex(idx);
-      setTimerResetTrigger(prev => prev + 1);
-      
-      toast(`Question ${idx + 1}`, { icon: '📋', duration: 2000 });
-      setTimeout(() => sendProgressUpdate(idx), 500);
-    });
-
     newSocket.on('examFinished', (data) => {
       if (data.examId === examId && !quizFinishedRef.current && !submittingRef.current) {
         handleSubmitExam(false);
@@ -886,12 +1151,20 @@ const QuizCompositionPage = () => {
       if (data.examId === examId) setWaitingCount(data.count);
     });
 
+    // ✅ Nettoyage amélioré
     return () => {
       if (newSocket) {
+        console.log('[QuizCompositionPage] 🧹 Nettoyage du socket');
+        newSocket.off('connect');
+        newSocket.off('examStarted');
+        newSocket.off('examFinished');
+        newSocket.off('waitingCountUpdate');
+        newSocket.off('disconnect');
+        newSocket.off('connect_error');
         newSocket.removeAllListeners();
         newSocket.disconnect();
+        socketRef.current = null;
       }
-      if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current);
     };
   }, [examId, navigate, handleSubmitExam, sendProgressUpdate, urlSessionId]);
 
@@ -934,24 +1207,26 @@ const QuizCompositionPage = () => {
     );
   }
 
-  if (waitingForStart && (config?.examOption === 'A' || config?.examOption === 'B')) {
+  // Plage fermée : salle d'attente
+  const closedRangeOptions = ['A', 'B', 'C', 'D', 'E', 'F'];
+  if (waitingForStart && closedRangeOptions.includes(config?.examOption)) {
     return (
       <div style={styles.waitingContainer}>
         <div style={styles.waitingCard}>
           <div style={styles.waitingIcon}><Clock size={36} color="#3b82f6" /></div>
           <h2>Salle d'attente</h2>
           <p>Le superviseur démarrera l'épreuve pour tous les participants simultanément.</p>
-          {config?.examOption === 'B' && (
-            <div style={styles.waitingCount}>
-              <Users size={20} />
-              <span>{waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente</span>
-            </div>
-          )}
+          <div style={styles.waitingCount}>
+            <Users size={20} />
+            <span>{waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente</span>
+          </div>
           <div style={styles.connectedBadge}>
             <div style={styles.pulseDot} />
             <span>{studentInfo.firstName} {studentInfo.lastName} · Connecté</span>
           </div>
-          <p style={styles.waitingNote}>Ne quittez pas cette page · Option {config?.examOption}</p>
+          <p style={styles.waitingNote}>
+            Ne quittez pas cette page · {getExamConfig(config?.examOption)?.label} — {getExamConfig(config?.examOption)?.instruction}
+          </p>
         </div>
         <Toaster />
       </div>
@@ -965,7 +1240,6 @@ const QuizCompositionPage = () => {
   
   const finalDisablePrev = navControl.disablePrev || quizFinished || currentQuestionIndex === 0;
   const finalDisableNext = navControl.disableNext || quizFinished || currentQuestionIndex === questions.length - 1;
-  const hasCurrentAnswer = answers[currentQuestion?._id] || answers[currentQuestionIndex];
 
   if (!currentQuestion) {
     return (
@@ -1018,15 +1292,52 @@ const QuizCompositionPage = () => {
             </div>
           </div>
 
-          {/* Indicateur navigation verrouillée */}
-          {navControl.isLocked && (
+          {/* ✅ Bandeau de configuration — vocabulaire officiel du tableau XLSX */}
+          {config?.examOption && (
+            <div style={{
+              padding: '7px 14px',
+              marginBottom: '8px',
+              background: getExamConfig(config.examOption).isOpenRange
+                ? 'rgba(16,185,129,0.08)'
+                : 'rgba(59,130,246,0.08)',
+              border: `1px solid ${getExamConfig(config.examOption).isOpenRange ? 'rgba(16,185,129,0.25)' : 'rgba(59,130,246,0.25)'}`,
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flexWrap: 'wrap',
+            }}>
+              {/* Badge config */}
+              <span style={{
+                background: getExamConfig(config.examOption).isOpenRange ? '#10b981' : '#3b82f6',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '0.7rem',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                flexShrink: 0,
+                letterSpacing: '0.04em',
+              }}>
+                {getExamConfig(config.examOption).label}
+              </span>
+              {/* Instruction complète */}
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8', flex: 1 }}>
+                {getExamConfig(config.examOption).instruction}
+              </span>
+              {/* Icône lock si plage fermée */}
+              {!getExamConfig(config.examOption).isOpenRange && (
+                <Lock size={12} color="#64748b" style={{ flexShrink: 0 }} />
+              )}
+            </div>
+          )}
+
+          {navControl.isLocked && navControl.lockMessage && (
             <div style={styles.lockedIndicator}>
               <Lock size={14} />
               {navControl.lockMessage}
             </div>
           )}
 
-          {/* Indicateur pour Plage ouverte */}
           {openRangeMode && plageOuverteSeuil > 0 && (
             <div style={styles.openRangeIndicator}>
               <span>📖 Plage ouverte: {selectedQuestions.length} / {plageOuverteSeuil} questions sélectionnées</span>
@@ -1043,8 +1354,7 @@ const QuizCompositionPage = () => {
             </div>
           </div>
 
-          {/* Navigation grille pour options libres */}
-          {(config?.examOption === 'C' || config?.examOption === 'F' || config?.examOption === 'K' || openRangeMode) && (
+          {(openRangeMode || ['G', 'H', 'I', 'J', 'K'].includes(config?.examOption)) && (
             <div style={styles.navGrid}>
               <h3>Navigation des questions</h3>
               <div style={styles.questionButtons}>
@@ -1112,10 +1422,6 @@ const QuizCompositionPage = () => {
                   {currentQuestion.options.map((opt, idx) => {
                     const currentAnswer = answers[currentQuestion._id] || answers[currentQuestionIndex];
                     const isSelected = currentAnswer === opt;
-                    const isCorrect = typeof currentQuestion.bonOpRep === 'number'
-                      ? idx === currentQuestion.bonOpRep
-                      : opt === currentQuestion.correctAnswer;
-
                     const isDisabled = quizFinished || submittingRef.current ||
                       (!config?.allowRetry && currentAnswer) ||
                       (config?.allowRetry && attempts[currentQuestion._id] >= 2);
@@ -1148,7 +1454,6 @@ const QuizCompositionPage = () => {
             </motion.div>
           </AnimatePresence>
 
-          {/* Actions de navigation */}
           <div style={styles.actions}>
             <div style={{ display: 'flex', gap: 12 }}>
               {!navControl.isLocked ? (

@@ -1,55 +1,71 @@
-// src/config/env.js - VERSION ULTIME CORRIGÉE
+// src/config/env.js - VERSION FINALE (IP réseau prioritaire sur .env)
 const currentHostname = window.location.hostname;
 const currentPort = window.location.port;
 const currentOrigin = window.location.origin;
 
 const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
 
-// ✅ Détection IP locale améliorée
+// ✅ Détection IP réseau (RFC 1918 + toute IP)
 const isLocalNetwork = 
-  currentHostname.startsWith('192.168.') ||
-  currentHostname.startsWith('10.') ||
-  /^172\.(1[6-9]|2\d|3[01])\./.test(currentHostname) ||
-  /^\d+\.\d+\.\d+\.\d+$/.test(currentHostname);
+  currentHostname !== 'localhost' &&
+  currentHostname !== '127.0.0.1' &&
+  /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(currentHostname);
 
 const isProduction = !isLocalhost && !isLocalNetwork;
 
 const SERVER_PORT = 5000;
 
-// ✅ Construction dynamique du backend URL
+// ═══════════════════════════════════════════════════════════════
+// ✅ CONSTRUCTION DYNAMIQUE - IP RÉSEAU PRIORITAIRE
+// ═══════════════════════════════════════════════════════════════
+
 const resolveBackendUrl = () => {
-  // 1. Priorité .env
-  if (process.env.REACT_APP_BACKEND_URL) {
-    console.log('[ENV] 📡 Backend depuis .env:', process.env.REACT_APP_BACKEND_URL);
+  // ── PRIORITÉ 1 : IP réseau (fonctionne partout) ──────────────
+  if (isLocalNetwork) {
+    const url = `http://${currentHostname}:${SERVER_PORT}`;
+    console.log('[ENV] 📡 Backend (IP réseau - prioritaire):', url);
+    return url;
+  }
+  
+  // ── PRIORITÉ 2 : .env (uniquement pour localhost/dev) ────────
+  if (isLocalhost && process.env.REACT_APP_BACKEND_URL) {
+    console.log('[ENV] 📡 Backend (.env - localhost):', process.env.REACT_APP_BACKEND_URL);
     return process.env.REACT_APP_BACKEND_URL;
   }
   
-  // 2. Réseau local (IP) - FORCER l'IP actuelle
-  if (isLocalNetwork) {
-    const url = `http://${currentHostname}:${SERVER_PORT}`;
-    console.log('[ENV] 📡 Backend auto-détecté (réseau local):', url);
-    return url;
-  }
-  
-  // 3. Localhost
+  // ── PRIORITÉ 3 : localhost par défaut ────────────────────────
   if (isLocalhost) {
     const url = `http://localhost:${SERVER_PORT}`;
-    console.log('[ENV] 📡 Backend auto-détecté (localhost):', url);
+    console.log('[ENV] 📡 Backend (localhost):', url);
     return url;
   }
   
-  // 4. Production
-  console.log('[ENV] 📡 Backend production (par défaut)');
+  // ── PRIORITÉ 4 : Production ──────────────────────────────────
+  console.log('[ENV] 📡 Backend (production)');
   return 'https://na2quizapp.onrender.com';
 };
 
-// ✅ Construction dynamique du Socket URL (IDENTIQUE au backend)
+// ✅ Même logique pour le Socket (même serveur)
 const resolveSocketUrl = () => {
-  if (process.env.REACT_APP_SOCKET_URL) {
+  if (isLocalNetwork) {
+    const url = `http://${currentHostname}:${SERVER_PORT}`;
+    console.log('[ENV] 🔌 Socket (IP réseau - prioritaire):', url);
+    return url;
+  }
+  
+  if (isLocalhost && process.env.REACT_APP_SOCKET_URL) {
+    console.log('[ENV] 🔌 Socket (.env - localhost):', process.env.REACT_APP_SOCKET_URL);
     return process.env.REACT_APP_SOCKET_URL;
   }
-  // ✅ IMPORTANT: Socket doit utiliser la MÊME URL que le backend
-  return resolveBackendUrl();
+  
+  if (isLocalhost) {
+    const url = `http://localhost:${SERVER_PORT}`;
+    console.log('[ENV] 🔌 Socket (localhost):', url);
+    return url;
+  }
+  
+  console.log('[ENV] 🔌 Socket (production)');
+  return 'https://na2quizapp.onrender.com';
 };
 
 const BACKEND_URL = resolveBackendUrl();
@@ -122,8 +138,7 @@ console.log(`║  🔌 Socket        : ${SOCKET_URL.padEnd(42)}║`);
 console.log(`║  🖥️  Frontend      : ${ENV_CONFIG.FRONTEND_URL.padEnd(42)}║`);
 if (isLocalNetwork) {
   console.log('╠══════════════════════════════════════════════════════════════╣');
-  console.log(`║  📡 Accès réseau  : http://${currentHostname}:3000`.padEnd(64) + '║');
-  console.log(`║  🔌 API backend   : ${BACKEND_URL}`.padEnd(64) + '║');
+  console.log(`║  📡 IP prioritaire → Backend : ${BACKEND_URL}`.padEnd(64) + '║');
 }
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log('');

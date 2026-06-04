@@ -1,4 +1,4 @@
-// src/services/api.js - VERSION ULTIME
+// src/services/api.js - VERSION ULTIME CORRIGÉE
 // Support complet: localhost, IP réseau (192.168.x.x), production (Render)
 // ─────────────────────────────────────────────────────────────
 
@@ -170,6 +170,46 @@ export const logout = () => {
 };
 
 // ==================== QUESTIONS ====================
+
+/**
+ * ✅ ROUTE PUBLIQUE - Ne renvoie que les questions APPROUVÉES (status: 'approved')
+ * Cette route est utilisée pour la création d'épreuves à partir de la base de données
+ */
+export const getPublicQuestions = async (params = {}) => {
+  try {
+    updateApiBaseUrl();
+    
+    const queryParams = new URLSearchParams();
+    if (params.domaineId) queryParams.append('domaineId', params.domaineId);
+    if (params.sousDomaineId) queryParams.append('sousDomaineId', params.sousDomaineId);
+    if (params.niveauId) queryParams.append('niveauId', params.niveauId);
+    if (params.matiereId) queryParams.append('matiereId', params.matiereId);
+    if (params.libChapitre) queryParams.append('libChapitre', params.libChapitre);
+    if (params.limit) queryParams.append('limit', params.limit);
+    if (params.search) queryParams.append('search', params.search);
+    
+    const url = `/api/questions/public${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    console.log('[API] 🔍 getPublicQuestions:', url);
+    
+    const response = await api.get(url);
+    
+    // Normaliser la réponse
+    if (response.data && response.data.success && Array.isArray(response.data.data)) {
+      return { success: true, questions: response.data.data, count: response.data.data.length };
+    }
+    if (response.data && Array.isArray(response.data)) {
+      return { success: true, questions: response.data, count: response.data.length };
+    }
+    if (response.data && response.data.questions && Array.isArray(response.data.questions)) {
+      return { success: true, questions: response.data.questions, count: response.data.questions.length };
+    }
+    
+    return { success: true, questions: [], count: 0 };
+  } catch (error) {
+    console.error('[API] Erreur getPublicQuestions:', error);
+    throw error;
+  }
+};
 
 export const getQuestions = async (params = {}) => {
   try {

@@ -7,11 +7,25 @@ import io from 'socket.io-client';
 import { Clock, Users, Home, RefreshCw, Wifi, WifiOff, Loader } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
-const SOCKET_URL = ENV_CONFIG.SOCKET_URL;
-const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+// ✅ Détection IP réseau AVANT ENV_CONFIG (qui peut lire .env localhost en priorité)
+const _detectNetworkUrl = () => {
+  const hostname = window.location.hostname;
+  const isNetworkIP = (
+    hostname !== 'localhost' &&
+    hostname !== '127.0.0.1' &&
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+  );
+  if (isNetworkIP) return `http://${hostname}:5000`;
+  return null;
+};
 
-console.log('[WaitingPage] Socket URL:', SOCKET_URL);
-console.log('[WaitingPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
+const _networkUrl = _detectNetworkUrl();
+const SOCKET_URL  = _networkUrl || ENV_CONFIG.SOCKET_URL;
+const BACKEND_URL = _networkUrl || ENV_CONFIG.BACKEND_URL;
+
+console.log('[WaitingPage] IP réseau détectée:', _networkUrl || '(none — localhost)');
+console.log('[WaitingPage] Backend URL utilisé:', BACKEND_URL);
+console.log('[WaitingPage] Environnement:', ENV_CONFIG.isLocalhost && !_networkUrl ? 'LOCAL' : _networkUrl ? 'LAN' : 'PRODUCTION');
 
 const WaitingPage = () => {
   const { examId } = useParams();
@@ -108,7 +122,12 @@ const WaitingPage = () => {
         toast.success('Épreuve en accès libre — démarrage immédiat !', { duration: 2000, icon: '🟢' });
         setTimeout(() => {
           navigate(`/exam/compose/${examId}`, {
-            state: { examOption: parsed.examOption },
+            state: {
+              examOption:   parsed.examOption,
+              // ✅ Transmettre l'URL backend déjà résolue → QuizCompositionPage n'a pas à re-détecter
+              backendUrl:   BACKEND_URL,
+              socketUrl:    SOCKET_URL,
+            },
             replace: true
           });
         }, 1200);
@@ -192,8 +211,13 @@ const WaitingPage = () => {
           toast.success("L'examen commence maintenant !", { duration: 2000, icon: '🚀' });
           cleanupBeforeRedirect();
           redirectTimeoutRef.current = setTimeout(() => {
-            navigate(`/exam/compose/${examId}`, { 
-              state: { examOption: data.examOption || examOption }
+            navigate(`/exam/compose/${examId}`, {
+              state: {
+                examOption:   data.examOption || examOption,
+                // ✅ URL backend déjà résolue sur ce terminal
+                backendUrl:   BACKEND_URL,
+                socketUrl:    SOCKET_URL,
+              }
             });
           }, 1500);
         }
