@@ -1,6 +1,6 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - Version corrigée
-// ✅ Modification clé: Utilisation de getPublicQuestions pour ne récupérer que les questions validées
-import React, { useState, useEffect } from 'react';
+// src/pages/creation/DatabaseQuizCreation.jsx - VERSION CORRIGÉE
+
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -19,12 +19,42 @@ import DOMAIN_DATA, {
   getLevelNom,
   getMatiereNom
 } from '../../data/domainConfig';
-import { getPublicQuestions, createExam } from '../../services/api';
+import { getPublicQuestions, createExam, countExamsBySubject } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import ENV_CONFIG from '../../config/env';
 
 const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+// Types de feedback selon spec Excel (4 niveaux)
+const FEEDBACK_TYPES = [
+  { value: 'none', label: 'Aucun', description: 'Pas de feedback après chaque question' },
+  { value: 'binary', label: 'Binaire', description: 'Affichage "Réussi / Échoué"' },
+  { value: 'binary+answer', label: 'Binaire + Bonne Réponse', description: 'Affichage du résultat et de la bonne réponse' },
+  { value: 'binary+answer+justification', label: 'Binaire + Bonne Réponse + Justification', description: 'Affichage complet avec explication' }
+];
+
+// Modes d'affichage du chronomètre
+const TIMER_DISPLAY_MODES = [
+  { value: 'permanent', label: 'Permanent', description: 'Toujours visible' },
+  { value: 'once', label: 'Une seule fois', description: 'Au début de l\'épreuve' },
+  { value: 'twice', label: 'Instantané 2 fois', description: 'Au 1/3 et au 2/3 du temps' },
+  { value: 'fourTimes', label: 'Instantané 4 fois', description: 'Tous les 1/4 du temps' }
+];
+
+// Préfixes selon le niveau éducatif
+const getExamPrefix = (levelId, levelNom) => {
+  const niveau = (levelNom || '').toLowerCase();
+  if (niveau.includes('licence') || niveau.includes('master') || niveau.includes('doctorat') || niveau.includes('supérieur')) {
+    return 'T.D.';
+  }
+  return 'D.S.';
+};
+
+// Fonction pour l'auto-génération du titre
+const generateAutoTitle = (prefix, subject, ordinal) => {
+  return `${prefix} ${subject} - ${ordinal}`;
+};
 
 // Fonction pour obtenir l'URL complète de l'image
 const getImageUrl = (question) => {
@@ -37,90 +67,7 @@ const getImageUrl = (question) => {
   return imagePath;
 };
 
-// Composant d'aperçu de question avec image
-const QuestionPreview = ({ question, onClose }) => {
-  if (!question) return null;
-  const imageSrc = getImageUrl(question);
-  
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        zIndex: 1000, background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)',
-        borderRadius: 20, padding: 24, width: '90%', maxWidth: 600,
-        boxShadow: '0 20px 40px rgba(0,0,0,0.5)', maxHeight: '80vh', overflowY: 'auto'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>Aperçu de la question</h3>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
-          <XCircle size={20} />
-        </button>
-      </div>
-      
-      {imageSrc && (
-        <div style={{ marginBottom: 16, textAlign: 'center' }}>
-          <img 
-            src={imageSrc} 
-            alt="Illustration" 
-            style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'contain' }} 
-          />
-        </div>
-      )}
-      
-      <p style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 16 }}>{question.libQuestion}</p>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {question.options.filter(opt => opt && opt.trim()).map((opt, i) => {
-          const isCorrect = typeof question.bonOpRep === 'number' 
-            ? i === question.bonOpRep 
-            : (Array.isArray(question.correctAnswer) ? question.correctAnswer.includes(opt) : opt === question.correctAnswer);
-          return (
-            <div key={i} style={{
-              padding: '8px 12px',
-              background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)',
-              border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
-              borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8
-            }}>
-              <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
-                {String.fromCharCode(65 + i)}.
-              </span>
-              <span style={{ color: '#94a3b8' }}>{opt}</span>
-              {isCorrect && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
-            </div>
-          );
-        })}
-      </div>
-      
-      {question.explanation && (
-        <div style={{ marginTop: 12, padding: 8, background: 'rgba(59,130,246,0.05)', borderRadius: 8 }}>
-          <p style={{ color: '#64748b', fontSize: '0.8rem' }}>💡 {question.explanation}</p>
-        </div>
-      )}
-      
-      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', flexWrap: 'wrap', gap: 8 }}>
-        <span>📚 Domaine: {question.domaineNom || question.domaine}</span>
-        <span>📁 Sous-domaine: {question.sousDomaineNom || question.sousDomaine}</span>
-        <span>🎓 Niveau: {question.niveauNom || question.niveau}</span>
-        <span>📖 Matière: {question.matiereNom || question.matiere}</span>
-        {question.libChapitre && <span>📑 Chapitre: {question.libChapitre}</span>}
-        <span>⏱️ {question.tempsMin || 1} min</span>
-        <span>⭐ {question.points || 1} pts</span>
-      </div>
-      
-      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button onClick={onClose} style={{ padding: '6px 12px', background: '#475569', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer' }}>
-          Fermer
-        </button>
-      </div>
-    </motion.div>
-  );
-};
-
-// Composant QuestionCard
+// Composant QuestionCard avec image
 const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) => {
   const imageSrc = getImageUrl(question);
   
@@ -152,7 +99,6 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
         </div>
       )}
       
-      {/* Badge "Validée" pour indiquer que la question est approuvée */}
       <div style={{ position: 'absolute', top: 8, left: 8 }}>
         <span style={{
           fontSize: '0.55rem',
@@ -168,56 +114,31 @@ const QuestionCard = ({ question, onSelect, onRemove, isSelected, onPreview }) =
       
       {imageSrc && (
         <div style={{ marginBottom: 8, marginTop: 20 }}>
-          <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 60, borderRadius: 4, objectFit: 'contain' }} />
+          <img 
+            src={imageSrc} 
+            alt="Illustration" 
+            style={{ maxWidth: '100%', maxHeight: 60, borderRadius: 4, objectFit: 'contain' }} 
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
         </div>
       )}
       
       <p style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 8 }}>
         {question.libQuestion?.length > 100 ? question.libQuestion.substring(0, 100) + '...' : question.libQuestion}
-        {question.typeQuestion === 2 && (
-          <span style={{ color: '#f59e0b', marginLeft: 6 }}>(Multiple)</span>
-        )}
       </p>
       
-      {question.libChapitre && (
-        <div style={{ marginBottom: 8 }}>
-          <span style={{
-            fontSize: '0.6rem', padding: '2px 8px',
-            background: 'rgba(139,92,246,0.15)', borderRadius: 4,
-            color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: 4
-          }}>
-            📑 {question.libChapitre}
-          </span>
-        </div>
-      )}
-      
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-        {question.options?.filter(opt => opt && opt.trim()).slice(0, 4).map((opt, i) => {
-          const isCorrect = typeof question.bonOpRep === 'number' 
-            ? i === question.bonOpRep 
-            : (Array.isArray(question.correctAnswer) && question.correctAnswer.includes(opt));
-          return (
-            <span key={i} style={{
-              padding: '2px 6px',
-              background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)',
-              borderRadius: 4,
-              color: isCorrect ? '#10b981' : '#94a3b8',
-              fontSize: '0.7rem'
-            }}>
-              {String.fromCharCode(65 + i)}: {opt?.length > 15 ? opt.substring(0, 15) + '...' : opt}
-            </span>
-          );
-        })}
-        {question.options?.filter(opt => opt && opt.trim()).length > 4 && (
-          <span style={{ fontSize: '0.6rem', color: '#64748b' }}>+{question.options.filter(opt => opt && opt.trim()).length - 4}</span>
-        )}
-      </div>
-      
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: '0.6rem', color: '#64748b', flexWrap: 'wrap' }}>
-        <span>🎓 {question.niveauNom || question.niveau}</span>
-        <span>📖 {question.matiereNom || question.matiere}</span>
-        <span>⭐ {question.points} pts</span>
-        <span>⏱️ {question.tempsMinParQuestion || 60}s</span>
+        {question.options?.filter(opt => opt && opt.trim()).slice(0, 3).map((opt, i) => (
+          <span key={i} style={{
+            padding: '2px 6px',
+            background: 'rgba(255,255,255,0.03)',
+            borderRadius: 4,
+            color: '#94a3b8',
+            fontSize: '0.7rem'
+          }}>
+            {String.fromCharCode(65 + i)}: {opt?.length > 20 ? opt.substring(0, 20) + '...' : opt}
+          </span>
+        ))}
       </div>
       
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -278,7 +199,11 @@ const DatabaseQuizCreation = () => {
   const [matiereNom, setMatiereNom] = useState('');
   const [searchChapitre, setSearchChapitre] = useState('');
 
+  // Auto-génération du titre
   const [examTitle, setExamTitle] = useState('');
+  const [examTitleAutoGenerated, setExamTitleAutoGenerated] = useState(false);
+  const [existingExamsCount, setExistingExamsCount] = useState(0);
+  
   const [examDescription, setExamDescription] = useState('');
   const [availableQuestions, setAvailableQuestions] = useState([]);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
@@ -287,28 +212,27 @@ const DatabaseQuizCreation = () => {
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(null);
   
-  // Configuration
+  // Configuration - conforme spec Excel
   const [config, setConfig] = useState({
     examOption: 'C',
     openRange: false,
     requiredQuestions: 0,
-    sequencing: 'identical',
-    allowRetry: false,
-    showBinaryResult: false,
-    showCorrectAnswer: false,
+    sequencing: 'identical',        // identical / randomPerStudent
+    allowRetry: false,               // Reprise suite feedback négatif
+    feedbackType: 'none',            // none / binary / binary+answer / binary+answer+justification
     timerPerQuestion: true,
     timePerQuestion: 60,
     totalTime: 60,
-    pointsType: 'uniform',
+    pointsType: 'uniform',           // uniform / variable (Homogène / Variable)
     globalPoints: 1,
-    timerDisplayMode: 'permanent'
+    timerDisplayMode: 'permanent'    // permanent / once / twice / fourTimes
   });
   
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [totalPointsWarning, setTotalPointsWarning] = useState(false);
   const [totalTimeWarning, setTotalTimeWarning] = useState(false);
 
-  // Mise à jour des noms à partir des IDs
+  // Mise à jour des noms
   useEffect(() => {
     if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
     else setDomainNom('');
@@ -338,20 +262,65 @@ const DatabaseQuizCreation = () => {
     }
   }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
 
-  // Calcul des totaux
+  // ✅ Auto-génération du titre selon spec Excel
+  useEffect(() => {
+    const updateAutoTitle = async () => {
+      if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId && matiereNom && levelNom) {
+        try {
+          // Compter les épreuves existantes pour cette matière
+          const count = await countExamsBySubject(selectedMatiereId);
+          setExistingExamsCount(count + 1);
+          
+          const prefix = getExamPrefix(selectedLevelId, levelNom);
+          const autoTitle = generateAutoTitle(prefix, matiereNom, count + 1);
+          
+          if (!examTitleAutoGenerated || !examTitle) {
+            setExamTitle(autoTitle);
+            setExamTitleAutoGenerated(true);
+          }
+        } catch (error) {
+          console.error('Erreur comptage épreuves:', error);
+          const prefix = getExamPrefix(selectedLevelId, levelNom);
+          setExamTitle(`${prefix} ${matiereNom} - 1`);
+          setExamTitleAutoGenerated(true);
+        }
+      }
+    };
+    
+    updateAutoTitle();
+  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, matiereNom, levelNom, examTitleAutoGenerated, examTitle]);
+
+  // Calcul des totaux avec affichage correct
   const totalPoints = config.pointsType === 'uniform'
     ? config.globalPoints * selectedQuestions.length
     : selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
     
-  const totalDuration = config.timerPerQuestion
-    ? (config.timePerQuestion * selectedQuestions.length) / 60
-    : config.totalTime;
+  // ✅ Calcul correct de la durée en minutes et secondes
+  const totalDurationSeconds = config.timerPerQuestion
+    ? config.timePerQuestion * selectedQuestions.length
+    : config.totalTime * 60;
+  
+  const totalDurationMinutes = totalDurationSeconds / 60;
+  const durationMinutes = Math.floor(totalDurationMinutes);
+  const durationSeconds = Math.floor((totalDurationMinutes - durationMinutes) * 60);
+
+  // ✅ Message d'alerte avec affichage correct
+  const getDurationWarningMessage = () => {
+    if (totalDurationMinutes < 15) {
+      if (durationSeconds > 0) {
+        return `⚠️ La durée totale (${durationMinutes} min ${durationSeconds} sec) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`;
+      }
+      return `⚠️ La durée totale (${durationMinutes.toFixed(1)} min) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`;
+    }
+    return null;
+  };
 
   useEffect(() => {
     setTotalPointsWarning(totalPoints > 100 || totalPoints < 10);
-    setTotalTimeWarning(totalDuration > 180 || totalDuration < 15);
-  }, [totalPoints, totalDuration]);
+    setTotalTimeWarning(totalDurationMinutes > 180 || totalDurationMinutes < 15);
+  }, [totalPoints, totalDurationMinutes]);
 
+  // Ajustement des points
   const adjustPointsToTarget = (targetTotalPoints) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
@@ -372,22 +341,23 @@ const DatabaseQuizCreation = () => {
     }
   };
 
+  // Ajustement du temps
   const adjustTimeToTarget = (targetTotalMinutes) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
       return;
     }
     if (config.timerPerQuestion) {
-      const newTimePerQuestion = (targetTotalMinutes * 60) / selectedQuestions.length;
-      setConfig({...config, timePerQuestion: Math.round(newTimePerQuestion)});
-      toast.success(`Temps ajusté : ${Math.round(newTimePerQuestion)} secondes par question`);
+      const newTimePerQuestion = Math.round((targetTotalMinutes * 60) / selectedQuestions.length);
+      setConfig({...config, timePerQuestion: newTimePerQuestion});
+      toast.success(`Temps ajusté : ${newTimePerQuestion} secondes par question`);
     } else {
       setConfig({...config, totalTime: targetTotalMinutes});
       toast.success(`Temps ajusté : ${targetTotalMinutes} minutes totales`);
     }
   };
 
-  // ✅ CHARGEMENT DES QUESTIONS - Utilisation de getPublicQuestions (uniquement les questions validées)
+  // Chargement des questions validées
   const loadAvailableQuestions = async () => {
     if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
       toast.error('Veuillez sélectionner tous les critères');
@@ -396,15 +366,6 @@ const DatabaseQuizCreation = () => {
 
     setFetchingQuestions(true);
     try {
-      console.log('🔍 Recherche des questions validées avec les IDs:', {
-        domaineId: selectedDomainId,
-        sousDomaineId: selectedSousDomaineId,
-        niveauId: selectedLevelId,
-        matiereId: selectedMatiereId,
-        libChapitre: searchChapitre
-      });
-      
-      // ✅ Utilisation de getPublicQuestions - NE RENVOIE QUE LES QUESTIONS APPROUVÉES
       const result = await getPublicQuestions({
         domaineId: selectedDomainId,
         sousDomaineId: selectedSousDomaineId,
@@ -414,8 +375,6 @@ const DatabaseQuizCreation = () => {
         limit: 1000
       });
 
-      console.log('📦 Réponse de getPublicQuestions:', result);
-      
       let allQuestions = [];
       if (result.questions && Array.isArray(result.questions)) {
         allQuestions = result.questions;
@@ -425,77 +384,49 @@ const DatabaseQuizCreation = () => {
         allQuestions = result.data;
       }
 
-      console.log(`📊 Total questions validées trouvées: ${allQuestions.length}`);
-      
       if (allQuestions.length === 0) {
-        toast.info(`Aucune question validée trouvée pour ${matiereNom || 'cette matière'} (niveau ${levelNom || 'ce niveau'})`);
+        toast.info(`Aucune question validée trouvée pour ${matiereNom || 'cette matière'}`);
         setAvailableQuestions([]);
-        setFetchingQuestions(false);
         return;
       }
       
-      // Normaliser les questions
-      const normalized = allQuestions.map((q, idx) => {
-        const qDomaineId = q.domaineId || selectedDomainId;
-        const qSousDomaineId = q.sousDomaineId || selectedSousDomaineId;
-        const qNiveauId = q.niveauId || selectedLevelId;
-        const qMatiereId = q.matiereId || selectedMatiereId;
-        
-        return {
-          id: q._id || q.id || idx,
-          _id: q._id,
-          libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
-          text: q.libQuestion || q.question || q.text,
-          question: q.libQuestion || q.question || q.text,
-          options: q.options || [],
-          correctAnswer: q.correctAnswer || (q.options && typeof q.bonOpRep === 'number' ? q.options[q.bonOpRep] : ''),
-          bonOpRep: q.bonOpRep,
-          points: q.points || 1,
-          explanation: q.explanation || '',
-          typeQuestion: q.typeQuestion || (Array.isArray(q.correctAnswer) ? 2 : 1),
-          tempsMinParQuestion: q.tempsMinParQuestion || 60,
-          tempsMin: q.tempsMin || 1,
-          domaineId: qDomaineId,
-          sousDomaineId: qSousDomaineId,
-          niveauId: qNiveauId,
-          matiereId: qMatiereId,
-          domaineNom: getDomainNom(qDomaineId) || q.domaine || domainNom,
-          sousDomaineNom: getSousDomaineNom(qDomaineId, qSousDomaineId) || q.sousDomaine || sousDomaineNom,
-          niveauNom: getLevelNom(qDomaineId, qSousDomaineId, qNiveauId) || q.niveau || levelNom,
-          matiereNom: getMatiereNom(qDomaineId, qSousDomaineId, qMatiereId) || q.matiere || matiereNom,
-          libChapitre: q.libChapitre || '',
-          imageQuestion: q.imageQuestion || '',
-          imageBase64: q.imageBase64 || '',
-          imageMetadata: q.imageMetadata || {},
-          matriculeAuteur: q.matriculeAuteur || '',
-          dateCrea: q.dateCrea || new Date().toISOString(),
-          status: q.status || 'approved'
-        };
-      });
+      const normalized = allQuestions.map((q, idx) => ({
+        id: q._id || q.id || idx,
+        _id: q._id,
+        libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
+        options: q.options || [],
+        correctAnswer: q.correctAnswer,
+        bonOpRep: q.bonOpRep,
+        points: q.points || 1,
+        explanation: q.explanation || '',
+        typeQuestion: q.typeQuestion || 1,
+        tempsMinParQuestion: q.tempsMinParQuestion || 60,
+        domaineId: selectedDomainId,
+        sousDomaineId: selectedSousDomaineId,
+        niveauId: selectedLevelId,
+        matiereId: selectedMatiereId,
+        domaineNom: domainNom,
+        sousDomaineNom: sousDomaineNom,
+        niveauNom: levelNom,
+        matiereNom: matiereNom,
+        libChapitre: q.libChapitre || '',
+        imageQuestion: q.imageQuestion || '',
+        imageBase64: q.imageBase64 || '',
+      }));
 
-      console.log(`✅ ${normalized.length} questions validées normalisées`);
-      if (normalized.length > 0) {
-        console.log('📝 Exemple de question normalisée:', {
-          libQuestion: normalized[0].libQuestion?.substring(0, 50),
-          matiereNom: normalized[0].matiereNom,
-          niveauNom: normalized[0].niveauNom,
-          status: normalized[0].status
-        });
-      }
-      
       setAvailableQuestions(normalized);
       toast.success(`${normalized.length} question(s) validée(s) trouvée(s)`);
       
     } catch (error) {
       console.error('Erreur chargement questions:', error);
-      toast.error('Impossible de charger les questions: ' + (error.message || 'Erreur inconnue'));
+      toast.error('Impossible de charger les questions');
       setAvailableQuestions([]);
     } finally {
       setFetchingQuestions(false);
     }
   };
 
-  // Recharger quand les critères changent
+  // Rechargement automatique
   useEffect(() => {
     if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId) {
       loadAvailableQuestions();
@@ -540,6 +471,7 @@ const DatabaseQuizCreation = () => {
     }
   };
 
+  // Sauvegarde de l'épreuve
   const saveExam = async () => {
     if (!examTitle || selectedQuestions.length === 0) {
       toast.error('Veuillez donner un titre et sélectionner au moins une question');
@@ -556,17 +488,15 @@ const DatabaseQuizCreation = () => {
       return;
     }
 
+    // ✅ Vérifications avec affichage correct
     if (totalPoints > 100) {
       if (!window.confirm(`⚠️ Le total des points (${totalPoints}) dépasse 100. Voulez-vous continuer quand même ?`)) return;
     } else if (totalPoints < 10) {
       if (!window.confirm(`⚠️ Le total des points (${totalPoints}) est inférieur à 10. Voulez-vous continuer quand même ?`)) return;
     }
 
-    if (totalDuration > 180) {
-      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) dépasse 3 heures. Voulez-vous continuer quand même ?`)) return;
-    } else if (totalDuration < 15) {
-      if (!window.confirm(`⚠️ La durée totale (${totalDuration.toFixed(1)} min) est inférieure à 15 minutes. Voulez-vous continuer quand même ?`)) return;
-    }
+    const warningMsg = getDurationWarningMessage();
+    if (warningMsg && !window.confirm(warningMsg)) return;
 
     setIsLoading(true);
     try {
@@ -586,7 +516,6 @@ const DatabaseQuizCreation = () => {
           libQuestion: q.libQuestion,
           imageQuestion: q.imageQuestion || '',
           imageBase64: q.imageBase64 || '',
-          imageMetadata: q.imageMetadata || {},
           typeQuestion: q.typeQuestion,
           opRep1: validOptions[0] || '',
           opRep2: validOptions[1] || '',
@@ -603,13 +532,10 @@ const DatabaseQuizCreation = () => {
         };
       });
 
-      const totalDurationCalc = config.timerPerQuestion
-        ? (config.timePerQuestion * selectedQuestions.length) / 60
-        : config.totalTime;
-
-      const totalPointsValue = config.pointsType === 'uniform'
-        ? config.globalPoints * selectedQuestions.length
-        : selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+      // Configuration selon spec Excel avec les 4 niveaux de feedback
+      const showBinaryResult = config.feedbackType !== 'none';
+      const showCorrectAnswer = config.feedbackType === 'binary+answer' || config.feedbackType === 'binary+answer+justification';
+      const showJustification = config.feedbackType === 'binary+answer+justification';
 
       const examData = {
         title: examTitle,
@@ -624,8 +550,9 @@ const DatabaseQuizCreation = () => {
         matiere: parseInt(selectedMatiereId),
         matiereNom: matiereNom,
         questions: formattedQuestions,
-        duration: Math.ceil(totalDurationCalc),
-        totalPoints: totalPointsValue,
+        duration: Math.ceil(totalDurationMinutes),
+        durationSeconds: totalDurationSeconds,
+        totalPoints: totalPoints,
         passingScore: 70,
         createdBy: user?._id || user?.id,
         teacherName: user?.name,
@@ -639,8 +566,9 @@ const DatabaseQuizCreation = () => {
           requiredQuestions: config.requiredQuestions,
           sequencing: config.sequencing,
           allowRetry: config.allowRetry,
-          showBinaryResult: config.showBinaryResult,
-          showCorrectAnswer: config.showCorrectAnswer,
+          showBinaryResult: showBinaryResult,
+          showCorrectAnswer: showCorrectAnswer,
+          showJustification: showJustification,
           timerPerQuestion: config.timerPerQuestion,
           timePerQuestion: config.timePerQuestion,
           totalTime: config.totalTime,
@@ -665,6 +593,14 @@ const DatabaseQuizCreation = () => {
     }
   };
 
+  // Formatage de l'affichage de la durée
+  const formatDurationDisplay = () => {
+    if (durationSeconds > 0) {
+      return `${durationMinutes} min ${durationSeconds} sec`;
+    }
+    return `${durationMinutes.toFixed(1)} min`;
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -677,9 +613,18 @@ const DatabaseQuizCreation = () => {
         backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0
       }} />
 
-      <main style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto' }}>
+      <main style={{ 
+        position: 'relative', 
+        zIndex: 1, 
+        maxWidth: 1400, 
+        margin: '0 auto',
+        // ✅ Container parent avec align-items: stretch pour scroll indépendant
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 48px)'
+      }}>
         {/* En-tête */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexShrink: 0 }}>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -712,18 +657,32 @@ const DatabaseQuizCreation = () => {
           </div>
         </div>
 
-        {/* Configuration Panel - 3 colonnes */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
-
-          {/* Colonne 1: Configuration */}
+        {/* ✅ 3 colonnes avec scroll INDÉPENDANT */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: '1fr 1fr 1fr', 
+          gap: 24,
+          flex: 1,
+          minHeight: 0  // Important pour le scroll
+        }}>
+          {/* Colonne 1: Configuration - scroll indépendant */}
           <div style={{
-            background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(99,102,241,0.2)', borderRadius: 24, padding: 24
+            background: 'rgba(15,23,42,0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            borderRadius: 24,
+            padding: 24,
+            // ✅ Scroll indépendant
+            overflowY: 'auto',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20 }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20, flexShrink: 0 }}>
               Configuration de l'épreuve
             </h2>
 
+            {/* Titre auto-généré */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <BookOpen size={14} style={{ display: 'inline', marginRight: 4 }} />
@@ -732,7 +691,10 @@ const DatabaseQuizCreation = () => {
               <input
                 type="text"
                 value={examTitle}
-                onChange={(e) => setExamTitle(e.target.value)}
+                onChange={(e) => {
+                  setExamTitle(e.target.value);
+                  setExamTitleAutoGenerated(false);
+                }}
                 placeholder="Ex: Management de Projet - Examen"
                 style={{
                   width: '100%', padding: 12,
@@ -741,6 +703,11 @@ const DatabaseQuizCreation = () => {
                   color: '#f8fafc', outline: 'none'
                 }}
               />
+              {examTitleAutoGenerated && selectedMatiereId && (
+                <p style={{ fontSize: '0.65rem', color: '#10b981', marginTop: 4 }}>
+                  ✨ Titre auto-généré (préfixe {getExamPrefix(selectedLevelId, levelNom)} + matière + N°{existingExamsCount})
+                </p>
+              )}
             </div>
 
             <div style={{ marginBottom: 16 }}>
@@ -761,6 +728,7 @@ const DatabaseQuizCreation = () => {
               />
             </div>
 
+            {/* Référentiel */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 Domaine *
@@ -860,18 +828,8 @@ const DatabaseQuizCreation = () => {
               </>
             )}
 
-            {/* Affichage des noms sélectionnés */}
-            {(domainNom || sousDomaineNom || levelNom || matiereNom) && (
-              <div style={{ marginTop: 12, padding: 8, background: 'rgba(99,102,241,0.05)', borderRadius: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {domainNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Domaine: {domainNom}</span>}
-                {sousDomaineNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Sous-domaine: {sousDomaineNom}</span>}
-                {levelNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Niveau: {levelNom}</span>}
-                {matiereNom && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>Matière: {matiereNom}</span>}
-              </div>
-            )}
-
             {/* Filtre par chapitre */}
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 8 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <BookMarked size={14} style={{ display: 'inline', marginRight: 4 }} />
                 Filtrer par chapitre (optionnel)
@@ -889,6 +847,27 @@ const DatabaseQuizCreation = () => {
                 }}
               />
             </div>
+
+            {/* ✅ CTA vers le pavé 2 - selon spec testeur */}
+            {selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{
+                  marginTop: 16,
+                  padding: '12px 16px',
+                  background: 'rgba(59,130,246,0.15)',
+                  border: '1px solid rgba(59,130,246,0.3)',
+                  borderRadius: 12,
+                  textAlign: 'center'
+                }}
+              >
+                <p style={{ color: '#60a5fa', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <ArrowLeft size={14} style={{ transform: 'rotate(180deg)' }} />
+                  → Passez au Pavé 2 pour sélectionner vos questions
+                </p>
+              </motion.div>
+            )}
 
             {/* Paramètres avancés */}
             <div style={{ marginTop: 16, borderTop: '1px solid rgba(99,102,241,0.2)', paddingTop: 16 }}>
@@ -912,7 +891,7 @@ const DatabaseQuizCreation = () => {
                   {/* Option d'examen */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      Option d'examen
+                      Mode de survenance des QCM
                     </label>
                     <select
                       value={config.examOption}
@@ -924,11 +903,180 @@ const DatabaseQuizCreation = () => {
                         color: '#f8fafc'
                       }}
                     >
-                      <option value="A">A - Collective Figée (superviseur contrôle)</option>
-                      <option value="B">B - Collective Souple (démarrage synchro)</option>
-                      <option value="C">C - Personnalisée (libre navigation)</option>
-                      <option value="D">D - Aléatoire (questions mélangées)</option>
+                      <option value="A">Directif (imposé par l'Application)</option>
+                      <option value="C">Libre choix par l'apprenant</option>
                     </select>
+                  </div>
+
+                  {/* ✅ Type de feedback - 4 niveaux selon spec Excel */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      Type de feedback à l'apprenant
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {FEEDBACK_TYPES.map((fb) => (
+                        <label key={fb.value} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name="feedbackType"
+                            value={fb.value}
+                            checked={config.feedbackType === fb.value}
+                            onChange={() => setConfig({...config, feedbackType: fb.value})}
+                            style={{ accentColor: '#3b82f6' }}
+                          />
+                          <div>
+                            <span style={{ color: '#f8fafc', fontSize: '0.75rem', fontWeight: 500 }}>{fb.label}</span>
+                            <p style={{ color: '#64748b', fontSize: '0.65rem', marginTop: 2 }}>{fb.description}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Séquencement */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      Séquencement des QCM
+                    </label>
+                    <select
+                      value={config.sequencing}
+                      onChange={(e) => setConfig({...config, sequencing: e.target.value})}
+                      style={{
+                        width: '100%', padding: 8,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                        color: '#f8fafc'
+                      }}
+                    >
+                      <option value="identical">Même QCM pour tous les apprenants</option>
+                      <option value="randomPerStudent">Variable par apprenant</option>
+                    </select>
+                  </div>
+
+                  {/* Reprise suite feedback négatif */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={config.allowRetry}
+                        onChange={(e) => setConfig({...config, allowRetry: e.target.checked})}
+                      />
+                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Possibilité de reprise suite feedback négatif</span>
+                    </label>
+                  </div>
+
+                  {/* Note par QCM */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      <Award size={12} style={{ display: 'inline', marginRight: 4 }} />
+                      Note par QCM
+                    </label>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="pointsType"
+                          checked={config.pointsType === 'uniform'}
+                          onChange={() => setConfig({...config, pointsType: 'uniform'})}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Homogène</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="pointsType"
+                          checked={config.pointsType === 'variable'}
+                          onChange={() => setConfig({...config, pointsType: 'variable'})}
+                        />
+                        <span style={{ fontSize: '0.7rem' }}>Variable</span>
+                      </label>
+                    </div>
+                    {config.pointsType === 'uniform' && (
+                      <input
+                        type="number"
+                        min="0.5"
+                        max="10"
+                        step="0.5"
+                        value={config.globalPoints}
+                        onChange={(e) => setConfig({...config, globalPoints: parseFloat(e.target.value) || 1})}
+                        placeholder="Points par question"
+                        style={{
+                          width: '100%', padding: 8,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                          color: '#f8fafc'
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Chronomètre */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={config.timerPerQuestion}
+                        onChange={(e) => setConfig({...config, timerPerQuestion: e.target.checked})}
+                      />
+                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Chronomètre par QCM (0-180 sec)</span>
+                    </label>
+                    {config.timerPerQuestion ? (
+                      <input
+                        type="number"
+                        min="0"
+                        max="180"
+                        value={config.timePerQuestion}
+                        onChange={(e) => setConfig({...config, timePerQuestion: parseInt(e.target.value) || 60})}
+                        placeholder="Secondes par question"
+                        style={{
+                          width: '100%', padding: 8, marginTop: 6,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                          color: '#f8fafc'
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min="1"
+                        max="300"
+                        value={config.totalTime}
+                        onChange={(e) => setConfig({...config, totalTime: parseInt(e.target.value) || 60})}
+                        placeholder="Minutes totales"
+                        style={{
+                          width: '100%', padding: 8, marginTop: 6,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
+                          color: '#f8fafc'
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* ✅ Type d'affichage Chrono - 4 modes visuels */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
+                      <Timer size={12} style={{ display: 'inline', marginRight: 4 }} />
+                      Type d'affichage du chronomètre
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {TIMER_DISPLAY_MODES.map((mode) => (
+                        <label key={mode.value} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name="timerDisplayMode"
+                            value={mode.value}
+                            checked={config.timerDisplayMode === mode.value}
+                            onChange={() => setConfig({...config, timerDisplayMode: mode.value})}
+                            style={{ accentColor: '#8b5cf6' }}
+                          />
+                          <div>
+                            <span style={{ color: '#f8fafc', fontSize: '0.75rem' }}>{mode.label}</span>
+                            <p style={{ color: '#64748b', fontSize: '0.65rem' }}>{mode.description}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Plage ouverte */}
@@ -958,196 +1106,6 @@ const DatabaseQuizCreation = () => {
                       />
                     )}
                   </div>
-
-                  {/* Séquencement */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      Séquencement des questions
-                    </label>
-                    <select
-                      value={config.sequencing}
-                      onChange={(e) => setConfig({...config, sequencing: e.target.value})}
-                      style={{
-                        width: '100%', padding: 8,
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                        color: '#f8fafc'
-                      }}
-                    >
-                      <option value="identical">Identique pour tous</option>
-                      <option value="randomPerStudent">Aléatoire par étudiant</option>
-                    </select>
-                  </div>
-
-                  {/* Reprise */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={config.allowRetry}
-                        onChange={(e) => setConfig({...config, allowRetry: e.target.checked})}
-                      />
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Autoriser une reprise après échec</span>
-                    </label>
-                  </div>
-
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      Feedback après chaque question
-                    </label>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="feedbackType"
-                          checked={!config.showBinaryResult && !config.showCorrectAnswer}
-                          onChange={() => setConfig({
-                            ...config, 
-                            showBinaryResult: false, 
-                            showCorrectAnswer: false
-                          })}
-                        />
-                        <span style={{ fontSize: '0.7rem' }}>Aucun résultat immédiat</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="feedbackType"
-                          checked={config.showBinaryResult && !config.showCorrectAnswer}
-                          onChange={() => setConfig({
-                            ...config, 
-                            showBinaryResult: true, 
-                            showCorrectAnswer: false
-                          })}
-                        />
-                        <span style={{ fontSize: '0.7rem' }}>Résultat binaire (bon/mauvais)</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="feedbackType"
-                          checked={config.showBinaryResult && config.showCorrectAnswer}
-                          onChange={() => setConfig({
-                            ...config, 
-                            showBinaryResult: true, 
-                            showCorrectAnswer: true
-                          })}
-                        />
-                        <span style={{ fontSize: '0.7rem' }}>Résultat binaire + Bonne réponse</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Chronomètre */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={config.timerPerQuestion}
-                        onChange={(e) => setConfig({...config, timerPerQuestion: e.target.checked})}
-                      />
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Chronomètre par question</span>
-                    </label>
-                    {config.timerPerQuestion ? (
-                      <input
-                        type="number"
-                        min="5"
-                        max="300"
-                        value={config.timePerQuestion}
-                        onChange={(e) => setConfig({...config, timePerQuestion: parseInt(e.target.value) || 60})}
-                        placeholder="Secondes par question"
-                        style={{
-                          width: '100%', padding: 8, marginTop: 6,
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                          color: '#f8fafc'
-                        }}
-                      />
-                    ) : (
-                      <input
-                        type="number"
-                        min="1"
-                        max="300"
-                        value={config.totalTime}
-                        onChange={(e) => setConfig({...config, totalTime: parseInt(e.target.value) || 60})}
-                        placeholder="Minutes totales"
-                        style={{
-                          width: '100%', padding: 8, marginTop: 6,
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                          color: '#f8fafc'
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  {/* Type de points */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      <Award size={12} style={{ display: 'inline', marginRight: 4 }} />
-                      Attribution des points
-                    </label>
-                    <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="pointsType"
-                          checked={config.pointsType === 'uniform'}
-                          onChange={() => setConfig({...config, pointsType: 'uniform'})}
-                        />
-                        <span style={{ fontSize: '0.7rem' }}>Uniforme (même points pour toutes les questions)</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="pointsType"
-                          checked={config.pointsType === 'variable'}
-                          onChange={() => setConfig({...config, pointsType: 'variable'})}
-                        />
-                        <span style={{ fontSize: '0.7rem' }}>Variable (points individuels par question)</span>
-                      </label>
-                    </div>
-                    {config.pointsType === 'uniform' && (
-                      <input
-                        type="number"
-                        min="0.5"
-                        max="10"
-                        step="0.5"
-                        value={config.globalPoints}
-                        onChange={(e) => setConfig({...config, globalPoints: parseFloat(e.target.value) || 1})}
-                        placeholder="Points par question"
-                        style={{
-                          width: '100%', padding: 8,
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                          color: '#f8fafc'
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  {/* Mode d'affichage du chronomètre */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      <Timer size={12} style={{ display: 'inline', marginRight: 4 }} />
-                      Affichage du chronomètre
-                    </label>
-                    <select
-                      value={config.timerDisplayMode}
-                      onChange={(e) => setConfig({...config, timerDisplayMode: e.target.value})}
-                      style={{
-                        width: '100%', padding: 8,
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                        color: '#f8fafc'
-                      }}
-                    >
-                      <option value="once">1 fois (début de l'épreuve)</option>
-                      <option value="twice">2 fois (début et fin)</option>
-                      <option value="fourTimes">4 fois (début, 1/4, mi, 3/4)</option>
-                      <option value="permanent">Permanent (toujours visible)</option>
-                    </select>
-                  </div>
                 </div>
               )}
             </div>
@@ -1158,14 +1116,23 @@ const DatabaseQuizCreation = () => {
                 📋 Résumé de la configuration
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: '0.6rem' }}>
-                <span style={{ color: '#a5b4fc' }}>Option {config.examOption}</span>
+                <span style={{ color: '#a5b4fc' }}>Mode: {config.examOption === 'A' ? 'Directif' : 'Libre'}</span>
                 {config.openRange && <span style={{ color: '#f59e0b' }}>Plage ouverte ({config.requiredQuestions} req.)</span>}
                 <span style={{ color: '#10b981' }}>{config.pointsType === 'uniform' ? `Points: ${config.globalPoints}` : 'Points variables'}</span>
-                <span style={{ color: '#8b5cf6' }}>Chrono: {config.timerDisplayMode === 'permanent' ? 'permanent' : config.timerDisplayMode === 'once' ? '1x' : config.timerDisplayMode === 'twice' ? '2x' : '4x'}</span>
+                <span style={{ color: '#8b5cf6' }}>
+                  Chrono: {
+                    config.timerDisplayMode === 'permanent' ? 'Permanent' :
+                    config.timerDisplayMode === 'once' ? '1x' :
+                    config.timerDisplayMode === 'twice' ? '2x' : '4x'
+                  }
+                </span>
+                <span style={{ color: '#a78bfa' }}>
+                  Feedback: {FEEDBACK_TYPES.find(f => f.value === config.feedbackType)?.label || 'Aucun'}
+                </span>
               </div>
             </div>
 
-            {/* Avertissements points et temps */}
+            {/* Avertissements */}
             {totalPointsWarning && (
               <div style={{ marginTop: 12, padding: 10, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
                 <p style={{ color: '#f59e0b', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1185,44 +1152,32 @@ const DatabaseQuizCreation = () => {
               <div style={{ marginTop: 8, padding: 10, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
                 <p style={{ color: '#f59e0b', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <Clock size={12} />
-                  ⚠️ Durée totale: {totalDuration.toFixed(1)} min {totalDuration > 180 ? '(>180 min recommandé)' : totalDuration < 15 ? '(<15 min recommandé)' : ''}
+                  ⚠️ Durée totale: {formatDurationDisplay()} {totalDurationMinutes > 180 ? '(>180 min recommandé)' : totalDurationMinutes < 15 ? '(<15 min recommandé)' : ''}
                   <button 
-                    onClick={() => adjustTimeToTarget(totalDuration > 180 ? 120 : 60)}
+                    onClick={() => adjustTimeToTarget(totalDurationMinutes > 180 ? 120 : 60)}
                     style={{ marginLeft: 'auto', padding: '2px 10px', background: '#f59e0b', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.6rem', cursor: 'pointer' }}
                   >
-                    Ajuster à {totalDuration > 180 ? '120' : '60'} min
+                    Ajuster à {totalDurationMinutes > 180 ? '120' : '60'} min
                   </button>
                 </p>
               </div>
             )}
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={saveExam}
-              disabled={isLoading}
-              style={{
-                width: '100%', padding: 14, marginTop: 16,
-                background: isLoading ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)',
-                border: 'none', borderRadius: 12, color: 'white',
-                fontWeight: 600, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: 8, cursor: isLoading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {isLoading ? (
-                <><Loader size={16} className="animate-spin" /> Enregistrement...</>
-              ) : (
-                <><Save size={16} /> Créer l'épreuve</>
-              )}
-            </motion.button>
           </div>
 
-          {/* Colonne 2: Questions disponibles */}
+          {/* Colonne 2: Questions disponibles - scroll indépendant */}
           <div style={{
-            background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(99,102,241,0.2)', borderRadius: 24, padding: 24
+            background: 'rgba(15,23,42,0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            borderRadius: 24,
+            padding: 24,
+            // ✅ Scroll indépendant
+            overflowY: 'auto',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20 }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20, flexShrink: 0 }}>
               Questions validées
               {availableQuestions.length > 0 && (
                 <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#10b981' }}>
@@ -1231,7 +1186,7 @@ const DatabaseQuizCreation = () => {
               )}
             </h2>
 
-            <div style={{ position: 'relative', marginBottom: 16 }}>
+            <div style={{ position: 'relative', marginBottom: 16, flexShrink: 0 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: '#64748b' }} />
               <input
                 type="text"
@@ -1247,7 +1202,7 @@ const DatabaseQuizCreation = () => {
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexShrink: 0 }}>
               <p style={{ color: '#64748b', fontSize: '0.7rem' }}>
                 {filteredQuestions.length} question(s) validée(s) trouvée(s)
               </p>
@@ -1289,7 +1244,7 @@ const DatabaseQuizCreation = () => {
                 <p style={{ fontSize: '0.7rem' }}>Vérifiez que des questions ont été validées pour ces critères</p>
               </div>
             ) : (
-              <div style={{ maxHeight: 500, overflowY: 'auto', paddingRight: 8 }}>
+              <div style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
                 {filteredQuestions.map(q => (
                   <QuestionCard
                     key={q.id}
@@ -1304,12 +1259,20 @@ const DatabaseQuizCreation = () => {
             )}
           </div>
 
-          {/* Colonne 3: Questions sélectionnées */}
+          {/* Colonne 3: Questions sélectionnées - scroll indépendant */}
           <div style={{
-            background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(99,102,241,0.2)', borderRadius: 24, padding: 24
+            background: 'rgba(15,23,42,0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            borderRadius: 24,
+            padding: 24,
+            // ✅ Scroll indépendant
+            overflowY: 'auto',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20 }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#f8fafc', marginBottom: 20, flexShrink: 0 }}>
               Questions sélectionnées ({selectedQuestions.length})
             </h2>
 
@@ -1320,85 +1283,102 @@ const DatabaseQuizCreation = () => {
                 <p style={{ fontSize: '0.7rem' }}>Cliquez sur "Ajouter" depuis la liste de gauche</p>
               </div>
             ) : (
-              <div style={{ maxHeight: 500, overflowY: 'auto', paddingRight: 8 }}>
-                {selectedQuestions.map((q, idx) => {
-                  const imageSrc = getImageUrl(q);
-                  return (
-                    <div key={q.id} style={{
-                      background: 'rgba(16,185,129,0.05)',
-                      border: '1px solid rgba(16,185,129,0.2)',
-                      borderRadius: 12, padding: 12, marginBottom: 12
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          width: 28, height: 28, borderRadius: 6, background: '#10b981',
-                          color: 'white', display: 'flex', alignItems: 'center',
-                          justifyContent: 'center', fontSize: '0.7rem', fontWeight: 600,
-                          cursor: 'pointer'
-                        }}
-                        onClick={() => moveQuestionUp(idx)}
-                        >
-                          ↑
-                        </span>
-                        <span style={{
-                          width: 28, height: 28, borderRadius: 6, background: '#10b981',
-                          color: 'white', display: 'flex', alignItems: 'center',
-                          justifyContent: 'center', fontSize: '0.7rem', fontWeight: 600,
-                          cursor: 'pointer'
-                        }}
-                        onClick={() => moveQuestionDown(idx)}
-                        >
-                          ↓
-                        </span>
-                        <div style={{ flex: 1 }}>
-                          {imageSrc && (
-                            <img src={imageSrc} alt="Illustration" style={{ maxWidth: '100%', maxHeight: 40, borderRadius: 4, objectFit: 'contain', marginBottom: 4 }} />
-                          )}
-                          <p style={{ color: '#f8fafc', fontSize: '0.85rem' }}>
-                            <strong style={{ color: '#f59e0b' }}>{idx + 1}.</strong> {q.libQuestion?.length > 60 ? q.libQuestion.substring(0, 60) + '...' : q.libQuestion}
-                            {q.typeQuestion === 2 && <span style={{ color: '#f59e0b' }}> (Multiple)</span>}
-                          </p>
-                          {q.libChapitre && (
-                            <div style={{ marginTop: 4 }}>
-                              <span style={{ fontSize: '0.6rem', padding: '2px 8px', background: 'rgba(139,92,246,0.15)', borderRadius: 4, color: '#a78bfa' }}>
-                                📑 {q.libChapitre}
-                              </span>
-                            </div>
-                          )}
-                          <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: '0.6rem', color: '#64748b' }}>
-                            <span>⭐ {config.pointsType === 'uniform' ? config.globalPoints : q.points} pts</span>
-                            <span>⏱️ {q.tempsMinParQuestion || 60}s</span>
+              <>
+                <div style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
+                  {selectedQuestions.map((q, idx) => {
+                    const imageSrc = getImageUrl(q);
+                    return (
+                      <div key={q.id} style={{
+                        background: 'rgba(16,185,129,0.05)',
+                        border: '1px solid rgba(16,185,129,0.2)',
+                        borderRadius: 12, padding: 12, marginBottom: 12
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <button
+                              onClick={() => moveQuestionUp(idx)}
+                              disabled={idx === 0}
+                              style={{
+                                width: 28, height: 28, borderRadius: 6,
+                                background: idx === 0 ? '#475569' : '#10b981',
+                                border: 'none',
+                                color: 'white',
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                                opacity: idx === 0 ? 0.5 : 1
+                              }}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              onClick={() => moveQuestionDown(idx)}
+                              disabled={idx === selectedQuestions.length - 1}
+                              style={{
+                                width: 28, height: 28, borderRadius: 6,
+                                background: idx === selectedQuestions.length - 1 ? '#475569' : '#10b981',
+                                border: 'none',
+                                color: 'white',
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: idx === selectedQuestions.length - 1 ? 'not-allowed' : 'pointer',
+                                opacity: idx === selectedQuestions.length - 1 ? 0.5 : 1
+                              }}
+                            >
+                              ↓
+                            </button>
                           </div>
+                          <div style={{ flex: 1 }}>
+                            {imageSrc && (
+                              <img 
+                                src={imageSrc} 
+                                alt="Illustration" 
+                                style={{ maxWidth: '100%', maxHeight: 40, borderRadius: 4, objectFit: 'contain', marginBottom: 4 }} 
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                            )}
+                            <p style={{ color: '#f8fafc', fontSize: '0.85rem' }}>
+                              <strong style={{ color: '#f59e0b' }}>{idx + 1}.</strong> {q.libQuestion?.length > 60 ? q.libQuestion.substring(0, 60) + '...' : q.libQuestion}
+                            </p>
+                            <div style={{ marginTop: 4, display: 'flex', gap: 8, fontSize: '0.6rem', color: '#64748b' }}>
+                              <span>⭐ {config.pointsType === 'uniform' ? config.globalPoints : q.points} pts</span>
+                              <span>⏱️ {q.tempsMinParQuestion || 60}s</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeQuestion(q.id)}
+                            style={{
+                              padding: 6, background: 'rgba(239,68,68,0.1)',
+                              border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6,
+                              color: '#ef4444', cursor: 'pointer'
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => setPreviewQuestion(q)}
+                            style={{
+                              padding: 6, background: 'rgba(59,130,246,0.1)',
+                              border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6,
+                              color: '#3b82f6', cursor: 'pointer'
+                            }}
+                          >
+                            <Eye size={14} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => removeQuestion(q.id)}
-                          style={{
-                            padding: 6, background: 'rgba(239,68,68,0.1)',
-                            border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6,
-                            color: '#ef4444', cursor: 'pointer'
-                          }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setPreviewQuestion(q)}
-                          style={{
-                            padding: 6, background: 'rgba(59,130,246,0.1)',
-                            border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6,
-                            color: '#3b82f6', cursor: 'pointer'
-                          }}
-                        >
-                          <Eye size={14} />
-                        </button>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
                 
-                {/* Résumé */}
+                {/* Résumé et bouton de création */}
                 <div style={{
-                  marginTop: 16, padding: 12, background: 'rgba(255,255,255,0.02)',
-                  borderRadius: 12, border: '1px solid rgba(99,102,241,0.1)'
+                  marginTop: 16,
+                  padding: 12,
+                  background: 'rgba(255,255,255,0.02)',
+                  borderRadius: 12,
+                  border: '1px solid rgba(99,102,241,0.1)',
+                  flexShrink: 0
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ color: '#94a3b8' }}>Total points</span>
@@ -1406,25 +1386,52 @@ const DatabaseQuizCreation = () => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ color: '#94a3b8' }}>Durée totale</span>
-                    <span style={{ color: totalTimeWarning ? '#f59e0b' : '#8b5cf6', fontWeight: 600 }}>{totalDuration.toFixed(1)} min</span>
+                    <span style={{ color: totalTimeWarning ? '#f59e0b' : '#8b5cf6', fontWeight: 600 }}>{formatDurationDisplay()}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ color: '#94a3b8' }}>Questions</span>
                     <span style={{ color: '#10b981', fontWeight: 600 }}>{selectedQuestions.length}</span>
                   </div>
+                  
+                  {/* ✅ Bouton "Créer l'épreuve" en bas du Pavé 3 */}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={saveExam}
+                    disabled={isLoading || selectedQuestions.length === 0}
+                    style={{
+                      width: '100%',
+                      padding: 14,
+                      marginTop: 16,
+                      background: (isLoading || selectedQuestions.length === 0) 
+                        ? 'rgba(16,185,129,0.3)' 
+                        : 'linear-gradient(135deg, #10b981, #059669)',
+                      border: 'none',
+                      borderRadius: 12,
+                      color: 'white',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      cursor: (isLoading || selectedQuestions.length === 0) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isLoading ? (
+                      <><Loader size={16} className="animate-spin" /> Enregistrement...</>
+                    ) : (
+                      <><Save size={16} /> Créer l'épreuve</>
+                    )}
+                  </motion.button>
+                  
                   {config.openRange && config.requiredQuestions > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)' }}>
                       <span style={{ color: '#f59e0b' }}>À traiter</span>
                       <span style={{ color: '#f59e0b', fontWeight: 600 }}>{config.requiredQuestions}</span>
                     </div>
                   )}
-                  {config.pointsType === 'variable' && (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)', fontSize: '0.65rem', color: '#64748b' }}>
-                      ℹ️ Points variables : chaque question a son propre coefficient
-                    </div>
-                  )}
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -1433,7 +1440,65 @@ const DatabaseQuizCreation = () => {
       {/* Modal d'aperçu */}
       <AnimatePresence>
         {previewQuestion && (
-          <QuestionPreview question={previewQuestion} onClose={() => setPreviewQuestion(null)} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              zIndex: 1000, background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)',
+              borderRadius: 20, padding: 24, width: '90%', maxWidth: 600,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.5)', maxHeight: '80vh', overflowY: 'auto'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>Aperçu de la question</h3>
+              <button onClick={() => setPreviewQuestion(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+                <XCircle size={20} />
+              </button>
+            </div>
+            
+            {getImageUrl(previewQuestion) && (
+              <div style={{ marginBottom: 16, textAlign: 'center' }}>
+                <img 
+                  src={getImageUrl(previewQuestion)} 
+                  alt="Illustration" 
+                  style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'contain' }} 
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              </div>
+            )}
+            
+            <p style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 16 }}>{previewQuestion.libQuestion}</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {previewQuestion.options?.filter(opt => opt && opt.trim()).map((opt, i) => {
+                const isCorrect = typeof previewQuestion.bonOpRep === 'number' 
+                  ? i === previewQuestion.bonOpRep 
+                  : opt === previewQuestion.correctAnswer;
+                return (
+                  <div key={i} style={{
+                    padding: '8px 12px',
+                    background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`,
+                    borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8
+                  }}>
+                    <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>
+                      {String.fromCharCode(65 + i)}.
+                    </span>
+                    <span style={{ color: '#94a3b8' }}>{opt}</span>
+                    {isCorrect && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
+                  </div>
+                );
+              })}
+            </div>
+            
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPreviewQuestion(null)} style={{ padding: '6px 12px', background: '#475569', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer' }}>
+                Fermer
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1443,6 +1508,7 @@ const DatabaseQuizCreation = () => {
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 10px; }
+        select option { background: #1e293b; color: #f8fafc; }
       `}</style>
     </div>
   );

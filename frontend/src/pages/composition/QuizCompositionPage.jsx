@@ -1,4 +1,7 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION CORRIGÉE (URLs nettoyées)
+// src/pages/composition/QuizCompositionPage.jsx - VERSION CORRIGÉE
+// ✅ Ajout: Feedback "Binaire + Bonne Réponse + Justification"
+// ✅ Support complet des 4 niveaux de feedback selon spec Excel
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,120 +13,77 @@ import io from 'socket.io-client';
 import {
   Clock, CheckCircle, Send, ArrowLeft, ArrowRight,
   AlertTriangle, Loader, Users, RefreshCw, Eye, XCircle,
-  Save as SaveIcon, Image as ImageIcon, Lock
+  Save as SaveIcon, Image as ImageIcon, Lock, Info
 } from 'lucide-react';
 import ENV_CONFIG from '../../config/env';
 
 // ═══════════════════════════════════════════════════════════════
-// ✅ FONCTION UTILITAIRE POUR NETTOYER LES URLs
+// FONCTIONS UTILITAIRES
 // ═══════════════════════════════════════════════════════════════
+
 const cleanUrlString = (url) => {
   if (!url) return url;
   return url.replace(/\/$/, '');
 };
 
-// ═══════════════════════════════════════════════════════════════
-// ✅ DÉTECTION DYNAMIQUE DE L'ENVIRONNEMENT RÉSEAU
-// ═══════════════════════════════════════════════════════════════
-
-const _getUrlFromNavigateState = (key) => {
-  try {
-    const s = window.history.state?.usr || window.history.state?.state || window.history.state;
-    const val = s?.[key];
-    if (val && typeof val === 'string' && val.startsWith('http') && !val.includes('undefined')) {
-      return val;
-    }
-  } catch {}
-  return null;
-};
-
 const getBackendUrl = () => {
-  const fromState = _getUrlFromNavigateState('backendUrl');
-  if (fromState) {
-    const cleanUrl = cleanUrlString(fromState);
-    console.log('[QuizCompositionPage] 📡 Backend (navigate state):', cleanUrl);
-    return cleanUrl;
+  const fromState = (() => {
+    try {
+      const s = window.history.state?.usr || window.history.state?.state || window.history.state;
+      return s?.backendUrl;
+    } catch { return null; }
+  })();
+  if (fromState && typeof fromState === 'string' && fromState.startsWith('http')) {
+    return cleanUrlString(fromState);
   }
-
   const hostname = window.location.hostname;
-
   const isNetworkIP = (
     hostname !== 'localhost' &&
     hostname !== '127.0.0.1' &&
     /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
   );
-  if (isNetworkIP) {
-    const url = `http://${hostname}:5000`;
-    console.log('[QuizCompositionPage] 📡 Backend (IP réseau):', url);
-    return url;
-  }
-
-  if (process.env.REACT_APP_BACKEND_URL) {
-    const cleanUrl = cleanUrlString(process.env.REACT_APP_BACKEND_URL);
-    console.log('[QuizCompositionPage] 📡 Backend (.env):', cleanUrl);
-    return cleanUrl;
-  }
-
-  const cleanUrl = cleanUrlString(ENV_CONFIG.BACKEND_URL || 'https://apisummative.na2quizappschool.uk');
-  console.log('[QuizCompositionPage] 📡 Backend (ENV_CONFIG):', cleanUrl);
-  return cleanUrl;
+  if (isNetworkIP) return `http://${hostname}:5000`;
+  if (process.env.REACT_APP_BACKEND_URL) return cleanUrlString(process.env.REACT_APP_BACKEND_URL);
+  return cleanUrlString(ENV_CONFIG.BACKEND_URL || 'http://localhost:5000');
 };
 
 const getSocketUrl = () => {
-  const fromState = _getUrlFromNavigateState('socketUrl');
-  if (fromState) {
-    const cleanUrl = cleanUrlString(fromState);
-    console.log('[QuizCompositionPage] 🔌 Socket (navigate state):', cleanUrl);
-    return cleanUrl;
+  const fromState = (() => {
+    try {
+      const s = window.history.state?.usr || window.history.state?.state || window.history.state;
+      return s?.socketUrl;
+    } catch { return null; }
+  })();
+  if (fromState && typeof fromState === 'string' && fromState.startsWith('http')) {
+    return cleanUrlString(fromState);
   }
-
   const hostname = window.location.hostname;
-
   const isNetworkIP = (
     hostname !== 'localhost' &&
     hostname !== '127.0.0.1' &&
     /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
   );
-  if (isNetworkIP) {
-    const url = `http://${hostname}:5000`;
-    console.log('[QuizCompositionPage] 🔌 Socket (IP réseau):', url);
-    return url;
-  }
-
-  if (process.env.REACT_APP_SOCKET_URL) {
-    const cleanUrl = cleanUrlString(process.env.REACT_APP_SOCKET_URL);
-    console.log('[QuizCompositionPage] 🔌 Socket (.env):', cleanUrl);
-    return cleanUrl;
-  }
-
-  const cleanUrl = cleanUrlString(ENV_CONFIG.SOCKET_URL || 'https://apisummative.na2quizappschool.uk');
-  console.log('[QuizCompositionPage] 🔌 Socket (ENV_CONFIG):', cleanUrl);
-  return cleanUrl;
+  if (isNetworkIP) return `http://${hostname}:5000`;
+  if (process.env.REACT_APP_SOCKET_URL) return cleanUrlString(process.env.REACT_APP_SOCKET_URL);
+  return cleanUrlString(ENV_CONFIG.SOCKET_URL || 'http://localhost:5000');
 };
 
-// Initialisation avec nettoyage
 let NODE_BACKEND_URL = cleanUrlString(getBackendUrl());
 let SOCKET_URL = cleanUrlString(getSocketUrl());
 
-// En production sur Netlify, forcer Socket = Backend
 const isNetlify = window.location.hostname.includes('netlify.app');
 if (isNetlify && SOCKET_URL !== NODE_BACKEND_URL) {
-  console.log('[QuizCompositionPage] 🔄 Production mode: Socket forcé sur backend');
   SOCKET_URL = NODE_BACKEND_URL;
 }
 
-console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║     QuizCompositionPage - Configuration Réseau Détectée      ║');
-console.log('╠══════════════════════════════════════════════════════════════╣');
-console.log(`║  🌐 Hostname      : ${(window.location.hostname || 'inconnu').padEnd(42)}║`);
-console.log(`║  📡 Backend URL   : ${NODE_BACKEND_URL.padEnd(42)}║`);
-console.log(`║  🔌 Socket URL    : ${SOCKET_URL.padEnd(42)}║`);
-console.log('╚══════════════════════════════════════════════════════════════╝');
+console.log('[QuizCompositionPage] 📡 Backend:', NODE_BACKEND_URL);
+console.log('[QuizCompositionPage] 🔌 Socket:', SOCKET_URL);
 
 // ═══════════════════════════════════════════════════════════════
 // COMPOSANT TIMER
 // ═══════════════════════════════════════════════════════════════
-const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = 'permanent', onTick, displayMode = 'permanent', onDisplayShown }) => {
+
+const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, displayMode = 'permanent', onDisplayShown }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const [hasShown, setHasShown] = useState(false);
   const timerRef = useRef(null);
@@ -144,15 +104,12 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
           if (onTimeEnd) onTimeEnd();
           return 0;
         }
-        if (onTick) onTick(prev - 1);
         return prev - 1;
       });
     }, 1000);
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isActive, onTimeEnd, onTick]);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isActive, onTimeEnd]);
 
   useEffect(() => {
     if (isActive && !hasShown && onDisplayShown) {
@@ -187,130 +144,138 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, timerConfig = '
 };
 
 // ═══════════════════════════════════════════════════════════════
-// CONFIGURATIONS DES CONTRÔLES DE NAVIGATION
+// COMPOSANT DE FEEDBACK COMPLET (Binaire + Bonne Réponse + Justification)
 // ═══════════════════════════════════════════════════════════════
+
+const FeedbackModal = ({ isOpen, onClose, isCorrect, correctAnswer, explanation, config }) => {
+  if (!isOpen) return null;
+
+  const showBinary = config?.showBinaryResult;
+  const showAnswer = config?.showCorrectAnswer;
+  const showJustification = config?.showJustification;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.8)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px'
+      }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        style={{
+          background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+          border: `2px solid ${isCorrect ? '#10b981' : '#ef4444'}`,
+          borderRadius: '20px',
+          padding: '28px 32px',
+          maxWidth: '480px',
+          width: '100%',
+          textAlign: 'center'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Résultat binaire */}
+        {showBinary && (
+          <div style={{ marginBottom: '16px' }}>
+            {isCorrect ? (
+              <CheckCircle size={48} color="#10b981" style={{ marginBottom: '8px' }} />
+            ) : (
+              <XCircle size={48} color="#ef4444" style={{ marginBottom: '8px' }} />
+            )}
+            <h2 style={{
+              fontSize: '1.5rem',
+              fontWeight: 700,
+              color: isCorrect ? '#10b981' : '#ef4444',
+              marginBottom: '8px'
+            }}>
+              {isCorrect ? '✓ Bonne réponse !' : '✗ Mauvaise réponse'}
+            </h2>
+          </div>
+        )}
+
+        {/* Bonne réponse */}
+        {showAnswer && !isCorrect && correctAnswer && (
+          <div style={{
+            padding: '12px 16px',
+            background: 'rgba(16,185,129,0.1)',
+            borderRadius: '12px',
+            marginBottom: '12px'
+          }}>
+            <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px' }}>
+              💡 Bonne réponse :
+            </p>
+            <p style={{ color: '#10b981', fontWeight: 600, fontSize: '1rem' }}>
+              {correctAnswer}
+            </p>
+          </div>
+        )}
+
+        {/* Justification */}
+        {showJustification && explanation && (
+          <div style={{
+            padding: '12px 16px',
+            background: 'rgba(59,130,246,0.1)',
+            borderRadius: '12px',
+            marginBottom: '20px'
+          }}>
+            <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Info size={14} /> Justification pédagogique :
+            </p>
+            <p style={{ color: '#a5b4fc', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              {explanation}
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={onClose}
+          style={{
+            padding: '10px 24px',
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            border: 'none',
+            borderRadius: '10px',
+            color: '#fff',
+            fontWeight: 600,
+            cursor: 'pointer',
+            marginTop: '8px'
+          }}
+        >
+          Continuer
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATIONS DES CONTRÔLES DE NAVIGATION (A à K)
+// ═══════════════════════════════════════════════════════════════
+
 const EXAM_CONFIGURATIONS = {
-  A: {
-    code: 'A', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'Même QCM pour tous les apprenants', affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire renvoyé', reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: false, showResult: true,
-    resultType: 'binary', allowRetry: false, autoAdvance: true,
-    timerPerQuestion: true, disablePrev: true, disableNext: true,
-    label: 'Configuration A',
-    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Renvoi dynamique du Résultat · Résultat Binaire · Pas de Reprise',
-    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Avancement automatique par timer',
-  },
-  B: {
-    code: 'B', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'Même QCM pour tous les apprenants', affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire + renvoyé', reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: false, showResult: true,
-    resultType: 'binaryPlus', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: true, disableNext: true,
-    label: 'Configuration B',
-    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Renvoi dynamique du Résultat · Résultat Binaire + · Pas de Reprise',
-    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Résultat Binaire + renvoyé',
-  },
-  C: {
-    code: 'C', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'Même QCM pour tous les apprenants', affichageResultat: 'Pas de Renvoi dynamique du Résultat',
-    typeResultat: null, reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: false, showResult: false,
-    resultType: 'none', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: true, disableNext: true,
-    label: 'Configuration C',
-    instruction: 'Plage fermée · Séquentiel figé · Même QCM pour tous · Pas de Renvoi du Résultat · Pas de Reprise',
-    lockMessage: '🔒 Séquentiel figé — Même QCM pour tous les apprenants · Résultat non communiqué',
-  },
-  D: {
-    code: 'D', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'QCM aléatoire par Apprenant', affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire renvoyé', reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: true, showResult: true,
-    resultType: 'binary', allowRetry: false, autoAdvance: true,
-    timerPerQuestion: true, disablePrev: true, disableNext: true,
-    label: 'Configuration D',
-    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Renvoi dynamique du Résultat · Résultat Binaire · Pas de Reprise',
-    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Avancement automatique après chaque réponse',
-  },
-  E: {
-    code: 'E', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'QCM aléatoire par Apprenant', affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire + renvoyé', reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: true, showResult: true,
-    resultType: 'binaryPlus', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: true, disableNext: true,
-    label: 'Configuration E',
-    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Renvoi dynamique du Résultat · Résultat Binaire + · Pas de Reprise',
-    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Résultat Binaire + renvoyé',
-  },
-  F: {
-    code: 'F', plage: 'Plage fermée', sequencement: 'Séquentiel figé',
-    qcmMode: 'QCM aléatoire par Apprenant', affichageResultat: 'Pas de Renvoi dynamique du Résultat',
-    typeResultat: null, reprise: 'Pas de Reprise',
-    isOpenRange: false, shufflePerStudent: true, showResult: false,
-    resultType: 'none', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: true, disableNext: true,
-    label: 'Configuration F',
-    instruction: 'Plage fermée · Séquentiel figé · QCM aléatoire par Apprenant · Pas de Renvoi du Résultat · Pas de Reprise',
-    lockMessage: '🎲 Séquentiel figé — QCM aléatoire par apprenant · Résultat non communiqué',
-  },
-  G: {
-    code: 'G', plage: 'Plage Ouverte', sequencement: null,
-    qcmMode: null, affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire renvoyé', reprise: 'Reprise OK',
-    isOpenRange: true, shufflePerStudent: false, showResult: true,
-    resultType: 'binary', allowRetry: true, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: false, disableNext: false,
-    label: 'Configuration G',
-    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire · Reprise OK si échec',
-    lockMessage: null,
-  },
-  H: {
-    code: 'H', plage: 'Plage Ouverte', sequencement: null,
-    qcmMode: null, affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire renvoyé', reprise: 'No Reply',
-    isOpenRange: true, shufflePerStudent: false, showResult: true,
-    resultType: 'binary', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: false, disableNext: false,
-    label: 'Configuration H',
-    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire · No Reply (pas de reprise)',
-    lockMessage: null,
-  },
-  I: {
-    code: 'I', plage: 'Plage Ouverte', sequencement: null,
-    qcmMode: null, affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire + renvoyé', reprise: 'Reprise OK',
-    isOpenRange: true, shufflePerStudent: false, showResult: true,
-    resultType: 'binaryPlus', allowRetry: true, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: false, disableNext: false,
-    label: 'Configuration I',
-    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire + · Reprise OK si échec',
-    lockMessage: null,
-  },
-  J: {
-    code: 'J', plage: 'Plage Ouverte', sequencement: null,
-    qcmMode: null, affichageResultat: 'Renvoi dynamique du Résultat',
-    typeResultat: 'Résultat Binaire + renvoyé', reprise: 'No Reply',
-    isOpenRange: true, shufflePerStudent: false, showResult: true,
-    resultType: 'binaryPlus', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: false, disableNext: false,
-    label: 'Configuration J',
-    instruction: 'Plage Ouverte · Renvoi dynamique du Résultat · Résultat Binaire + · No Reply (pas de reprise)',
-    lockMessage: null,
-  },
-  K: {
-    code: 'K', plage: 'Plage Ouverte', sequencement: null,
-    qcmMode: null, affichageResultat: 'Pas de Renvoi dynamique du Résultat',
-    typeResultat: null, reprise: 'No Reply',
-    isOpenRange: true, shufflePerStudent: false, showResult: false,
-    resultType: 'none', allowRetry: false, autoAdvance: false,
-    timerPerQuestion: false, disablePrev: false, disableNext: false,
-    label: 'Configuration K',
-    instruction: 'Plage Ouverte · Pas de Renvoi du Résultat · No Reply (pas de reprise)',
-    lockMessage: null,
-  },
+  A: { code: 'A', isOpenRange: false, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: true, timerPerQuestion: true, disablePrev: true, disableNext: true, label: 'Configuration A', lockMessage: '🔒 Séquentiel figé — Même QCM pour tous' },
+  B: { code: 'B', isOpenRange: false, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration B', lockMessage: '🔒 Séquentiel figé — Résultat Binaire + renvoyé' },
+  C: { code: 'C', isOpenRange: false, shufflePerStudent: false, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration C', lockMessage: '🔒 Séquentiel figé — Résultat non communiqué' },
+  D: { code: 'D', isOpenRange: false, shufflePerStudent: true, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: true, timerPerQuestion: true, disablePrev: true, disableNext: true, label: 'Configuration D', lockMessage: '🎲 QCM aléatoire par apprenant' },
+  E: { code: 'E', isOpenRange: false, shufflePerStudent: true, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration E', lockMessage: '🎲 QCM aléatoire par apprenant · Résultat Binaire +' },
+  F: { code: 'F', isOpenRange: false, shufflePerStudent: true, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration F', lockMessage: '🎲 QCM aléatoire par apprenant · Résultat non communiqué' },
+  G: { code: 'G', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: true, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration G', lockMessage: null },
+  H: { code: 'H', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration H', lockMessage: null },
+  I: { code: 'I', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: true, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration I', lockMessage: null },
+  J: { code: 'J', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration J', lockMessage: null },
+  K: { code: 'K', isOpenRange: true, shufflePerStudent: false, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration K', lockMessage: null }
 };
 
 const getExamConfig = (option) => EXAM_CONFIGURATIONS[option] || EXAM_CONFIGURATIONS['C'];
@@ -328,13 +293,10 @@ const getNavigationControl = (configOption) => {
   };
 };
 
-const getResultDisplayType = (configOption) => {
-  return getExamConfig(configOption).resultType;
-};
-
 // ═══════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
 // ═══════════════════════════════════════════════════════════════
+
 const QuizCompositionPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
@@ -349,7 +311,6 @@ const QuizCompositionPage = () => {
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
   const [attempts, setAttempts] = useState({});
-  const [showResult, setShowResult] = useState({});
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizFinished, setQuizFinished] = useState(false);
@@ -368,6 +329,14 @@ const QuizCompositionPage = () => {
   const [openRangeMode, setOpenRangeMode] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
   const [plageOuverteSeuil, setPlageOuverteSeuil] = useState(0);
+  
+  // ✅ État pour le feedback modal
+  const [feedbackModal, setFeedbackModal] = useState({
+    isOpen: false,
+    isCorrect: false,
+    correctAnswer: '',
+    explanation: ''
+  });
 
   const socketRef = useRef(null);
   const submittingRef = useRef(false);
@@ -375,36 +344,30 @@ const QuizCompositionPage = () => {
   const waitingForStartRef = useRef(false);
   const answersRef = useRef(answers);
   const attemptsRef = useRef(attempts);
-  const showResultRef = useRef(showResult);
   const currentQuestionIndexRef = useRef(0);
   const configRef = useRef(config);
   const examRef = useRef(exam);
   const studentInfoRef = useRef(studentInfo);
   const terminalSessionIdRef = useRef(null);
   const stableSessionIdRef = useRef(null);
+  const pendingFeedbackRef = useRef(null);
 
   useEffect(() => {
     if (urlToken) {
-      console.log('[QuizCompositionPage] 🔑 Token reçu dans l\'URL, stockage...');
       localStorage.setItem('userToken', urlToken);
       localStorage.setItem('token', urlToken);
     }
     if (urlSessionId) {
-      console.log('[QuizCompositionPage] 📱 Session ID reçu:', urlSessionId);
       terminalSessionIdRef.current = urlSessionId;
     }
   }, [urlToken, urlSessionId]);
 
   const navControl = getNavigationControl(config?.examOption);
-  const resultDisplayType = getResultDisplayType(config?.examOption);
 
-  const getAuthToken = () => {
-    return localStorage.getItem('userToken') || localStorage.getItem('token');
-  };
+  const getAuthToken = () => localStorage.getItem('userToken') || localStorage.getItem('token');
 
   useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { attemptsRef.current = attempts; }, [attempts]);
-  useEffect(() => { showResultRef.current = showResult; }, [showResult]);
   useEffect(() => { currentQuestionIndexRef.current = currentQuestionIndex; }, [currentQuestionIndex]);
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { examRef.current = exam; }, [exam]);
@@ -423,7 +386,6 @@ const QuizCompositionPage = () => {
         if (progress >= 0.5 && timerDisplayStep < 2) return true;
         if (progress >= 0.75 && timerDisplayStep < 3) return true;
         return false;
-      case 'permanent':
       default: return true;
     }
   }, [config?.timerDisplayMode, currentQuestionIndex, questions.length, quizFinished, timerHasShown, timerDisplayStep]);
@@ -493,9 +455,7 @@ const QuizCompositionPage = () => {
   };
 
   const getDisplayPoints = useCallback((question) => {
-    if (config?.pointsType === 'uniform') {
-      return config?.globalPoints || 1;
-    }
+    if (config?.pointsType === 'uniform') return config?.globalPoints || 1;
     return question?.points || 1;
   }, [config?.pointsType, config?.globalPoints]);
 
@@ -536,7 +496,6 @@ const QuizCompositionPage = () => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
     if (!examRef.current || !examRef.current._id) {
-      console.error('[QuizCompositionPage] ❌ examRef.current est undefined');
       submittingRef.current = false;
       quizFinishedRef.current = false;
       setQuizFinished(false);
@@ -552,7 +511,6 @@ const QuizCompositionPage = () => {
     localStorage.removeItem(`exam_${examId}_answers`);
     localStorage.removeItem(`exam_${examId}_index`);
     localStorage.removeItem(`exam_${examId}_attempts`);
-    localStorage.removeItem(`exam_${examId}_showResult`);
 
     if (socketRef.current?.connected) {
       try {
@@ -560,9 +518,7 @@ const QuizCompositionPage = () => {
           studentSocketId: socketRef.current.id, 
           examId: examRef.current._id 
         });
-      } catch (e) {
-        console.error("Erreur d'émission socket:", e);
-      }
+      } catch (e) {}
     }
 
     try {
@@ -587,8 +543,6 @@ const QuizCompositionPage = () => {
       });
 
       const submitUrl = `${NODE_BACKEND_URL}/api/results`;
-      console.log('[QuizCompositionPage] 📤 Soumission vers:', submitUrl);
-
       const res = await axios.post(submitUrl, {
         examId: examRef.current._id,
         studentInfo: studentData,
@@ -599,9 +553,7 @@ const QuizCompositionPage = () => {
       const result = res.data?.data || res.data?.result;
       const correctionDetails = res.data?.details || null;
 
-      if (!result) {
-        throw new Error("Réponse serveur invalide");
-      }
+      if (!result) throw new Error("Réponse serveur invalide");
 
       setShowConfetti(true);
       toast.success(isManual ? "Examen soumis avec succès!" : "Temps écoulé! Examen soumis automatiquement...");
@@ -613,9 +565,7 @@ const QuizCompositionPage = () => {
             examResultId: result._id 
           });
           socketRef.current.disconnect();
-        } catch (e) {
-          console.error("Erreur d'émission socket:", e);
-        }
+        } catch (e) {}
       }
 
       setTimeout(() => {
@@ -750,6 +700,35 @@ const QuizCompositionPage = () => {
     handleSubmitExam(true);
   }, [navControl.disableSubmit, handleSubmitExam]);
 
+  // ✅ Fonction pour afficher le feedback modal (support complet des 4 niveaux)
+  const showFeedback = useCallback((isCorrect, question) => {
+    const showBinaryResult = configRef.current?.showBinaryResult;
+    const showCorrectAnswer = configRef.current?.showCorrectAnswer;
+    const showJustification = configRef.current?.showJustification;
+    
+    // Si aucun feedback n'est configuré, ne rien afficher
+    if (!showBinaryResult && !showCorrectAnswer && !showJustification) {
+      return;
+    }
+    
+    // Toast pour le feedback binaire rapide (si modal non nécessaire)
+    if (showBinaryResult && !showCorrectAnswer && !showJustification) {
+      toast[isCorrect ? 'success' : 'error'](
+        isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse',
+        { duration: 2000 }
+      );
+      return;
+    }
+    
+    // Pour les feedbacks plus détaillés, utiliser la modal
+    setFeedbackModal({
+      isOpen: true,
+      isCorrect,
+      correctAnswer: question?.correctAnswer || '',
+      explanation: question?.explanation || ''
+    });
+  }, []);
+
   const handleOptionChange = useCallback((questionId, selectedOption, questionIndex) => {
     if (quizFinishedRef.current || submittingRef.current) return;
 
@@ -786,17 +765,9 @@ const QuizCompositionPage = () => {
     attemptsRef.current = newAttempts;
     setAttempts(newAttempts);
 
-    if (configRef.current?.showBinaryResult) {
-      toast[isCorrect ? 'success' : 'error'](
-        isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse', 
-        { duration: 2000 }
-      );
-      setShowResult(prev => ({ ...prev, [questionId]: isCorrect }));
-      
-      if (configRef.current?.showCorrectAnswer && !isCorrect) {
-        const correctAnswerText = currentQ.options?.[currentQ.bonOpRep] || currentQ.correctAnswer;
-        toast.success(`💡 Bonne réponse : ${correctAnswerText}`, { duration: 3000 });
-      }
+    // ✅ Afficher le feedback selon la configuration (support des 4 niveaux)
+    if (configRef.current?.showBinaryResult || configRef.current?.showCorrectAnswer || configRef.current?.showJustification) {
+      showFeedback(isCorrect, currentQ);
     }
 
     const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
@@ -821,7 +792,7 @@ const QuizCompositionPage = () => {
         handleSubmitExam(false);
       }
     }
-  }, [handleSubmitExam, sendProgressUpdate]);
+  }, [showFeedback, handleSubmitExam, sendProgressUpdate]);
 
   // ═══════════════════════════════════════════════════════════════
   // CHARGEMENT INITIAL
@@ -855,12 +826,9 @@ const QuizCompositionPage = () => {
         const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
         const apiUrl = `${NODE_BACKEND_URL}/api/exams/${examId}`;
-        console.log('[QuizCompositionPage] 📡 fetchExam → appel API:', apiUrl);
+        console.log('[QuizCompositionPage] 📡 fetchExam:', apiUrl);
 
-        const res = await axios.get(apiUrl, {
-          timeout: 10000,
-          ...axiosConfig
-        });
+        const res = await axios.get(apiUrl, { timeout: 10000, ...axiosConfig });
 
         let examData = res.data;
         if (examData?.data?.questions) examData = examData.data;
@@ -896,7 +864,6 @@ const QuizCompositionPage = () => {
           setRemainingTime(firstQuestionTime);
         } else {
           const globalTimeSec = (examData.duration || safeConfig.totalTime || 60) * 60;
-          console.log(`[QuizCompositionPage] ⏱ Timer global: ${examData.duration || 60} min = ${globalTimeSec}s`);
           setRemainingTime(globalTimeSec);
         }
 
@@ -915,8 +882,6 @@ const QuizCompositionPage = () => {
 
       } catch (error) {
         console.error("Erreur chargement examen:", error);
-        console.error("   URL tentée:", `${NODE_BACKEND_URL}/api/exams/${examId}`);
-        console.error("   Hostname:", window.location.hostname);
         toast.error("Échec du chargement de l'examen.");
         navigate('/', { replace: true });
       } finally {
@@ -926,7 +891,7 @@ const QuizCompositionPage = () => {
 
     fetchExam();
 
-    console.log('[QuizCompositionPage] 🔌 Connexion socket à:', SOCKET_URL);
+    console.log('[QuizCompositionPage] 🔌 Connexion socket:', SOCKET_URL);
     
     const newSocket = io(SOCKET_URL, {
       reconnection: true,
@@ -1001,13 +966,10 @@ const QuizCompositionPage = () => {
 
     return () => {
       if (newSocket) {
-        console.log('[QuizCompositionPage] 🧹 Nettoyage du socket');
         newSocket.off('connect');
         newSocket.off('examStarted');
         newSocket.off('examFinished');
         newSocket.off('waitingCountUpdate');
-        newSocket.off('disconnect');
-        newSocket.off('connect_error');
         newSocket.removeAllListeners();
         newSocket.disconnect();
         socketRef.current = null;
@@ -1069,7 +1031,7 @@ const QuizCompositionPage = () => {
             <span>{studentInfo.firstName} {studentInfo.lastName} · Connecté</span>
           </div>
           <p style={styles.waitingNote}>
-            Ne quittez pas cette page · {getExamConfig(config?.examOption)?.label} — {getExamConfig(config?.examOption)?.instruction}
+            Ne quittez pas cette page · {getExamConfig(config?.examOption)?.label}
           </p>
         </div>
         <Toaster />
@@ -1100,6 +1062,17 @@ const QuizCompositionPage = () => {
       <div style={styles.bgGrid} />
       <div style={styles.bgGlow} />
       {showConfetti && <Confetti recycle={false} numberOfPieces={200} gravity={0.1} />}
+      
+      {/* Feedback Modal */}
+      <FeedbackModal
+        isOpen={feedbackModal.isOpen}
+        onClose={() => setFeedbackModal({ ...feedbackModal, isOpen: false })}
+        isCorrect={feedbackModal.isCorrect}
+        correctAnswer={feedbackModal.correctAnswer}
+        explanation={feedbackModal.explanation}
+        config={config}
+      />
+      
       <main style={styles.main}>
         <div style={styles.quizCard}>
           <div style={styles.header}>
@@ -1107,17 +1080,7 @@ const QuizCompositionPage = () => {
               <div style={styles.titleRow}>
                 <h1>{exam.title}</h1>
                 <span style={styles.optionBadge(config?.examOption)}>
-                  {config?.examOption === 'A' ? 'COLLECTIVE FIGÉE' :
-                   config?.examOption === 'B' ? 'COLLECTIVE SOUPLE' :
-                   config?.examOption === 'C' ? 'PERSONNALISÉE' : 
-                   config?.examOption === 'D' ? 'ALÉATOIRE' :
-                   config?.examOption === 'E' ? 'ALÉATOIRE+' :
-                   config?.examOption === 'F' ? 'ALÉATOIRE LIBRE' :
-                   config?.examOption === 'G' ? 'PLAGE OUVERTE + REPRISE' :
-                   config?.examOption === 'H' ? 'PLAGE OUVERTE' :
-                   config?.examOption === 'I' ? 'PLAGE OUVERTE+' :
-                   config?.examOption === 'J' ? 'PLAGE OUVERTE++' :
-                   config?.examOption === 'K' ? 'PLAGE OUVERTE LIBRE' : 'CONFIGURATION'}
+                  {getExamConfig(config?.examOption)?.label || 'CONFIGURATION'}
                 </span>
               </div>
               <p style={styles.studentInfo}>{studentInfo.firstName} {studentInfo.lastName} · {studentInfo.matricule}</p>
@@ -1163,7 +1126,7 @@ const QuizCompositionPage = () => {
                 {getExamConfig(config.examOption).label}
               </span>
               <span style={{ fontSize: '0.7rem', color: '#94a3b8', flex: 1 }}>
-                {getExamConfig(config.examOption).instruction}
+                {getExamConfig(config.examOption).lockMessage || 'Navigation libre'}
               </span>
               {!getExamConfig(config.examOption).isOpenRange && (
                 <Lock size={12} color="#64748b" style={{ flexShrink: 0 }} />
@@ -1367,8 +1330,9 @@ const QuizCompositionPage = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// STYLES
+// STYLES (inchangés)
 // ═══════════════════════════════════════════════════════════════
+
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },

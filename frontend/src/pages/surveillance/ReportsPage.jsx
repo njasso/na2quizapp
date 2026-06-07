@@ -25,7 +25,7 @@ const mention = (pct) =>
 
 const note20 = (pct) => ((pct / 100) * 20).toFixed(2);
 
-// ✅ Définir normalizeQuestionForDisplay AVANT son utilisation
+// ✅ normalizeQuestionForDisplay — comparaison robuste (texte OU index numérique)
 const normalizeQuestionForDisplay = (q, studentAnswer) => {
   let correctAnswerText = '';
   if (typeof q.bonOpRep === 'number' && q.options) {
@@ -35,15 +35,21 @@ const normalizeQuestionForDisplay = (q, studentAnswer) => {
   } else if (q.answer) {
     correctAnswerText = q.answer;
   }
-  
+
   let isCorrect = false;
-  if (typeof q.bonOpRep === 'number' && q.options) {
-    const selectedIndex = q.options.findIndex(opt => opt === studentAnswer);
-    isCorrect = selectedIndex === q.bonOpRep;
-  } else {
-    isCorrect = studentAnswer && studentAnswer === correctAnswerText;
+  if (studentAnswer && studentAnswer !== 'Non répondu') {
+    if (typeof q.bonOpRep === 'number' && q.options) {
+      // Réponse stockée comme texte de l'option
+      const selectedIndexByText = q.options.findIndex(opt => opt === studentAnswer);
+      // Réponse stockée comme index numérique (ex: "2" ou 2)
+      const selectedIndexByNum = parseInt(studentAnswer, 10);
+      isCorrect = selectedIndexByText === q.bonOpRep
+        || (!isNaN(selectedIndexByNum) && selectedIndexByNum === q.bonOpRep);
+    } else {
+      isCorrect = studentAnswer === correctAnswerText;
+    }
   }
-  
+
   return {
     _id: q._id,
     questionText: q.libQuestion || q.question || q.text || '',
@@ -122,13 +128,39 @@ const BulletinModal = ({ report, onClose }) => {
   const n20 = useMemo(() => note20(report?.percentage || 0), [report?.percentage]);
   
   const qs = report?.examQuestions || report?.examId?.questions || [];
-  const ans = report?.answers instanceof Object ? report?.answers : {};
+  // ✅ FIX : normaliser answers — accepter objet, Map, ou tableau
+  const ans = (() => {
+    const raw = report?.answers;
+    if (!raw) return {};
+    if (Array.isArray(raw)) {
+      // Si answers est un tableau [{questionId, answer}, ...]
+      const obj = {};
+      raw.forEach((a, i) => {
+        if (a && typeof a === 'object') {
+          const key = a.questionId || a._id || String(i);
+          obj[key] = a.answer || a.value || a;
+          obj[String(i)] = a.answer || a.value || a;
+        } else {
+          obj[String(i)] = a;
+        }
+      });
+      return obj;
+    }
+    if (raw instanceof Object) return raw;
+    return {};
+  })();
   const config = report?.config || report?.examId?.config || null;
   
   const normalizedQuestions = useMemo(() => {
     return qs.map((q, idx) => {
-      const qId = q._id?.toString?.() || String(idx);
-      const studentAnswer = ans[qId] || null;
+      // ✅ FIX : chercher la réponse par _id string, puis par index string, puis par index number
+      const qIdStr   = q._id?.toString?.() || '';
+      const idxStr   = String(idx);
+      const studentAnswer =
+        (qIdStr && ans[qIdStr])     // par _id MongoDB
+        || ans[idxStr]               // par index "0","1"...
+        || ans[idx]                  // par index number 0,1...
+        || null;
       return normalizeQuestionForDisplay(q, studentAnswer);
     });
   }, [qs, ans]);
@@ -183,11 +215,20 @@ const BulletinModal = ({ report, onClose }) => {
 
           <div style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              {[
-                { label: 'Score', value: `${report.score || 0} / ${report.totalQuestions || qs.length}`, color: '#3b82f6' },
-                { label: 'Résultat', value: `${report.percentage || 0}%`, color: m.color },
-                { label: 'Note /20', value: n20, color: '#8b5cf6' },
-              ].map(({ label, value, color }) => (
+              {(() => {
+                // ✅ FIX : utiliser les valeurs serveur fiables pour l'affichage
+                const correctFromServer = typeof report.correctCount === 'number'
+                  ? report.correctCount
+                  : (report.percentage && qs.length
+                      ? Math.round((report.percentage / 100) * qs.length)
+                      : (normalizedQuestions.filter(q => q.isCorrect).length));
+                const totalQ = report.totalQuestions || qs.length || 0;
+                return [
+                  { label: 'Score', value: `${report.score || 0} / ${totalQ}`, color: '#3b82f6' },
+                  { label: 'Résultat', value: `${report.percentage || 0}%`, color: m.color },
+                  { label: 'Note /20', value: n20, color: '#8b5cf6' },
+                ];
+              })().map(({ label, value, color }) => (
                 <div key={label} style={{ background: `${color}10`, border: `1px solid ${color}25`, borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
                   <div style={{ color: '#64748b', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
                   <div style={{ color, fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Sora, sans-serif' }}>{value}</div>

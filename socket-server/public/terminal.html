@@ -104,7 +104,6 @@
         .howto-txt strong { color: var(--t1); font-weight: 500; }
         .howto-txt code { font-family: var(--mono); font-size: 0.65rem; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.15); padding: 1px 5px; border-radius: 4px; color: var(--cyan); }
         
-        /* DICTIONNAIRE DES CONFIGURATIONS */
         .dict { width: 100%; max-width: 520px; background: rgba(12,20,36,0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden; margin-top: 8px; }
         .dict-hdr { padding: 9px 14px; background: rgba(139,92,246,0.05); border-bottom: 1px solid rgba(139,92,246,0.1); font-family: var(--mono); font-size: 0.58rem; color: var(--violet); letter-spacing: 0.1em; text-transform: uppercase; display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
         .dict-hdr:hover { background: rgba(139,92,246,0.08); }
@@ -209,7 +208,6 @@
         </div>
     </div>
     
-    <!-- DICTIONNAIRE DES 11 CONFIGURATIONS -->
     <div class="dict">
         <div class="dict-hdr" id="dictHdr">📖 Dictionnaire des configurations d'épreuve (A à K)</div>
         <div class="dict-body" id="dictBody">
@@ -273,7 +271,8 @@
     
     var SERVER_URL = window.location.origin;
     
-    // ✅ Détection automatique du FRONTEND_URL
+    // ✅ CORRECTION: Pour Expo (React Native) rediriger vers le frontend web (port 3000)
+    // Backend = port 5000, Frontend Web = port 3000
     var FRONTEND_URL = (function() {
         var hostname = window.location.hostname;
         var storedUrl = localStorage.getItem('terminalFrontendUrl');
@@ -283,23 +282,36 @@
             return storedUrl;
         }
         
+        // Détection Expo / React Native
+        var isExpo = navigator.userAgent.includes('Expo') || 
+                     navigator.userAgent.includes('ReactNative') ||
+                     navigator.userAgent.includes('Hermes') ||
+                     (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ === 'undefined');
+        
         // Détection IP réseau (192.168.x.x, 10.x.x.x, 172.x.x.x)
         if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) && 
             (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.'))) {
-            return 'http://' + hostname + ':3000';
+            
+            // ✅ TOUJOURS vers le port 3000 (frontend web)
+            var url = 'http://' + hostname + ':3000';
+            console.log('[Terminal] 📡 Redirection IP', isExpo ? '(Expo)' : '(Web)', 'vers:', url);
+            return url;
         }
         
         // Localhost
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'http://localhost:3000';
+            var url = 'http://localhost:3000';
+            console.log('[Terminal] 📡 Redirection localhost vers:', url);
+            return url;
         }
         
         // Production
+        console.log('[Terminal] 📡 Redirection production vers: https://na2quizapp.netlify.app');
         return 'https://na2quizapp.netlify.app';
     })();
     
-    console.log('[Terminal] 🌐 Serveur:', SERVER_URL);
-    console.log('[Terminal] 🌍 Frontend:', FRONTEND_URL);
+    console.log('[Terminal] 🌐 Serveur (backend - port 5000):', SERVER_URL);
+    console.log('[Terminal] 🌍 Frontend (redirection - port 3000):', FRONTEND_URL);
     
     var MAX_RECONNECT = 20;
     var socket = null;
@@ -337,7 +349,6 @@
     if(currentUrlElem) currentUrlElem.textContent = window.location.href;
     dServer.textContent = SERVER_URL.replace('https://', '').replace('http://', '');
     
-    // ✅ Toggle du dictionnaire
     if(dictHdr && dictBody) {
         dictHdr.addEventListener('click', function() {
             dictBody.classList.toggle('collapsed');
@@ -345,7 +356,6 @@
         });
     }
     
-    // ✅ Bouton Accueil
     if(homeBtn) {
         homeBtn.addEventListener('click', function() {
             console.log('[Terminal] 🏠 Redirection vers accueil');
@@ -361,7 +371,6 @@
         error: 'c-red'
     };
     
-    // Descriptions alignées sur les specs officielles A→K (sans contrôle superviseur)
     var CONFIG_DESCRIPTIONS = {
         'A': 'Plage fermée · Seqentiel figé · Même QCM pour tous · Avancement automatique par timer/question · Résultat binaire · Sans reprise.',
         'B': 'Plage fermée · Séquentiel figé · Même QCM pour tous · Navigation libre · Résultat binaire+ (bonne réponse) · Sans reprise.',
@@ -476,7 +485,6 @@
         if(isRegistered){ return; }
         sessionId = getOrCreateSession();
         var termInfo = getTerminalInfo();
-        // Payload complet pour SurveillancePage
         socket.emit('registerSession', {
             sessionId: sessionId, type: 'terminal', status: 'connected',
             terminalInfo: termInfo, isReady: true, connectedAt: new Date().toISOString()
@@ -492,7 +500,6 @@
         setTimeout(function(){ isRegistered = true; }, 500);
     }
     
-    // ✅ Redirection sécurisée vers accueil en cas d'erreur
     function safeRedirectToHome() {
         console.log('[Terminal] 🏠 Redirection sécurisée vers accueil');
         window.location.href = FRONTEND_URL;
@@ -580,7 +587,6 @@
             }
         });
         
-        // ✅ Événement principal - Distribution d'épreuve
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
@@ -601,7 +607,6 @@
                     terminalId: sessionId, config: config,
                     timestamp: new Date().toISOString()
                 });
-                // Notifier la surveillance qu'un terminal a reçu l'épreuve
                 socket.emit('terminalExamReceived', {
                     terminalId: sessionId, examId: examId, examOption: option,
                     optionLabel: OPTIONS_LABELS[option] || option,
@@ -613,10 +618,8 @@
                 addFeed('success', '✅ Accusé envoyé', 'Option ' + option);
             }
             
-            // ✅ Récupération du token
             var token = localStorage.getItem('userToken') || localStorage.getItem('token');
             
-            // ✅ Construction de l'URL de redirection
             var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
             if (token) {
@@ -651,7 +654,7 @@
             ovDesc.textContent = optDesc;
             overlay.classList.add('on');
             
-            var s = 2;
+            var s = 1;
             var tick = setInterval(function(){
                 s--;
                 ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
@@ -662,7 +665,7 @@
                 console.log('[Terminal] 🚀 Redirection finale vers:', redirectUrl);
                 if (!isRedirecting) return;
                 window.location.href = redirectUrl;
-            }, 2000);
+            }, 1000);
         });
         
         socket.on('waitingCountUpdate', function(data){
@@ -705,7 +708,6 @@
             addFeed('warning', '❌ Distribution annulée', 'Le superviseur a annulé l\'épreuve');
         });
         
-        // ✅ En cas d'erreur, rediriger vers accueil
         socket.on('redirectToHome', function(){
             console.log('[Terminal] 🏠 Demande de redirection vers accueil');
             safeRedirectToHome();
@@ -759,7 +761,6 @@
         }
     }, 5000);
     
-    // Exposer le socket pour l'anti-triche et la surveillance externe
     window._na2quiz_socket = socket;
     window._na2quiz_emitCheat = function(type, detail) {
         if(socket && socket.connected) {

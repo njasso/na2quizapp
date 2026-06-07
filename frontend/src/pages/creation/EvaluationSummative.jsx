@@ -1,5 +1,7 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
 // Version avec support complet pour SAISISEUR, assignation des épreuves et VALIDATION DES QUESTIONS
+// ✅ CORRECTION: URL du terminal dynamique (s'adapte à l'IP actuelle)
+// ✅ Libellés mis à jour selon spec Excel (Arborescence des menus principaux)
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -39,14 +41,229 @@ const COLORS = {
   bgGradientEnd: '#05071a'
 };
 
-// ========== DÉTECTION DE L'ENVIRONNEMENT ==========
-const TERMINAL_URL = ENV_CONFIG.TERMINAL_URL;
+// ========== DÉTECTION DYNAMIQUE DE L'ENVIRONNEMENT ==========
 
-console.log('[EvaluationSummative] Terminal URL:', TERMINAL_URL);
+/**
+ * Fonction pour obtenir l'URL dynamique du terminal
+ * Calcule l'URL en temps réel en fonction de l'adresse IP actuelle
+ */
+const getTerminalUrl = () => {
+  const hostname = window.location.hostname;
+  
+  // Production sur Netlify
+  if (hostname.includes('netlify.app')) {
+    const url = 'https://na2quizapp.netlify.app/terminal.html';
+    console.log('[EvaluationSummative] 🔗 Terminal (Netlify):', url);
+    return url;
+  }
+  
+  // Détection IP réseau (192.168.x.x, 10.x.x.x, 172.16.x.x - 172.31.x.x)
+  const isNetworkIP = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname);
+  
+  if (isNetworkIP && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    const url = `http://${hostname}:5000/terminal.html`;
+    console.log('[EvaluationSummative] 🔗 Terminal (IP réseau):', url);
+    return url;
+  }
+  
+  // Localhost
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    const url = 'http://localhost:5000/terminal.html';
+    console.log('[EvaluationSummative] 🔗 Terminal (localhost):', url);
+    return url;
+  }
+  
+  // Fallback
+  const fallbackUrl = ENV_CONFIG.TERMINAL_URL || 'http://localhost:5000/terminal.html';
+  console.log('[EvaluationSummative] 🔗 Terminal (fallback):', fallbackUrl);
+  return fallbackUrl;
+};
 
 // ========== MODULES AVEC RÔLES CORRIGÉS ==========
-const ALL_MODULES = [
-  // ========== MODULES SAISISEUR ==========
+// ✅ Libellés mis à jour selon spec Excel (Arborescence des menus principaux)
+
+// SECTION A - GESTION des QUESTIONS à CHOIX MULTIPLES
+const GESTION_QUESTIONS_MODULES = [
+  {
+    id: 'create_question',
+    path: '/create/question',
+    icon: FileText,
+    title: 'Création digitale ex nihilo de QCM',
+    subtitle: 'Question individuelle',
+    desc: 'Concevoir une question originale destinée au circuit de validation pédagogique',
+    color: COLORS.primary,
+    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+    tag: 'Création',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'ai',
+    path: '/create/ai',
+    icon: Bot,
+    title: 'Génération de QCM par Intelligence Artificielle',
+    subtitle: 'DeepSeek',
+    desc: 'Générer automatiquement des questions QCM avec révision préalable',
+    color: COLORS.secondary,
+    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+    tag: 'IA',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'qcm_import',
+    path: '/admin/qcm-import',
+    icon: Download,
+    title: 'Importation massive des QCM',
+    subtitle: 'CSV / JSON',
+    desc: 'Intégrer un lot de questions depuis un fichier structuré',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
+    tag: 'Import',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'qcm_bank',
+    path: '/qcm-bank',
+    icon: Library,
+    title: 'Banque Analytique des QCM',
+    subtitle: 'Consultation détaillée',
+    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+    tag: 'Analyse',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'ENSEIGNANT']
+  },
+  {
+    id: 'my_questions',
+    path: '/teacher/questions',
+    icon: FileQuestion,
+    title: 'Mes QCM détaillés',
+    subtitle: 'Suivi des QCM',
+    desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
+    color: COLORS.info,
+    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+    tag: 'Suivi',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// SECTION B - VALIDATION PEDAGOGIQUE des QUESTIONS à CHOIX MULTIPLES
+const VALIDATION_MODULES = [
+  {
+    id: 'qcm_validation',
+    path: '/admin/qcm-validation',
+    icon: ClipboardCheck,
+    title: 'Valider les QCM',
+    subtitle: 'Questions en attente',
+    desc: 'Examiner, approuver ou rejeter les questions proposées par les enseignants et saisisseurs',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    tag: 'Validation',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// SECTION C - CREATION & GESTION des EPREUVES
+const GESTION_EPREUVES_MODULES = [
+  {
+    id: 'database',
+    path: '/create/database',
+    icon: Database,
+    title: 'Créer une épreuve depuis la Banque des QCM',
+    subtitle: 'Questions validées',
+    desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
+    tag: 'Banque',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'exams',
+    path: '/exams',
+    icon: List,
+    title: 'Gestion des Épreuves',
+    subtitle: 'Bibliothèque',
+    desc: 'Consulter, modifier, prévisualiser et déployer les examens créés',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
+    tag: 'Épreuves',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// SECTION D - ASSIGNATION des EPREUVES aux SURVEILLANTS
+const ASSIGNATION_MODULES = [
+  {
+    id: 'assign_exams',
+    path: '/admin/assign-exams',
+    icon: UserCheck,
+    title: 'Assigner une Épreuve',
+    subtitle: 'Opérateurs',
+    desc: 'Assigner des épreuves aux opérateurs pour les sessions d\'examen',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    tag: 'Assignation',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// SECTION E - SURVEILLANCE et EDITION des RAPPORTS
+const SURVEILLANCE_RAPPORTS_MODULES = [
+  {
+    id: 'surveillance',
+    path: '/surveillance',
+    icon: Video,
+    title: 'Surveillance en temps réel de la Composition',
+    subtitle: 'Sessions actives',
+    desc: 'Piloter, surveiller les sessions en cours et consulter les rapports de session',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
+    tag: 'Live',
+    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'reports',
+    path: '/reports',
+    icon: BarChart3,
+    title: 'Edition des Rapports Institutionnels suite Composition',
+    subtitle: 'Analyse complète',
+    desc: 'Générer et analyser les résultats consolidés, classements et statistiques globales',
+    color: COLORS.gray,
+    gradient: 'linear-gradient(135deg, #475569, #64748b)',
+    tag: 'Analytics',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  {
+    id: 'teacher_reports',
+    path: '/teacher/reports',
+    icon: TrendingUp,
+    title: 'Edition des Rapports de Classe suite Composition',
+    subtitle: 'Suivi pédagogique',
+    desc: 'Consulter les résultats détaillés de vos apprenants et classes',
+    color: COLORS.success,
+    gradient: 'linear-gradient(135deg, #059669, #10b981)',
+    tag: 'Classe',
+    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// SECTION F - ADMINISTRATION du SYSTEM
+const ADMINISTRATION_MODULES = [
+  {
+    id: 'user_management',
+    path: '/admin/users',
+    icon: Users,
+    title: 'Création des Compte et Profil Utilisateur',
+    subtitle: 'Profils et rôles',
+    desc: 'Créer des comptes utilisateurs, gérer les profils et les rôles (Apprenant, Enseignant, Saisisseur, Opérateur, Admin délégué, Admin système)',
+    color: COLORS.danger,
+    gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
+    tag: 'Admin',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  }
+];
+
+// MODULES SAISISEUR (spécifiques)
+const SAISISEUR_MODULES = [
   {
     id: 'create_question_saisisseur',
     path: '/create/question',
@@ -82,159 +299,11 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
     tag: 'Consultation',
     roles: ['SAISISEUR']
-  },
+  }
+];
 
-  // ========== MODULES ENSEIGNANT & ADMIN ==========
-  {
-    id: 'create_question',
-    path: '/create/question',
-    icon: FileText,
-    title: 'Création digitale ex nihilo',
-    subtitle: 'Question individuelle',
-    desc: 'Concevoir une question originale destinée au circuit de validation pédagogique',
-    color: COLORS.primary,
-    gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
-    tag: 'Création',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'ai',
-    path: '/create/ai',
-    icon: Bot,
-    title: 'Génération par IA',
-    subtitle: 'DeepSeek',
-    desc: 'Générer automatiquement des questions QCM avec révision préalable',
-    color: COLORS.secondary,
-    gradient: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-    tag: 'IA',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'qcm_validation',
-    path: '/admin/qcm-validation',
-    icon: ClipboardCheck,
-    title: 'Valider les questions',
-    subtitle: 'Questions en attente',
-    desc: 'Examiner, approuver ou rejeter les questions proposées par les enseignants et saisisseurs',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
-    tag: 'Validation',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'qcm_import',
-    path: '/admin/qcm-import',
-    icon: Download,
-    title: 'Importation massive',
-    subtitle: 'CSV / JSON',
-    desc: 'Intégrer un lot de questions depuis un fichier structuré',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #059669, #10b981)',
-    tag: 'Import',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'my_questions',
-    path: '/teacher/questions',
-    icon: FileQuestion,
-    title: 'Mes questions',
-    subtitle: 'Suivi des QCM',
-    desc: 'Consulter l\'état de vos questions (en attente, validées, rejetées)',
-    color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-    tag: 'Suivi',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-
-  // ========== MODULES GESTION DES ÉPREUVES ==========
-  {
-    id: 'database',
-    path: '/create/database',
-    icon: Database,
-    title: 'Création depuis la banque',
-    subtitle: 'Questions validées',
-    desc: 'Composer une épreuve à partir des questions approuvées par le comité pédagogique',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
-    tag: 'Banque',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'exams',
-    path: '/exams',
-    icon: List,
-    title: 'Gestion des épreuves',
-    subtitle: 'Bibliothèque',
-    desc: 'Consulter, modifier, prévisualiser et déployer les examens créés',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #059669, #10b981)',
-    tag: 'Épreuves',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'qcm_bank',
-    path: '/qcm-bank',
-    icon: Library,
-    title: 'Banque analytique',
-    subtitle: 'Consultation détaillée',
-    desc: 'Explorer, filtrer et analyser l\'intégralité des questions validées dans la base',
-    color: COLORS.info,
-    gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-    tag: 'Analyse',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'reports',
-    path: '/reports',
-    icon: BarChart3,
-    title: 'Rapports institutionnels',
-    subtitle: 'Analyse complète',
-    desc: 'Générer et analyser les résultats consolidés, classements et statistiques globales',
-    color: COLORS.gray,
-    gradient: 'linear-gradient(135deg, #475569, #64748b)',
-    tag: 'Analytics',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'teacher_reports',
-    path: '/teacher/reports',
-    icon: TrendingUp,
-    title: 'Rapports de classe',
-    subtitle: 'Suivi pédagogique',
-    desc: 'Consulter les résultats détaillés de vos apprenants et classes',
-    color: COLORS.success,
-    gradient: 'linear-gradient(135deg, #059669, #10b981)',
-    tag: 'Classe',
-    roles: ['ENSEIGNANT', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  {
-    id: 'user_management',
-    path: '/admin/users',
-    icon: Users,
-    title: 'Gestion des comptes',
-    subtitle: 'Utilisateurs',
-    desc: 'Administrer les profils, rôles et accès au système',
-    color: COLORS.danger,
-    gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
-    tag: 'Admin',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-  
-  // ========== ASSIGNATION DES ÉPREUVES ==========
-  {
-    id: 'assign_exams',
-    path: '/admin/assign-exams',
-    icon: UserCheck,
-    title: 'Assigner des épreuves',
-    subtitle: 'Opérateurs',
-    desc: 'Assigner des épreuves aux opérateurs pour les sessions d\'examen',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
-    tag: 'Assignation',
-    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-
-  // ========== MODULES OPÉRATEUR ==========
+// MODULES OPÉRATEUR
+const OPERATEUR_MODULES = [
   {
     id: 'assigned_exams_operator',
     path: '/assigned-exams',
@@ -246,23 +315,11 @@ const ALL_MODULES = [
     gradient: 'linear-gradient(135deg, #3b82f6, #2563eb)',
     tag: 'Assignées',
     roles: ['OPERATEUR_EVALUATION']
-  },
+  }
+];
 
-  // ========== MODULES SURVEILLANCE ==========
-  {
-    id: 'surveillance',
-    path: '/surveillance',
-    icon: Video,
-    title: 'Surveillance temps réel',
-    subtitle: 'Sessions actives',
-    desc: 'Piloter, surveiller les sessions en cours et consulter les rapports de session',
-    color: COLORS.warning,
-    gradient: 'linear-gradient(135deg, #ea580c, #f97316)',
-    tag: 'Live',
-    roles: ['ENSEIGNANT', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME']
-  },
-
-  // ========== MODULES APPRENANT ==========
+// MODULES APPRENANT
+const APPRENANT_MODULES = [
   {
     id: 'available_exams',
     path: '/available-exams',
@@ -289,99 +346,121 @@ const ALL_MODULES = [
   },
   {
     id: 'terminal',
-    path: TERMINAL_URL,
     icon: Terminal,
     title: 'Terminal d\'examen',
     subtitle: 'Poste candidat',
-    desc: 'Interface de composition pour les évaluations en salle',
+    desc: 'Interface de composition pour les évaluations en salle (URL dynamique)',
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)',
     tag: 'Examen',
     roles: ['APPRENANT'],
-    external: true
+    external: true,
+    isDynamic: true
   }
 ];
 
-// ========== GROUPES FONCTIONNELS ==========
+// ASSEMBLAGE DE TOUS LES MODULES
+const ALL_MODULES = [
+  ...SAISISEUR_MODULES,
+  ...GESTION_QUESTIONS_MODULES,
+  ...VALIDATION_MODULES,
+  ...GESTION_EPREUVES_MODULES,
+  ...ASSIGNATION_MODULES,
+  ...OPERATEUR_MODULES,
+  ...SURVEILLANCE_RAPPORTS_MODULES,
+  ...ADMINISTRATION_MODULES,
+  ...APPRENANT_MODULES
+];
+
+// ========== GROUPES FONCTIONNELS AVEC LIBELLÉS SPEC EXCEL ==========
 const INTEREST_GROUPS = [
+  // Espace Saisisseur
   {
     id: 'saisisseur',
     title: '✏️ Espace Saisisseur',
     subtitle: 'Saisie · Suivi · Banque QCM',
     icon: PenTool,
-    modules: ['create_question_saisisseur', 'my_questions_saisisseur', 'qcm_bank_saisisseur'],
+    modules: SAISISEUR_MODULES.map(m => m.id),
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
   },
+  // A - GESTION des QUESTIONS à CHOIX MULTIPLES
   {
-    id: 'qcm',
-    title: '📋 Gestion des questions',
-    subtitle: 'Création · Import · Analyse · Suivi',
+    id: 'gestion_questions',
+    title: '📋 A - GESTION des QUESTIONS à CHOIX MULTIPLES',
+    subtitle: 'Création · IA · Import · Analyse · Suivi',
     icon: FileQuestion,
-    modules: ['create_question', 'ai', 'qcm_import', 'qcm_bank', 'my_questions'],
+    modules: GESTION_QUESTIONS_MODULES.map(m => m.id),
     color: COLORS.primary,
     gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)'
   },
+  // B - VALIDATION PEDAGOGIQUE des QUESTIONS à CHOIX MULTIPLES
   {
     id: 'validation',
-    title: '✅ Validation pédagogique',
+    title: '✅ B - VALIDATION PEDAGOGIQUE des QUESTIONS à CHOIX MULTIPLES',
     subtitle: 'Approbation · Rejet · Contrôle qualité',
     icon: ShieldCheck,
-    modules: ['qcm_validation'],
+    modules: VALIDATION_MODULES.map(m => m.id),
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #f59e0b, #d97706)'
   },
+  // C - CREATION & GESTION des EPREUVES
   {
     id: 'exam',
-    title: '📚 Gestion des épreuves',
+    title: '📚 C - CREATION & GESTION des EPREUVES',
     subtitle: 'Création · Bibliothèque',
     icon: GraduationCap,
-    modules: ['database', 'exams'],
+    modules: GESTION_EPREUVES_MODULES.map(m => m.id),
     color: COLORS.success,
     gradient: 'linear-gradient(135deg, #059669, #10b981)'
   },
+  // D - ASSIGNATION des EPREUVES aux SURVEILLANTS
   {
     id: 'assignment',
-    title: '🎯 Assignation des épreuves',
+    title: '🎯 D - ASSIGNATION des EPREUVES aux SURVEILLANTS',
     subtitle: 'Distribution aux opérateurs',
     icon: UserCheck,
-    modules: ['assign_exams'],
+    modules: ASSIGNATION_MODULES.map(m => m.id),
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #f59e0b, #d97706)'
   },
+  // Espace Opérateur
   {
     id: 'operator',
     title: '📋 Espace Opérateur',
     subtitle: 'Épreuves assignées',
     icon: UserCheck,
-    modules: ['assigned_exams_operator'],
+    modules: OPERATEUR_MODULES.map(m => m.id),
     color: COLORS.info,
     gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)'
   },
+  // E - SURVEILLANCE et EDITION des RAPPORTS
   {
     id: 'evaluation',
-    title: '📊 Surveillance & Rapports',
+    title: '📊 E - SURVEILLANCE et EDITION des RAPPORTS',
     subtitle: 'Sessions · Supervision · Analyses',
     icon: Activity,
-    modules: ['surveillance', 'reports', 'teacher_reports'],
+    modules: SURVEILLANCE_RAPPORTS_MODULES.map(m => m.id),
     color: COLORS.warning,
     gradient: 'linear-gradient(135deg, #d97706, #f59e0b)'
   },
+  // F - ADMINISTRATION du SYSTEM
   {
     id: 'admin',
-    title: '⚙️ Administration',
+    title: '⚙️ F - ADMINISTRATION du SYSTEM',
     subtitle: 'Comptes · Sécurité',
     icon: Shield,
-    modules: ['user_management'],
+    modules: ADMINISTRATION_MODULES.map(m => m.id),
     color: COLORS.danger,
     gradient: 'linear-gradient(135deg, #dc2626, #ef4444)'
   },
+  // Espace Apprenant
   {
     id: 'apprenant',
     title: '🎓 Espace Apprenant',
     subtitle: 'Évaluations · Résultats · Terminal',
     icon: GraduationCap,
-    modules: ['available_exams', 'my_results', 'terminal'],
+    modules: APPRENANT_MODULES.map(m => m.id),
     color: COLORS.info,
     gradient: 'linear-gradient(135deg, #2563eb, #3b82f6)'
   }
@@ -424,11 +503,23 @@ const EvaluationSummative = () => {
     navigate('/login');
   };
 
+  /**
+   * Gère le clic sur un module
+   * Pour le terminal, calcule l'URL dynamique en temps réel
+   */
   const handleModuleClick = (mod) => {
+    let url = mod.path;
+    
+    // ✅ Gestion des URLs dynamiques (notamment le terminal)
+    if (mod.isDynamic && mod.id === 'terminal') {
+      url = getTerminalUrl();
+      console.log('[EvaluationSummative] 🚀 Ouverture du terminal avec URL dynamique:', url);
+    }
+    
     if (mod.external) {
-      window.open(mod.path, '_blank', 'noopener,noreferrer');
+      window.open(url, '_blank', 'noopener,noreferrer');
     } else {
-      navigate(mod.path);
+      navigate(url);
     }
   };
 

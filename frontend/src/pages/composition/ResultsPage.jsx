@@ -58,7 +58,7 @@ const ResultsPage = () => {
   const [exam, setExam] = useState(null);
   const [config, setConfig] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [countdown, setCountdown] = useState(120);
+  const [countdown, setCountdown] = useState(30);
   const [redirectTimerActive, setRedirectTimerActive] = useState(true);
 
   const questionDetailsRef = useRef([]);
@@ -115,7 +115,7 @@ const ResultsPage = () => {
   const extendStay = useCallback(() => {
     setRedirectTimerActive(false);
     toast.success("Temps prolongé.", { duration: 4000 });
-    setTimeout(() => { setRedirectTimerActive(true); setCountdown(120); }, 300000);
+    setTimeout(() => { setRedirectTimerActive(true); setCountdown(30); }, 300000);
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
@@ -129,18 +129,26 @@ const ResultsPage = () => {
       correctAnswerText = q.correctAnswer;
     }
 
+    // ✅ FIX : chercher la réponse de l'étudiant dans submittedAnswers par _id puis par index
     let finalStudentAnswer = 'Non répondu';
     if (studentAnswer && studentAnswer !== 'Non répondu') {
       finalStudentAnswer = studentAnswer;
     } else if (submittedAnswers) {
-      finalStudentAnswer = submittedAnswers[q._id] || submittedAnswers[questionIndex] || 'Non répondu';
+      const byId    = submittedAnswers[q._id];
+      const byIdx   = submittedAnswers[questionIndex];
+      const byStr   = submittedAnswers[String(questionIndex)];
+      finalStudentAnswer = byId || byIdx || byStr || 'Non répondu';
     }
 
+    // ✅ FIX : comparaison isCorrect robuste (texte OU index)
     let isCorrect = false;
     if (finalStudentAnswer !== 'Non répondu') {
       if (typeof q.bonOpRep === 'number') {
-        const selectedIndex = q.options?.findIndex(opt => opt === finalStudentAnswer);
-        isCorrect = selectedIndex === q.bonOpRep;
+        // La réponse peut être stockée comme texte de l'option ou comme index
+        const selectedIndexByText = q.options?.findIndex(opt => opt === finalStudentAnswer);
+        const selectedIndexByValue = parseInt(finalStudentAnswer, 10);
+        isCorrect = selectedIndexByText === q.bonOpRep
+          || (!isNaN(selectedIndexByValue) && selectedIndexByValue === q.bonOpRep);
       } else {
         isCorrect = finalStudentAnswer === q.correctAnswer;
       }
@@ -180,9 +188,11 @@ const ResultsPage = () => {
     const fetchAndProcessResults = async () => {
       try {
         if (passedResultSnapshot?.examQuestions?.length > 0) {
-          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) =>
-            normalizeQuestionForDisplay(q, null, idx)
-          );
+          // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
+          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
+            const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
+            return normalizeQuestionForDisplay(q, studentAns, idx);
+          });
           setExam({
             _id: examId, title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
             questions: passedResultSnapshot.examQuestions || [],
@@ -200,17 +210,21 @@ const ResultsPage = () => {
         const examData = response.data;
         const questionsArray = examData.questions || [];
 
-        questionDetailsRef.current = questionsArray.map((q, idx) =>
-          normalizeQuestionForDisplay(q, null, idx)
-        );
+        // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
+        questionDetailsRef.current = questionsArray.map((q, idx) => {
+          const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
+          return normalizeQuestionForDisplay(q, studentAns, idx);
+        });
         setExam({ ...examData, questions: questionsArray });
         setConfig(examData.config || null);
       } catch (error) {
         console.error("Erreur chargement:", error);
         if (passedExamQuestions?.length > 0) {
-          questionDetailsRef.current = passedExamQuestions.map((q, idx) =>
-            normalizeQuestionForDisplay(q, null, idx)
-          );
+          // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
+          questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
+            const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
+            return normalizeQuestionForDisplay(q, studentAns, idx);
+          });
           setExam({
             _id: examId, title: passedExamTitle || 'Titre inconnu',
             questions: passedExamQuestions, passingScore: passedPassingScore || 70,
@@ -265,7 +279,18 @@ const ResultsPage = () => {
 
   const totalQuestions = getTotalQuestions();
   const totalPoints = getTotalPoints();
-  const correctCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
+
+  // ✅ FIX : correctCount calculé depuis questionDetailsRef (maintenant correct avec submittedAnswers)
+  // Si aucune question chargée en détail, on déduit depuis le score serveur
+  const localCorrectCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
+  const serverCorrectCount = totalQuestions > 0
+    ? Math.round((submittedPercentage / 100) * totalQuestions)
+    : 0;
+  // On préfère le compte local SI les questions ont bien été chargées avec les réponses
+  const correctCount = questionDetailsRef.current.length > 0
+    ? localCorrectCount
+    : serverCorrectCount;
+
   const passStatus = submittedPercentage >= (exam?.passingScore || passedPassingScore || 70);
   const note20 = ((submittedPercentage / 100) * 20).toFixed(2);
 

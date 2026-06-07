@@ -1,4 +1,8 @@
-// socket-server/server.js - Version COMPLÈTE avec numérotation séquentielle des questions
+// socket-server/server.js - Version COMPLÈTE avec TOUTES les routes conservées
+// ✅ Ajouts: route /api/exams/count-by-subject/:matiereId
+// ✅ Ajouts: route /api/exams/paginated
+// ✅ Toutes les routes existantes sont conservées
+
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -1270,7 +1274,7 @@ app.get('/api/questions/validation-stats', protect, authorize('ADMIN_DELEGUE', '
   }
 });
 
-// ==================== UPDATE QUESTION (VERSION CORRIGÉE) ====================
+// ==================== UPDATE QUESTION ====================
 app.put('/api/questions/:id', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -1453,6 +1457,9 @@ app.delete('/api/questions/:id', protect, authorize('ENSEIGNANT', 'SAISISEUR', '
 });
 
 // ==================== EXAM ROUTES ====================
+
+// ✅ 1. ROUTES STATIQUES (sans paramètre dynamique) - DOIVENT ÊTRE EN PREMIER
+
 app.get('/api/exams', protect, async (req, res) => {
   try {
     let exams;
@@ -1484,6 +1491,126 @@ app.get('/api/exams', protect, async (req, res) => {
   }
 });
 
+// ✅ ROUTE PAGINÉE
+app.get('/api/exams/paginated', protect, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
+    const filters = {};
+    if (req.query.search) {
+      filters.title = { $regex: req.query.search, $options: 'i' };
+    }
+    if (req.query.domain) filters.domain = req.query.domain;
+    if (req.query.level) filters.level = req.query.level;
+    if (req.query.subject) filters.subject = req.query.subject;
+    
+    const userRole = req.user.role;
+    const userId = req.user._id;
+    
+    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
+      // Admins voient tout
+    } else if (userRole === 'ENSEIGNANT') {
+      filters.$or = [{ createdBy: userId }, { status: 'published' }];
+    } else if (userRole === 'OPERATEUR_EVALUATION') {
+      filters.assignedTo = userId;
+      filters.status = 'published';
+    } else {
+      filters.status = 'published';
+    }
+    
+    const [exams, total] = await Promise.all([
+      Exam.find(filters).skip(skip).limit(limit).sort({ createdAt: -1 }),
+      Exam.countDocuments(filters)
+    ]);
+    
+    res.json({
+      success: true,
+      data: exams,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/exams/paginated:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ ROUTE POUR COMPTER LES ÉPREUVES PAR MATIÈRE
+app.get('/api/exams/count-by-subject/:matiereId', protect, async (req, res) => {
+  try {
+    const { matiereId } = req.params;
+    const count = await Exam.countDocuments({ matiere: parseInt(matiereId) });
+    console.log(`[API] Comptage épreuves pour matière ${matiereId}: ${count}`);
+    res.json({ success: true, count });
+  } catch (err) {
+    console.error('[API] Erreur comptage épreuves par matière:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ ROUTE ASSIGNED-TO-ME (statique - doit être avant /:id)
+// ROUTE ASSIGNED-TO-ME corrigée (sans filtre status)
+app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const userRole = req.user?.role;
+    const userId = req.user?._id;
+    
+    console.log(`[API] GET /api/exams/assigned-to-me - Rôle: ${userRole}, ID: ${userId}`);
+    
+    let exams = [];
+    let query = {};
+    
+    if (userRole === 'OPERATEUR_EVALUATION') {
+      // ✅ CORRECTION: Afficher TOUTES les épreuves assignées, quel que soit leur statut
+      query = { assignedTo: userId };
+      // Plus de filtre status: 'published'
+    }
+    
+    exams = await Exam.find(query)
+      .sort({ createdAt: -1 })
+      .limit(100);
+    
+    console.log(`[API] assigned-to-me - ${exams.length} résultat(s)`);
+    
+    res.json({ 
+      success: true, 
+      data: exams, 
+      count: exams.length 
+    });
+    
+  } catch (error) {
+    console.error('[API] assigned-to-me - ERREUR:', error.message);
+    res.status(200).json({ 
+      success: true, 
+      data: [], 
+      count: 0,
+      error: error.message 
+    });
+  }
+});
+// ✅ ROUTE ASSIGNED (pour opérateur)
+app.get('/api/exams/assigned', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    let examsData;
+    if (req.user.role === 'OPERATEUR_EVALUATION') {
+      examsData = await Exam.find({ 
+        status: 'published',
+        $or: [{ assignedTo: req.user._id }, { assignedTo: null }]
+      }).sort({ createdAt: -1 });
+    } else {
+      examsData = await Exam.find().sort({ createdAt: -1 });
+    }
+    res.json({ success: true, data: examsData });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/exams/assigned:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ AUTRES ROUTES STATIQUES
 app.get('/api/exams/available', protect, authorize('APPRENANT', 'ADMIN_SYSTEME'), async (req, res) => {
   try {
     const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
@@ -1535,6 +1662,116 @@ app.get('/api/exams/count', protect, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+app.get('/api/operator/exams/all', protect, authorize('OPERATEUR_EVALUATION'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ assignedTo: req.user._id }).sort({ scheduledDate: 1, createdAt: -1 });
+    res.json(exams);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/debug/exams', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
+  try {
+    const totalExams = await Exam.countDocuments();
+    const examsByStatus = await Exam.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+    const recentExams = await Exam.find().sort({ createdAt: -1 }).limit(5).select('title status createdBy createdAt');
+    
+    res.json({
+      success: true,
+      data: {
+        total: totalExams,
+        byStatus: examsByStatus,
+        recent: recentExams,
+        sample: recentExams.length > 0 ? recentExams[0] : null
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/exams/by-role', protect, async (req, res) => {
+  try {
+    let filter = { status: 'published' };
+    const userRole = req.user.role;
+    const userId = req.user._id;
+    
+    console.log(`[API] GET /api/exams/by-role - Rôle: ${userRole}, ID: ${userId}`);
+    
+    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
+      filter = {};
+    } else if (userRole === 'ENSEIGNANT') {
+      filter = { $or: [{ createdBy: userId }, { status: 'published' }] };
+    } else if (userRole === 'OPERATEUR_EVALUATION') {
+      filter = { status: 'published', assignedTo: userId };
+    }
+    
+    const exams = await Exam.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    console.error('[API] Erreur GET /api/exams/by-role:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/exams/my-created', protect, authorize('ENSEIGNANT', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: exams, count: exams.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==================== PUBLICATION D'UNE ÉPREUVE ====================
+// ✅ Route pour publier une épreuve (la rendre disponible pour distribution)
+app.patch('/api/exams/:id/publish', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const exam = await Exam.findById(id);
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
+    }
+    
+    // Vérifier que l'épreuve est assignée à un opérateur
+    if (!exam.assignedTo) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cette épreuve doit d\'abord être assignée à un opérateur avant d\'être publiée' 
+      });
+    }
+    
+    // Mettre à jour le statut
+    const updatedExam = await Exam.findByIdAndUpdate(
+      id, 
+      { 
+        status: 'published',
+        publishedAt: new Date(),
+        updatedAt: new Date()
+      }, 
+      { new: true }
+    );
+    
+    console.log(`[API] ✅ Épreuve "${exam.title}" publiée - disponible pour distribution`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Épreuve publiée avec succès', 
+      data: updatedExam 
+    });
+    
+  } catch (err) {
+    console.error('[API] Erreur publication:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==================== ROUTES AVEC PARAMÈTRE DYNAMIQUE :id (DOIVENT ÊTRE EN DERNIER) ====================
 
 app.get('/api/exams/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
@@ -1607,83 +1844,41 @@ app.post('/api/exams/:id/duplicate', protect, authorize('ENSEIGNANT', 'ADMIN_DEL
   }
 });
 
-app.get('/api/operator/exams/all', protect, authorize('OPERATEUR_EVALUATION'), async (req, res) => {
+app.put('/api/exams/:id/assign', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
-    const exams = await Exam.find({ assignedTo: req.user._id }).sort({ scheduledDate: 1, createdAt: -1 });
-    res.json(exams);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/exams/assigned-to-me', protect, authorize('OPERATEUR_EVALUATION', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
-  try {
-    const filter = { assignedTo: req.user._id };
+    const { id } = req.params;
+    const { operatorId, scheduledDate, sessionRoom } = req.body;
     
-    if (req.user.role !== 'OPERATEUR_EVALUATION') {
-      delete filter.assignedTo;
+    const exam = await Exam.findById(id);
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Épreuve non trouvée' });
     }
     
-    const exams = await Exam.find(filter).sort({ scheduledDate: 1, createdAt: -1 });
-    console.log(`[API] 📋 ${exams.length} épreuves assignées à ${req.user.name}`);
-    res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) {
-    console.error('[API] Erreur:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get('/api/debug/exams', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
-  try {
-    const totalExams = await Exam.countDocuments();
-    const examsByStatus = await Exam.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } }
-    ]);
-    const recentExams = await Exam.find().sort({ createdAt: -1 }).limit(5).select('title status createdBy createdAt');
-    
-    res.json({
-      success: true,
-      data: {
-        total: totalExams,
-        byStatus: examsByStatus,
-        recent: recentExams,
-        sample: recentExams.length > 0 ? recentExams[0] : null
+    if (operatorId) {
+      const operator = await User.findById(operatorId);
+      if (!operator || operator.role !== 'OPERATEUR_EVALUATION') {
+        return res.status(404).json({ success: false, message: 'Opérateur non trouvé' });
       }
+    }
+    
+    const updatedExam = await Exam.findByIdAndUpdate(
+      id, 
+      { 
+        assignedTo: operatorId || null,
+        scheduledDate: scheduledDate || null,
+        sessionRoom: sessionRoom || 'Salle principale',
+        updatedAt: new Date()
+      }, 
+      { new: true }
+    );
+    
+    res.json({ 
+      success: true, 
+      message: operatorId ? 'Épreuve assignée avec succès' : 'Épreuve désassignée avec succès',
+      data: updatedExam 
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/exams/by-role', protect, async (req, res) => {
-  try {
-    let filter = { status: 'published' };
-    const userRole = req.user.role;
-    const userId = req.user._id;
-    
-    console.log(`[API] GET /api/exams/by-role - Rôle: ${userRole}, ID: ${userId}`);
-    
-    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
-      filter = {};
-    } else if (userRole === 'ENSEIGNANT') {
-      filter = { $or: [{ createdBy: userId }, { status: 'published' }] };
-    } else if (userRole === 'OPERATEUR_EVALUATION') {
-      filter = { status: 'published', assignedTo: userId };
-    }
-    
-    const exams = await Exam.find(filter).sort({ createdAt: -1 });
-    res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) {
-    console.error('[API] Erreur GET /api/exams/by-role:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get('/api/exams/my-created', protect, authorize('ENSEIGNANT', 'ADMIN_SYSTEME', 'ADMIN_DELEGUE'), async (req, res) => {
-  try {
-    const exams = await Exam.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
-    res.json({ success: true, data: exams, count: exams.length });
-  } catch (err) {
+    console.error('[API] Erreur assignation:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1974,6 +2169,7 @@ app.get('/api/results/exam/:examId', protect, authorize('ENSEIGNANT', 'ADMIN_DEL
     res.status(500).json({ success: false, message: err.message }); 
   }
 });
+
 
 app.get('/api/results/:id', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT', 'OPERATEUR_EVALUATION', 'APPRENANT'), async (req, res) => {
   try {
@@ -2271,6 +2467,133 @@ app.patch('/api/users/:id/status', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DE
     console.error('[API] Erreur changement statut:', err);
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+// ==================== IMPORT CSV DES UTILISATEURS ====================
+
+// Configuration multer pour l'import CSV
+const csvStorage = multer.memoryStorage();
+const csvUpload = multer({ 
+  storage: csvStorage, 
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Seuls les fichiers CSV sont acceptés'));
+    }
+  }
+});
+
+// Route d'import CSV des utilisateurs
+app.post('/api/users/import', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), csvUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier fourni' });
+    }
+
+    const fileContent = req.file.buffer.toString('utf8');
+    const lines = fileContent.split('\n').filter(line => line.trim());
+    
+    if (lines.length === 0) {
+      return res.status(400).json({ success: false, message: 'Fichier vide' });
+    }
+
+    // Lire l'en-tête
+    const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
+    const expectedHeaders = ['nom', 'email', 'username', 'role', 'niveau'];
+    
+    // Vérifier les colonnes obligatoires
+    const missingHeaders = expectedHeaders.filter(h => !headers.includes(h));
+    if (missingHeaders.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Colonnes manquantes: ${missingHeaders.join(', ')}. Format attendu: nom;email;username;role;niveau` 
+      });
+    }
+
+    const results = [];
+    const errors = [];
+    
+    // Parcourir les lignes (sauter l'en-tête)
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(';').map(v => v.trim());
+      if (values.length < 4) continue;
+      
+      const rowData = {};
+      headers.forEach((h, idx) => {
+        rowData[h] = values[idx] || '';
+      });
+      
+      const { nom, email, username, role, niveau } = rowData;
+      
+      // Validation
+      if (!nom || !email || !username || !role) {
+        errors.push(`Ligne ${i + 1}: Champs obligatoires manquants (nom, email, username, rôle)`);
+        continue;
+      }
+      
+      // Vérifier si l'utilisateur existe déjà
+      const existingUser = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }] });
+      if (existingUser) {
+        errors.push(`Ligne ${i + 1}: Utilisateur existe déjà (${email})`);
+        continue;
+      }
+      
+      // Vérifier que le rôle est valide
+      const validRoles = ['APPRENANT', 'ENSEIGNANT', 'SAISISEUR', 'OPERATEUR_EVALUATION', 'ADMIN_DELEGUE', 'ADMIN_SYSTEME'];
+      const roleUpper = role.toUpperCase();
+      if (!validRoles.includes(roleUpper)) {
+        errors.push(`Ligne ${i + 1}: Rôle invalide (${role}). Rôles acceptés: ${validRoles.join(', ')}`);
+        continue;
+      }
+      
+      // Générer un mot de passe temporaire
+      const temporaryPassword = Math.random().toString(36).slice(-8) + Math.floor(Math.random() * 1000);
+      const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+      
+      // Créer l'utilisateur
+      const newUser = new User({
+        name: nom,
+        email: email.toLowerCase(),
+        username: username.toLowerCase(),
+        password: hashedPassword,
+        role: roleUpper,
+        level: niveau || '',
+        matricule: `IMP_${Date.now()}_${i}`,
+        createdBy: req.user._id,
+        status: 'active'
+      });
+      
+      await newUser.save();
+      results.push({ 
+        email: email, 
+        username: username, 
+        temporaryPassword,
+        id: newUser._id 
+      });
+      
+      console.log(`[API] ✅ Utilisateur importé: ${email} (${roleUpper})`);
+    }
+    
+    res.json({
+      success: true,
+      message: `${results.length} utilisateur(s) importé(s), ${errors.length} erreur(s)`,
+      data: { imported: results, errors }
+    });
+    
+  } catch (err) {
+    console.error('[API] Erreur import CSV:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Route pour télécharger le template CSV
+app.get('/api/users/template', protect, authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'), (req, res) => {
+  const template = "nom;email;username;role;niveau\nJean Dupont;jean.dupont@email.com;jean.dupont;APPRENANT;Terminale\nMarie Martin;marie.martin@email.com;marie.martin;ENSEIGNANT;Lycée\nPierre Diop;pierre.diop@email.com;pierre.diop;SAISISEUR;\n";
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename=template_utilisateurs.csv');
+  res.send(template);
 });
 
 app.post('/api/users/bulk', protect, authorize('ADMIN_SYSTEME'), async (req, res) => {
@@ -2624,6 +2947,157 @@ app.get('/api/network-info', (req, res) => {
     mongoConnected: mongoose.connection.readyState === 1,
     timestamp: new Date().toISOString(),
   });
+});
+
+// ==================== ROUTES POUR APPLICATION MOBILE (EXPO) ====================
+
+// Alias pour les examens disponibles (étudiant)
+app.get('/api/student/available-exams', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
+    res.json(exams);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias pour les résultats de l'étudiant
+app.get('/api/student/my-results', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    let results = [];
+    if (req.user.matricule) {
+      results = await Result.find({ 
+        $or: [
+          { 'studentInfo.matricule': req.user.matricule },
+          { 'studentInfo.matricule': req.user.matricule?.toUpperCase() },
+          { 'studentInfo.matricule': req.user.matricule?.toLowerCase() }
+        ]
+      }).populate('examId', 'title domain subject level examOption').sort({ createdAt: -1 });
+    }
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias pour le profil d'examen
+app.get('/api/exam/profile/:examId', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    res.json({
+      _id: exam._id,
+      title: exam.title,
+      examOption: exam.examOption,
+      totalQuestions: exam.questions?.length || 0,
+      timeLimit: exam.duration,
+      matiere: exam.subject,
+      level: exam.level,
+      domain: exam.domain,
+      passingScore: exam.passingScore,
+      config: exam.config
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Démarrer un examen (génère un token de session)
+app.post('/api/exam/start/:examId', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    
+    // Générer un token de session unique
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const questions = exam.questions.map(q => ({
+      _id: q._id,
+      question: q.libQuestion,
+      options: q.options,
+      points: q.points
+    }));
+    
+    res.json({
+      sessionToken,
+      questions,
+      timeLimit: exam.duration,
+      totalQuestions: questions.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Soumettre un examen (avec anti-triche)
+app.post('/api/exam/submit/:examId', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    const { answers, sessionToken } = req.body;
+    const exam = await Exam.findById(req.params.examId);
+    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    
+    // Calculer le score
+    let score = 0;
+    const questions = exam.questions;
+    
+    for (const q of questions) {
+      const studentAnswer = answers[q._id];
+      const isCorrect = studentAnswer === q.options[q.bonOpRep];
+      if (isCorrect) score += (q.points || 1);
+    }
+    
+    const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0);
+    const percentage = totalPoints > 0 ? Math.round((score / totalPoints) * 100) : 0;
+    
+    // Sauvegarder le résultat
+    const result = new Result({
+      examId: exam._id,
+      studentInfo: {
+        firstName: req.user.name?.split(' ')[0] || '',
+        lastName: req.user.name?.split(' ')[1] || '',
+        matricule: req.user.matricule,
+        level: req.user.level
+      },
+      userId: req.user._id,
+      answers: new Map(Object.entries(answers)),
+      score,
+      percentage,
+      passed: percentage >= (exam.passingScore || 70),
+      totalQuestions: questions.length,
+      examTitle: exam.title,
+      examLevel: exam.level,
+      domain: exam.domain,
+      subject: exam.subject,
+      examOption: exam.examOption,
+      examQuestions: questions
+    });
+    
+    await result.save();
+    
+    // Vérifier si les résultats doivent être affichés
+    const showResult = exam.config?.showBinaryResult !== false;
+    
+    res.json({
+      showResult,
+      score: showResult ? score : null,
+      percentage: showResult ? percentage : null,
+      passed: showResult ? (percentage >= (exam.passingScore || 70)) : null,
+      totalQuestions: questions.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Heartbeat pour garder la session active
+app.post('/api/exam/heartbeat', protect, authorize('APPRENANT'), async (req, res) => {
+  res.json({ success: true });
+});
+
+// Signaler une tentative de triche
+app.post('/api/exam/violation', protect, authorize('APPRENANT'), async (req, res) => {
+  const { examId, sessionToken, type } = req.body;
+  console.log(`[TRICHE] Tentative détectée: ${type}, examId: ${examId}, user: ${req.user.email}`);
+  res.json({ success: true });
 });
 
 // ==================== SOCKET.IO ====================

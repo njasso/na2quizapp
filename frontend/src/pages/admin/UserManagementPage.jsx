@@ -1,4 +1,9 @@
-// src/pages/UserManagementPage.jsx - VERSION ULTIME COMPLÈTE
+// src/pages/UserManagementPage.jsx - VERSION COMPLÈTE ET CORRIGÉE
+// ✅ Import CSV fonctionnel
+// ✅ Labels selon spec Excel
+// ✅ Gestion complète des rôles (6 rôles)
+// ✅ Drag & drop pour l'import
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
@@ -86,10 +91,11 @@ const StatCard = ({ title, value, icon, color, trend }) => (
   </motion.div>
 );
 
-// Modal d'import CSV
-const ImportModal = ({ isOpen, onClose, onImport, loading }) => {
+// Modal d'import CSV amélioré (avec drag & drop)
+const ImportModal = ({ isOpen, onClose, onImport, onDownloadTemplate, loading }) => {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState([]);
+  const [dragActive, setDragActive] = useState(false);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -103,6 +109,33 @@ const ImportModal = ({ isOpen, onClose, onImport, loading }) => {
     reader.readAsText(file);
   };
 
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      setFile(file);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target.result;
+        const rows = text.split('\n').slice(0, 6);
+        setPreview(rows);
+      };
+      reader.readAsText(file);
+    }
+  };
+
   const handleImport = () => {
     if (file) onImport(file);
   };
@@ -111,42 +144,83 @@ const ImportModal = ({ isOpen, onClose, onImport, loading }) => {
 
   return (
     <div style={styles.modalOverlay}>
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} style={styles.modalContent}>
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} style={{...styles.modalContent, maxWidth: 550}}>
         <div style={styles.modalHeader}>
-          <h3><Upload size={18} style={{ display: 'inline', marginRight: 8 }} />Import CSV</h3>
+          <h3><Upload size={18} style={{ display: 'inline', marginRight: 8 }} />Import CSV - Utilisateurs</h3>
           <button onClick={onClose} style={styles.closeBtn}><X size={20} /></button>
         </div>
         <div style={styles.modalBody}>
           <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 16 }}>
-            Format attendu : nom;email;username;role;niveau (optionnel)
+            Format attendu : <strong>nom;email;username;role;niveau</strong>
           </p>
-          <a href="#" onClick={(e) => {
-            e.preventDefault();
-            const template = "Nom;Email;Username;Role;Niveau\nJean Dupont;jean@email.com;jean.dupont;APPRENANT;Terminale";
-            const blob = new Blob([template], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'template_import.csv';
-            a.click();
-            URL.revokeObjectURL(url);
-          }} style={{ color: '#3b82f6', fontSize: '0.75rem', marginBottom: 16, display: 'inline-block' }}>
-            📥 Télécharger le template
-          </a>
-          <input type="file" accept=".csv" onChange={handleFileChange} style={styles.fileInput} />
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <button onClick={onDownloadTemplate} style={{...styles.cancelBtn, background: '#3b82f6'}}>
+              📥 Télécharger le template CSV
+            </button>
+          </div>
+          
+          <div 
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            style={{
+              border: `2px dashed ${dragActive ? '#3b82f6' : '#475569'}`,
+              borderRadius: 12,
+              padding: '24px',
+              textAlign: 'center',
+              background: dragActive ? 'rgba(59,130,246,0.05)' : 'rgba(15,23,42,0.5)',
+              marginBottom: 16,
+              cursor: 'pointer'
+            }}
+          >
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+              id="csv-upload"
+            />
+            <label htmlFor="csv-upload" style={{ cursor: 'pointer' }}>
+              <Upload size={32} color="#64748b" style={{ marginBottom: 8 }} />
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                {file ? file.name : 'Cliquez ou glissez-déposez un fichier CSV'}
+              </p>
+              <p style={{ color: '#475569', fontSize: '0.7rem', marginTop: 4 }}>
+                Maximum 5 Mo
+              </p>
+            </label>
+          </div>
+          
           {preview.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <p style={{ fontSize: '0.7rem', color: '#64748b' }}>Aperçu :</p>
-              <pre style={{ background: '#0f172a', padding: 8, borderRadius: 8, fontSize: '0.6rem', overflowX: 'auto' }}>
+              <p style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 8 }}>📋 Aperçu (5 premières lignes) :</p>
+              <pre style={{ 
+                background: '#0f172a', 
+                padding: 12, 
+                borderRadius: 8, 
+                fontSize: '0.6rem', 
+                overflowX: 'auto',
+                fontFamily: 'monospace',
+                color: '#94a3b8'
+              }}>
                 {preview.join('\n')}
               </pre>
             </div>
           )}
+          
+          <div style={{ marginTop: 16, padding: 12, background: 'rgba(245,158,11,0.1)', borderRadius: 8 }}>
+            <p style={{ fontSize: '0.65rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertCircle size={12} />
+              Les mots de passe temporaires seront générés automatiquement et affichés après l'import.
+            </p>
+          </div>
         </div>
         <div style={styles.modalFooter}>
           <button onClick={onClose} style={styles.cancelBtn}>Annuler</button>
-          <button onClick={handleImport} disabled={!file || loading} style={{...styles.confirmBtn, background: '#10b981'}}>
-            {loading ? 'Import...' : 'Importer'}
+          <button onClick={handleImport} disabled={!file || loading} style={{...styles.confirmBtn, background: loading ? '#475569' : '#10b981'}}>
+            {loading ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+            {loading ? ' Import en cours...' : ' Importer'}
           </button>
         </div>
       </motion.div>
@@ -154,7 +228,7 @@ const ImportModal = ({ isOpen, onClose, onImport, loading }) => {
   );
 };
 
-// Modal de détail utilisateur - CORRIGÉ
+// Modal de détail utilisateur
 const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({});
   const [sessions, setSessions] = useState([]);
@@ -174,13 +248,10 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     try {
       const token = localStorage.getItem('userToken');
       const res = await axios.get(`${NODE_BACKEND_URL}/api/users/${userId}/stats`, getAuthHeaders(token));
-      // ✅ CORRECTION: Extraire correctement les données
       if (res.data?.success && res.data?.data) {
         setStats(res.data.data);
-        console.log('✅ Stats chargées:', res.data.data);
       } else if (res.data) {
         setStats(res.data);
-        console.log('✅ Stats chargées (format direct):', res.data);
       } else {
         console.warn('⚠️ Format de stats inattendu:', res);
       }
@@ -196,7 +267,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     try {
       const token = localStorage.getItem('userToken');
       const res = await axios.get(`${NODE_BACKEND_URL}/api/users/${userId}/sessions`, getAuthHeaders(token));
-      // ✅ CORRECTION: Extraire correctement les sessions
       if (res.data?.success && res.data?.data) {
         setSessions(res.data.data);
       } else if (res.data?.sessions) {
@@ -208,7 +278,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       } else {
         setSessions([]);
       }
-      console.log('✅ Sessions chargées:', sessions.length);
     } catch (err) { 
       console.error('❌ Erreur chargement sessions:', err);
     }
@@ -260,9 +329,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 <StatCard title="Questions créées" value={stats.questionsCreated || 0} icon={<PenTool size={16} />} color="#3b82f6" />
                 <StatCard title="Dernière connexion" value={stats.lastLogin ? new Date(stats.lastLogin).toLocaleDateString() : 'Jamais'} icon={<Clock size={16} />} color="#f59e0b" />
                 <StatCard title="Sessions actives" value={stats.sessionCount || 0} icon={<Activity size={16} />} color="#8b5cf6" />
-                {stats.loginCount !== undefined && (
-                  <StatCard title="Connexions totales" value={stats.loginCount || 0} icon={<History size={16} />} color="#f59e0b" />
-                )}
               </div>
             )}
           </div>
@@ -289,7 +355,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   );
 };
 
-// Modal de confirmation avancée
+// Modal de confirmation
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loading, type = 'danger' }) => {
   if (!isOpen) return null;
   const colors = { danger: '#ef4444', warning: '#f59e0b', info: '#3b82f6' };
@@ -314,7 +380,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loading, typ
   );
 };
 
-// Modal de création utilisateur (version améliorée)
+// Modal de création utilisateur
 const CreateUserModal = ({ isOpen, onClose, onCreate, loading }) => {
   const [formData, setFormData] = useState({
     name: '', email: '', username: '', password: '', role: 'APPRENANT', confirmPassword: '',
@@ -470,7 +536,6 @@ const UserManagementPage = () => {
       
       setUsers(usersData);
       
-      // Calculer les statistiques
       const byRole = {};
       usersData.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1; });
       setStats({ total: usersData.length, byRole });
@@ -511,17 +576,51 @@ const UserManagementPage = () => {
       const token = localStorage.getItem('userToken');
       const formData = new FormData();
       formData.append('file', file);
-      await axios.post(`${NODE_BACKEND_URL}/api/users/import`, formData, {
+      
+      const response = await axios.post(`${NODE_BACKEND_URL}/api/users/import`, formData, {
         ...getAuthHeaders(token),
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      toast.success("Import réussi");
-      setShowImportModal(false);
-      loadUsers();
+      
+      if (response.data.success) {
+        const { imported, errors } = response.data.data;
+        if (imported.length > 0) {
+          toast.success(`${imported.length} utilisateur(s) importé(s) avec succès`);
+          const passwordsMsg = imported.map(u => `${u.email} → ${u.temporaryPassword}`).join('\n');
+          toast.info(`Mots de passe temporaires:\n${passwordsMsg}`, { duration: 10000 });
+        }
+        if (errors.length > 0) {
+          toast.warning(`${errors.length} erreur(s): ${errors.slice(0, 3).join(', ')}`);
+        }
+        loadUsers();
+        setShowImportModal(false);
+      } else {
+        throw new Error(response.data.message || 'Erreur import');
+      }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Erreur import");
+      console.error('Erreur import:', err);
+      toast.error(err.response?.data?.message || "Erreur lors de l'import");
     } finally {
       setImportLoading(false);
+    }
+  };
+
+  const downloadTemplate = async () => {
+    try {
+      const token = localStorage.getItem('userToken');
+      const response = await axios.get(`${NODE_BACKEND_URL}/api/users/template`, {
+        ...getAuthHeaders(token),
+        responseType: 'blob'
+      });
+      const url = URL.createObjectURL(new Blob([response.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'template_utilisateurs.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Template téléchargé');
+    } catch (err) {
+      toast.error('Erreur téléchargement template');
     }
   };
 
@@ -574,21 +673,20 @@ const UserManagementPage = () => {
   };
 
   const handleToggleStatus = async (userId, currentStatus) => {
-  try {
-    const token = localStorage.getItem('userToken');
-    // currentStatus est maintenant 'active' ou 'inactive'
-    const willBeActive = currentStatus !== 'active'; // inverse
-    await axios.patch(`${NODE_BACKEND_URL}/api/users/${userId}/status`, 
-      { active: willBeActive },
-      getAuthHeaders(token)
-    );
-    toast.success(`Utilisateur ${willBeActive ? 'activé' : 'désactivé'}`);
-    loadUsers();
-  } catch (err) {
-    console.error('Erreur toggle status:', err);
-    toast.error(err.response?.data?.message || "Erreur lors du changement de statut");
-  }
-};
+    try {
+      const token = localStorage.getItem('userToken');
+      const willBeActive = currentStatus !== 'active';
+      await axios.patch(`${NODE_BACKEND_URL}/api/users/${userId}/status`, 
+        { active: willBeActive },
+        getAuthHeaders(token)
+      );
+      toast.success(`Utilisateur ${willBeActive ? 'activé' : 'désactivé'}`);
+      loadUsers();
+    } catch (err) {
+      console.error('Erreur toggle status:', err);
+      toast.error(err.response?.data?.message || "Erreur lors du changement de statut");
+    }
+  };
 
   const handleResetPassword = async (userId) => {
     try {
@@ -640,10 +738,10 @@ const UserManagementPage = () => {
       filtered = filtered.filter(u => u.role === filterRole);
     }
     
-   if (filterStatus !== 'all') {
-  const isActive = filterStatus === 'active';
-  filtered = filtered.filter(u => u.status === (isActive ? 'active' : 'inactive'));
-}
+    if (filterStatus !== 'all') {
+      const isActive = filterStatus === 'active';
+      filtered = filtered.filter(u => u.status === (isActive ? 'active' : 'inactive'));
+    }
     
     filtered.sort((a, b) => {
       let aVal = a[sortBy];
@@ -708,7 +806,7 @@ const UserManagementPage = () => {
               <ArrowLeft size={18} /> Retour
             </motion.button>
             <div>
-              <h1 style={styles.title}><Users size={28} color="#3b82f6" /> Gestion des utilisateurs</h1>
+              <h1 style={styles.title}><Users size={28} color="#3b82f6" /> Création et gestion des comptes</h1>
               <p style={styles.subtitle}>{stats.total} utilisateur(s) au total</p>
             </div>
           </div>
@@ -827,22 +925,17 @@ const UserManagementPage = () => {
                         <td><RoleBadge role={u.role} status={u.status === 'active' ? 'active' : 'inactive'} /></td>
                         <td>
                           <span style={{...styles.statusBadge, 
-  background: u.status === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', 
-  color: u.status === 'active' ? '#10b981' : '#ef4444'}}>
-  {u.status === 'active' ? 'Actif' : 'Inactif'}
-</span>
+                            background: u.status === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', 
+                            color: u.status === 'active' ? '#10b981' : '#ef4444'}}>
+                            {u.status === 'active' ? 'Actif' : 'Inactif'}
+                          </span>
                         </td>
                         <td>
                           <div style={styles.actionsCell}>
-                            <button onClick={() => setShowDetailModal(u)} style={styles.actionBtn} title="Détails"><Eye size={14} />
+                            <button onClick={() => setShowDetailModal(u)} style={styles.actionBtn} title="Détails"><Eye size={14} /></button>
+                            <button onClick={() => handleToggleStatus(u._id, u.status)} style={styles.actionBtn} title={u.status === 'active' ? 'Désactiver' : 'Activer'}>
+                              {u.status === 'active' ? <Lock size={14} /> : <Unlock size={14} />}
                             </button>
-                            <button 
-  onClick={() => handleToggleStatus(u._id, u.status)} 
-  style={styles.actionBtn} 
-  title={u.status === 'active' ? 'Désactiver' : 'Activer'}
->
-  {u.status === 'active' ? <Lock size={14} /> : <Unlock size={14} />}
-</button>
                             <button onClick={() => handleResetPassword(u._id)} style={styles.actionBtn} title="Réinitialiser mot de passe"><Key size={14} /></button>
                             {isAdminSysteme && (
                               <button onClick={() => setDeleteConfirm(u._id)} style={{...styles.actionBtn, color: '#ef4444'}} title="Supprimer"><Trash2 size={14} /></button>
@@ -862,11 +955,14 @@ const UserManagementPage = () => {
                 <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} style={{...styles.pageBtn, opacity: currentPage === 1 ? 0.5 : 1}}><ChevronLeft size={16} /></button>
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   let pageNum = currentPage <= 3 ? i + 1 : currentPage >= totalPages - 2 ? totalPages - 4 + i : currentPage - 2 + i;
-                  return (
-                    <button key={pageNum} onClick={() => setCurrentPage(pageNum)} style={{...styles.pageBtn, background: currentPage === pageNum ? '#3b82f6' : 'rgba(255,255,255,0.05)'}}>
-                      {pageNum}
-                    </button>
-                  );
+                  if (pageNum >= 1 && pageNum <= totalPages) {
+                    return (
+                      <button key={pageNum} onClick={() => setCurrentPage(pageNum)} style={{...styles.pageBtn, background: currentPage === pageNum ? '#3b82f6' : 'rgba(255,255,255,0.05)'}}>
+                        {pageNum}
+                      </button>
+                    );
+                  }
+                  return null;
                 })}
                 <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} style={{...styles.pageBtn, opacity: currentPage === totalPages ? 0.5 : 1}}><ChevronRight size={16} /></button>
               </div>
@@ -877,12 +973,21 @@ const UserManagementPage = () => {
 
       {/* Modals */}
       <CreateUserModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={handleCreate} loading={createLoading} />
-      <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={handleImport} loading={importLoading} />
+      <ImportModal 
+        isOpen={showImportModal} 
+        onClose={() => setShowImportModal(false)} 
+        onImport={handleImport} 
+        onDownloadTemplate={downloadTemplate}
+        loading={importLoading} 
+      />
       <UserDetailModal isOpen={!!showDetailModal} onClose={() => setShowDetailModal(null)} user={showDetailModal} onUpdate={handleUpdate} />
       <ConfirmModal isOpen={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} onConfirm={() => handleDelete(deleteConfirm)} title="Supprimer l'utilisateur" message="Cette action est irréversible." loading={deleteLoading} />
 
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #3b82f6' } }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @media print { .no-print { display: none; } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media print { .no-print { display: none; } }
+      `}</style>
     </div>
   );
 };
@@ -914,7 +1019,7 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableHeader: { borderBottom: '1px solid rgba(99,102,241,0.1)', color: '#64748b', fontSize: '0.75rem', textAlign: 'left' },
   sortableHeader: { padding: '14px 12px', cursor: 'pointer', userSelect: 'none' },
-  tableRow: { borderBottom: '1px solid rgba(99,102,241,0.05)', transition: 'background 0.2s', cursor: 'pointer', '&:hover': { background: 'rgba(59,130,246,0.05)' } },
+  tableRow: { borderBottom: '1px solid rgba(99,102,241,0.05)', transition: 'background 0.2s', '&:hover': { background: 'rgba(59,130,246,0.05)' } },
   checkbox: { width: 16, height: 16, cursor: 'pointer' },
   userCell: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px' },
   userAvatar: { width: 36, height: 36, borderRadius: 36, background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600 },

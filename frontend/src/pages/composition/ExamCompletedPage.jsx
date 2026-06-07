@@ -47,7 +47,7 @@ const ExamCompletedPage = () => {
     terminalSessionId,
   } = state || {};
 
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(30);
   const [particles] = useState(() =>
     Array.from({ length: 14 }, (_, i) => ({
       id: i,

@@ -1,6 +1,6 @@
-// src/services/api.js - VERSION ULTIME CORRIGÉE
+// src/services/api.js - VERSION COMPLÈTE AVEC TOUTES LES FONCTIONS
 // Support complet: localhost, IP réseau (192.168.x.x), production (Render)
-// ─────────────────────────────────────────────────────────────
+// Fonctions ajoutées: countExamsBySubject, getExamsPaginated
 
 import axios from 'axios';
 import ENV_CONFIG from '../config/env';
@@ -10,12 +10,23 @@ console.log('[API]   Backend URL:', ENV_CONFIG.BACKEND_URL);
 console.log('[API]   Environnement:', ENV_CONFIG.environment);
 console.log('[API]   Hostname:', ENV_CONFIG.currentHostname);
 
+// ==================== FONCTION DE NETTOYAGE DES URLs ====================
+
+const cleanUrlString = (url) => {
+  if (!url) return url;
+  let cleaned = url.replace(/\/$/, '');
+  cleaned = cleaned.replace(/(https?:\/\/)\/+/, '$1');
+  return cleaned;
+};
+
+const buildUrl = (base, path) => {
+  const cleanBase = (base || '').replace(/\/$/, '');
+  const cleanPath = (path || '').replace(/^\//, '');
+  return `${cleanBase}/${cleanPath}`;
+};
+
 // ==================== FONCTION DE MISE À JOUR DYNAMIQUE ====================
 
-/**
- * Met à jour dynamiquement l'URL du backend en fonction de l'environnement
- * Cette fonction est cruciale pour le passage localhost ↔ IP réseau
- */
 export const updateApiBaseUrl = () => {
   const currentHostname = window.location.hostname;
   const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
@@ -23,16 +34,16 @@ export const updateApiBaseUrl = () => {
   
   let newBaseUrl = ENV_CONFIG.BACKEND_URL;
   
-  // ✅ Si on est en IP réseau mais que l'API utilise localhost, forcer la mise à jour
-  if (isLocalNetwork && newBaseUrl.includes('localhost')) {
+  if (isLocalNetwork && newBaseUrl && newBaseUrl.includes('localhost')) {
     newBaseUrl = `http://${currentHostname}:5000`;
     console.log('[API] 🔄 Mise à jour baseURL (IP réseau):', newBaseUrl);
   }
-  // ✅ Si on est en localhost mais que l'API utilise une IP, forcer la mise à jour
-  else if (isLocalhost && !newBaseUrl.includes('localhost')) {
+  else if (isLocalhost && newBaseUrl && !newBaseUrl.includes('localhost')) {
     newBaseUrl = 'http://localhost:5000';
     console.log('[API] 🔄 Mise à jour baseURL (localhost):', newBaseUrl);
   }
+  
+  newBaseUrl = cleanUrlString(newBaseUrl);
   
   if (api.defaults.baseURL !== newBaseUrl) {
     api.defaults.baseURL = newBaseUrl;
@@ -53,13 +64,13 @@ export const getCurrentBackendUrl = () => {
   if (isLocalhost) {
     return 'http://localhost:5000';
   }
-  return ENV_CONFIG.BACKEND_URL;
+  return cleanUrlString(ENV_CONFIG.BACKEND_URL);
 };
 
 // ==================== CLIENT AXIOS ====================
 
 const api = axios.create({
-  baseURL: ENV_CONFIG.BACKEND_URL,
+  baseURL: cleanUrlString(ENV_CONFIG.BACKEND_URL || 'http://localhost:5000'),
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
@@ -67,26 +78,24 @@ const api = axios.create({
   },
 });
 
-// ✅ Appliquer la mise à jour immédiatement
 updateApiBaseUrl();
 
 // ==================== INTERCEPTEURS ====================
 
-// Request interceptor - injection du token
 api.interceptors.request.use(
   (config) => {
-    // ✅ Mettre à jour l'URL avant chaque requête (pour les reconnexions)
     const currentBaseUrl = updateApiBaseUrl();
-    if (config.baseURL !== currentBaseUrl) {
-      config.baseURL = currentBaseUrl;
-    }
     
-    // Chercher le token dans toutes les clés possibles
+    let cleanBaseUrl = cleanUrlString(currentBaseUrl);
+    let cleanUrlPath = config.url ? config.url.replace(/^\//, '') : '';
+    
+    config.baseURL = cleanBaseUrl;
+    config.url = cleanUrlPath;
+    
     let token = localStorage.getItem('token') ||
                 localStorage.getItem('userToken') ||
                 localStorage.getItem('authToken');
     
-    // Si pas trouvé, essayer de parser userData
     if (!token) {
       const userData = localStorage.getItem('userData');
       if (userData) {
@@ -101,7 +110,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // Cache busting pour les GET
     if (config.method?.toLowerCase() === 'get' && !config.params?.noCache) {
       config.params = {
         ...config.params,
@@ -117,14 +125,15 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor - gestion des erreurs
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // ✅ Amélioration des messages d'erreur
     if (error.code === 'ERR_NETWORK') {
       console.error('[API] ❌ Erreur réseau - Backend inaccessible:', api.defaults.baseURL);
-      console.error('[API] 💡 Vérifiez que le serveur backend est démarré sur le port 5000');
+    }
+    
+    if (error.config) {
+      console.error('[API] ❌ URL échouée:', `${error.config.baseURL}/${error.config.url}`);
     }
     
     if (error.response?.status === 401) {
@@ -143,9 +152,7 @@ api.interceptors.response.use(
 
 // ==================== AUTH ====================
 export const login = async (data) => {
-  // ✅ Mettre à jour l'URL avant login
   updateApiBaseUrl();
-  console.log('[API] 🔐 Tentative de login vers:', api.defaults.baseURL);
   return api.post('/api/auth/login', data);
 };
 
@@ -171,10 +178,6 @@ export const logout = () => {
 
 // ==================== QUESTIONS ====================
 
-/**
- * ✅ ROUTE PUBLIQUE - Ne renvoie que les questions APPROUVÉES (status: 'approved')
- * Cette route est utilisée pour la création d'épreuves à partir de la base de données
- */
 export const getPublicQuestions = async (params = {}) => {
   try {
     updateApiBaseUrl();
@@ -189,11 +192,9 @@ export const getPublicQuestions = async (params = {}) => {
     if (params.search) queryParams.append('search', params.search);
     
     const url = `/api/questions/public${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    console.log('[API] 🔍 getPublicQuestions:', url);
     
     const response = await api.get(url);
     
-    // Normaliser la réponse
     if (response.data && response.data.success && Array.isArray(response.data.data)) {
       return { success: true, questions: response.data.data, count: response.data.data.length };
     }
@@ -330,6 +331,43 @@ export const getExamById = (id) => api.get(`/api/exams/${id}`);
 export const createExam = (data) => api.post('/api/exams', data);
 export const updateExam = (id, data) => api.put(`/api/exams/${id}`, data);
 export const deleteExam = (id) => api.delete(`/api/exams/${id}`);
+
+// ✅ NOUVEAU: Compter les épreuves par matière (pour auto-génération du titre)
+export const countExamsBySubject = async (matiereId) => {
+  try {
+    const response = await api.get(`/api/exams/count-by-subject/${matiereId}`);
+    return response.data?.count || 0;
+  } catch (error) {
+    console.error('[API] Erreur comptage épreuves par matière:', error);
+    return 0;
+  }
+};
+
+// ✅ NOUVEAU: Récupérer les épreuves avec pagination
+export const getExamsPaginated = async (page = 1, limit = 20, filters = {}) => {
+  try {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    
+    // Ajouter les filtres
+    if (filters.search) params.append('search', filters.search);
+    if (filters.domain) params.append('domain', filters.domain);
+    if (filters.level) params.append('level', filters.level);
+    if (filters.subject) params.append('subject', filters.subject);
+    
+    // Utiliser la route paginée
+    const response = await api.get(`/api/exams/paginated?${params.toString()}`);
+    console.log('[API] getExamsPaginated - réponse:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('[API] Erreur chargement épreuves paginées:', error);
+    // Fallback vers la route normale si paginated n'existe pas
+    const response = await api.get('/api/exams');
+    return response.data;
+  }
+}
 
 // ==================== EXAMENS PAR RÔLE ====================
 export const getAvailableExams = () => api.get('/api/exams/available');
@@ -468,7 +506,6 @@ export const getAnalyticsDashboardData = async () => {
     
     const questions = allQuestions.questions || [];
     
-    // Calcul des top matières
     const matiereCount = {};
     questions.forEach(q => {
       const matiere = q.matiere || 'Non classé';
@@ -503,7 +540,7 @@ export const forceSocketUrlUpdate = () => {
   const currentHostname = window.location.hostname;
   const isLocalNetwork = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(currentHostname);
   
-  if (isLocalNetwork && ENV_CONFIG.SOCKET_URL.includes('localhost')) {
+  if (isLocalNetwork && ENV_CONFIG.SOCKET_URL && ENV_CONFIG.SOCKET_URL.includes('localhost')) {
     const newSocketUrl = `http://${currentHostname}:5000`;
     console.log('[API] 🔄 Mise à jour forcée Socket URL:', newSocketUrl);
     ENV_CONFIG.SOCKET_URL = newSocketUrl;
@@ -512,7 +549,6 @@ export const forceSocketUrlUpdate = () => {
   return ENV_CONFIG.SOCKET_URL;
 };
 
-// Appeler la mise à jour au chargement
 forceSocketUrlUpdate();
 
 // ==================== EXPORT PAR DÉFAUT ====================

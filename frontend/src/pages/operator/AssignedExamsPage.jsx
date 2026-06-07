@@ -33,60 +33,63 @@ const AssignedExamsPage = () => {
   }, []);
   
   const fetchAssignedExams = async () => {
-    setIsLoading(true);
-    try {
-      // ✅ Route spécifique pour les épreuves assignées à l'opérateur
-      const response = await api.get('/api/exams/assigned-to-me');
-      
-      console.log('[AssignedExams] Réponse:', response);
-      
-      let examsData = [];
-      if (response?.data && Array.isArray(response.data)) {
-        examsData = response.data;
-      } else if (Array.isArray(response)) {
-        examsData = response;
-      }
-      
-      console.log(`[AssignedExams] ${examsData.length} épreuve(s) assignée(s)`);
-      
-      const enriched = examsData.map(exam => ({
-        ...exam,
-        coverImage: getImageUrl(exam),
-        scheduledDate: exam.scheduledDate || null,
-        sessionRoom: exam.sessionRoom || 'Salle principale',
-        isAvailable: exam.status === 'published',
-        isPending: exam.status === 'draft',
-        isArchived: exam.status === 'archived',
-        statusLabel: getStatusLabel(exam.status),
-        statusColor: getStatusColor(exam.status),
-        statusIcon: getStatusIcon(exam.status),
-        helpMessage: getHelpMessage(exam.status)
-      }));
-      
-      setExams(enriched);
-      
-      const availableCount = enriched.filter(e => e.status === 'published').length;
-      const pendingCount = enriched.filter(e => e.status === 'draft').length;
-      
-      if (availableCount > 0) {
-        toast.success(`${availableCount} épreuve(s) disponible(s) à distribuer`);
-      } else if (pendingCount > 0) {
-        toast(`${pendingCount} épreuve(s) en attente de publication`, {
-          duration: 5000,
-          icon: '⏳',
-          style: { background: '#f59e0b', color: '#fff' }
-        });
-      } else if (examsData.length === 0) {
-        toast.info('Aucune épreuve assignée pour le moment');
-      }
-      
-    } catch (error) {
-      console.error('Erreur:', error);
-      toast.error('Impossible de charger les épreuves assignées');
-    } finally {
-      setIsLoading(false);
+  setIsLoading(true);
+  try {
+    const response = await api.get('/api/exams/assigned-to-me');
+    
+    console.log('[AssignedExams] Réponse:', response);
+    
+    let examsData = [];
+    
+    // ✅ CORRECTION : Extraire correctement les données
+    if (response?.data?.data && Array.isArray(response.data.data)) {
+      examsData = response.data.data;
+    } else if (response?.data && Array.isArray(response.data)) {
+      examsData = response.data;
+    } else if (Array.isArray(response)) {
+      examsData = response;
     }
-  };
+    
+    console.log(`[AssignedExams] ${examsData.length} épreuve(s) assignée(s)`);
+    
+    const enriched = examsData.map(exam => ({
+      ...exam,
+      coverImage: getImageUrl(exam),
+      scheduledDate: exam.scheduledDate || null,
+      sessionRoom: exam.sessionRoom || 'Salle principale',
+      isAvailable: exam.status === 'published',
+      isPending: exam.status === 'draft',
+      isArchived: exam.status === 'archived',
+      statusLabel: getStatusLabel(exam.status),
+      statusColor: getStatusColor(exam.status),
+      statusIcon: getStatusIcon(exam.status),
+      helpMessage: getHelpMessage(exam.status)
+    }));
+    
+    setExams(enriched);
+    
+    const availableCount = enriched.filter(e => e.status === 'published').length;
+    const pendingCount = enriched.filter(e => e.status === 'draft').length;
+    
+    if (availableCount > 0) {
+      toast.success(`${availableCount} épreuve(s) disponible(s) à distribuer`);
+    } else if (pendingCount > 0) {
+      toast(`${pendingCount} épreuve(s) en attente de publication`, {
+        duration: 5000,
+        icon: '⏳',
+        style: { background: '#f59e0b', color: '#fff' }
+      });
+    } else if (examsData.length === 0) {
+      toast('ℹ️ Aucune épreuve assignée pour le moment', { icon: '📋' });
+    }
+    
+  } catch (error) {
+    console.error('Erreur:', error);
+    toast.error('Impossible de charger les épreuves assignées');
+  } finally {
+    setIsLoading(false);
+  }
+};
   
   const getImageUrl = (exam) => {
     if (exam.coverImage) {
