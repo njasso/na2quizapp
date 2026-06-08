@@ -2955,8 +2955,24 @@ app.get('/api/network-info', (req, res) => {
 app.get('/api/student/available-exams', protect, authorize('APPRENANT'), async (req, res) => {
   try {
     const exams = await Exam.find({ status: 'published' }).sort({ createdAt: -1 });
-    res.json(exams);
+    // Formater pour l'app mobile
+    const formattedExams = exams.map(exam => ({
+      _id: exam._id,
+      id: exam._id,
+      title: exam.title,
+      titre: exam.title,
+      description: exam.description,
+      duration: exam.duration,
+      level: exam.level,
+      subject: exam.subject,
+      examOption: exam.examOption,
+      totalQuestions: exam.questions?.length || 0,
+      passingScore: exam.passingScore,
+      status: exam.status
+    }));
+    res.json(formattedExams);
   } catch (err) {
+    console.error('[API] Erreur available-exams:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2974,8 +2990,23 @@ app.get('/api/student/my-results', protect, authorize('APPRENANT'), async (req, 
         ]
       }).populate('examId', 'title domain subject level examOption').sort({ createdAt: -1 });
     }
-    res.json(results);
+    
+    // Formater pour l'app mobile
+    const formattedResults = results.map(r => ({
+      _id: r._id,
+      examId: r.examId,
+      examTitle: r.examTitle,
+      score: r.score,
+      percentage: r.percentage,
+      passed: r.passed,
+      totalQuestions: r.totalQuestions,
+      createdAt: r.createdAt,
+      studentInfo: r.studentInfo
+    }));
+    
+    res.json(formattedResults);
   } catch (err) {
+    console.error('[API] Erreur my-results:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2985,118 +3016,333 @@ app.get('/api/exam/profile/:examId', protect, authorize('APPRENANT'), async (req
   try {
     const exam = await Exam.findById(req.params.examId);
     if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    
+    const config = exam.config || {};
+    const examOption = exam.examOption || config.examOption || 'C';
+    
     res.json({
       _id: exam._id,
+      id: exam._id,
       title: exam.title,
-      examOption: exam.examOption,
+      titre: exam.title,
+      examOption: examOption,
       totalQuestions: exam.questions?.length || 0,
+      questionsCount: exam.questions?.length || 0,
       timeLimit: exam.duration,
+      duration: exam.duration,
       matiere: exam.subject,
+      subject: exam.subject,
       level: exam.level,
+      niveau: exam.level,
       domain: exam.domain,
-      passingScore: exam.passingScore,
-      config: exam.config
+      passingScore: exam.passingScore || 70,
+      config: {
+        examOption: examOption,
+        openRange: config.openRange || false,
+        requiredQuestions: config.requiredQuestions || 0,
+        sequencing: config.sequencing || 'identical',
+        allowRetry: config.allowRetry || false,
+        showBinaryResult: config.showBinaryResult !== false,
+        showCorrectAnswer: config.showCorrectAnswer || false,
+        timerPerQuestion: config.timerPerQuestion || false,
+        timePerQuestion: config.timePerQuestion || 60,
+        totalTime: exam.duration || config.totalTime || 60,
+        pointsType: config.pointsType || 'uniform',
+        globalPoints: config.globalPoints || 1
+      }
     });
   } catch (err) {
+    console.error('[API] Erreur exam/profile:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Démarrer un examen (génère un token de session)
+// Démarrer un examen (génère un token de session) - VERSION AMÉLIORÉE
 app.post('/api/exam/start/:examId', protect, authorize('APPRENANT'), async (req, res) => {
   try {
-    const exam = await Exam.findById(req.params.examId);
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
+    const { examId } = req.params;
+    const { deviceId, studentInfo } = req.body;
     
-    // Générer un token de session unique
-    const sessionToken = crypto.randomBytes(32).toString('hex');
-    const questions = exam.questions.map(q => ({
-      _id: q._id,
-      question: q.libQuestion,
-      options: q.options,
-      points: q.points
-    }));
+    console.log(`[API] 🚀 Démarrage examen: ${examId} par ${req.user.email}`);
     
-    res.json({
-      sessionToken,
-      questions,
-      timeLimit: exam.duration,
-      totalQuestions: questions.length
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Soumettre un examen (avec anti-triche)
-app.post('/api/exam/submit/:examId', protect, authorize('APPRENANT'), async (req, res) => {
-  try {
-    const { answers, sessionToken } = req.body;
-    const exam = await Exam.findById(req.params.examId);
-    if (!exam) return res.status(404).json({ error: 'Examen non trouvé' });
-    
-    // Calculer le score
-    let score = 0;
-    const questions = exam.questions;
-    
-    for (const q of questions) {
-      const studentAnswer = answers[q._id];
-      const isCorrect = studentAnswer === q.options[q.bonOpRep];
-      if (isCorrect) score += (q.points || 1);
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ error: 'Examen non trouvé' });
     }
     
-    const totalPoints = questions.reduce((sum, q) => sum + (q.points || 1), 0);
-    const percentage = totalPoints > 0 ? Math.round((score / totalPoints) * 100) : 0;
+    // Vérifier que l'examen est publié
+    if (exam.status !== 'published') {
+      return res.status(403).json({ error: 'Cet examen n\'est pas disponible' });
+    }
     
-    // Sauvegarder le résultat
-    const result = new Result({
+    const config = exam.config || {};
+    const examOption = exam.examOption || config.examOption || 'C';
+    
+    // Générer un token de session unique
+    const crypto = await import('crypto');
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    
+    // Préparer les questions selon la configuration
+    let questions = [...exam.questions];
+    
+    // Configuration D, E, F: questions aléatoires
+    if (['D', 'E', 'F'].includes(examOption)) {
+      for (let i = questions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [questions[i], questions[j]] = [questions[j], questions[i]];
+      }
+    }
+    
+    // Formater les questions pour l'app mobile
+    const formattedQuestions = questions.map((q, index) => ({
+      _id: q._id,
+      id: q._id,
+      question: q.libQuestion || q.question || q.text,
+      libQuestion: q.libQuestion || q.question || q.text,
+      text: q.libQuestion || q.question || q.text,
+      options: q.options || [],
+      points: q.points || 1,
+      order: index + 1,
+      correctAnswer: config.showCorrectAnswer ? (q.options?.[q.bonOpRep] || null) : null,
+      explanation: config.showCorrectAnswer ? (q.explanation || '') : null
+    }));
+    
+    // Sauvegarder la session
+    if (!global.examSessions) global.examSessions = new Map();
+    global.examSessions.set(sessionToken, {
       examId: exam._id,
-      studentInfo: {
+      userId: req.user._id,
+      studentInfo: studentInfo || {
         firstName: req.user.name?.split(' ')[0] || '',
         lastName: req.user.name?.split(' ')[1] || '',
         matricule: req.user.matricule,
         level: req.user.level
       },
+      startTime: new Date(),
+      deviceId: deviceId,
+      examOption: examOption,
+      status: 'started'
+    });
+    
+    console.log(`[API] ✅ Examen démarré: ${exam.title}, session: ${sessionToken.substring(0, 8)}...`);
+    
+    res.json({
+      success: true,
+      sessionToken: sessionToken,
+      questions: formattedQuestions,
+      totalQuestions: formattedQuestions.length,
+      timeLimit: exam.duration || config.totalTime || 60,
+      examOption: examOption,
+      config: {
+        openRange: config.openRange || false,
+        requiredQuestions: config.requiredQuestions || 0,
+        sequencing: config.sequencing || 'identical',
+        allowRetry: config.allowRetry || false,
+        showBinaryResult: config.showBinaryResult !== false,
+        showCorrectAnswer: config.showCorrectAnswer || false,
+        timerPerQuestion: config.timerPerQuestion || false,
+        timePerQuestion: config.timePerQuestion || 60,
+        totalTime: exam.duration || config.totalTime || 60,
+        pointsType: config.pointsType || 'uniform',
+        globalPoints: config.globalPoints || 1
+      }
+    });
+    
+  } catch (err) {
+    console.error('[API] ❌ Erreur start exam:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Soumettre un examen - VERSION AMÉLIORÉE
+app.post('/api/exam/submit/:examId', protect, authorize('APPRENANT'), async (req, res) => {
+  try {
+    const { examId } = req.params;
+    const { answers, sessionToken, deviceId, studentInfo } = req.body;
+    
+    console.log(`[API] 📤 Soumission examen: ${examId} par ${req.user.email}`);
+    
+    // Vérifier la session
+    if (!global.examSessions || !global.examSessions.get(sessionToken)) {
+      return res.status(401).json({ error: 'Session invalide ou expirée' });
+    }
+    
+    const session = global.examSessions.get(sessionToken);
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ error: 'Examen non trouvé' });
+    }
+    
+    const config = exam.config || {};
+    const examOption = exam.examOption || config.examOption || 'C';
+    const showBinaryResult = config.showBinaryResult !== false;
+    const showCorrectAnswer = config.showCorrectAnswer || false;
+    const pointsType = config.pointsType || 'uniform';
+    const globalPoints = config.globalPoints || 1;
+    const openRange = config.openRange || false;
+    const requiredQuestions = config.requiredQuestions || 0;
+    
+    // Calculer le score
+    let score = 0;
+    let totalPoints = 0;
+    const questionResults = [];
+    
+    // Sélectionner les questions à noter
+    let questionsToGrade = exam.questions;
+    let selectedIndices = [];
+    
+    if (openRange && requiredQuestions > 0 && requiredQuestions < exam.questions.length) {
+      const answeredQuestions = [];
+      exam.questions.forEach((q, idx) => {
+        const hasAnswer = answers[idx] !== undefined && answers[idx] !== null && answers[idx] !== '';
+        if (hasAnswer) {
+          answeredQuestions.push({ question: q, originalIndex: idx });
+          selectedIndices.push(idx);
+        }
+      });
+      questionsToGrade = answeredQuestions.slice(0, requiredQuestions).map(item => item.question);
+      selectedIndices = selectedIndices.slice(0, requiredQuestions);
+    } else {
+      selectedIndices = exam.questions.map((_, idx) => idx);
+    }
+    
+    for (let i = 0; i < questionsToGrade.length; i++) {
+      const q = questionsToGrade[i];
+      let points = q.points || 1;
+      if (pointsType === 'uniform') points = globalPoints;
+      totalPoints += points;
+      
+      let studentAnswer = null;
+      const originalIdx = openRange ? selectedIndices[i] : i;
+      
+      // Chercher la réponse dans différents formats
+      if (answers[originalIdx] !== undefined) studentAnswer = answers[originalIdx];
+      else if (answers[String(originalIdx)] !== undefined) studentAnswer = answers[String(originalIdx)];
+      else if (q._id && answers[q._id.toString()] !== undefined) studentAnswer = answers[q._id.toString()];
+      
+      const options = q.options || [];
+      const correctAnswerIndex = q.bonOpRep;
+      const correctAnswerText = options[correctAnswerIndex] || q.correctAnswer || '';
+      
+      let isCorrect = false;
+      if (studentAnswer && studentAnswer !== '' && studentAnswer !== 'Non répondu') {
+        const selectedIndex = options.findIndex(opt => 
+          String(opt).trim().toLowerCase() === String(studentAnswer).trim().toLowerCase()
+        );
+        isCorrect = selectedIndex === correctAnswerIndex;
+        if (!isCorrect && typeof studentAnswer === 'number') isCorrect = studentAnswer === correctAnswerIndex;
+      }
+      
+      if (isCorrect) score += points;
+      
+      questionResults.push({
+        questionId: q._id,
+        libQuestion: q.libQuestion || q.question || q.text,
+        studentAnswer: studentAnswer || 'Non répondu',
+        correctAnswer: showCorrectAnswer ? correctAnswerText : undefined,
+        isCorrect: isCorrect,
+        points: points,
+        options: showCorrectAnswer ? options : undefined,
+        explanation: showCorrectAnswer ? (q.explanation || '') : undefined
+      });
+    }
+    
+    const percentage = totalPoints > 0 ? parseFloat(((score / totalPoints) * 100).toFixed(2)) : 0;
+    const passed = percentage >= (exam.passingScore || 70);
+    
+    // Créer le résultat
+    const studentInfoData = studentInfo || session.studentInfo || {
+      firstName: req.user.name?.split(' ')[0] || '',
+      lastName: req.user.name?.split(' ')[1] || '',
+      matricule: req.user.matricule,
+      level: req.user.level
+    };
+    
+    const result = new Result({
+      examId: exam._id,
+      studentInfo: {
+        firstName: studentInfoData.firstName || '',
+        lastName: studentInfoData.lastName || '',
+        matricule: studentInfoData.matricule || req.user.matricule || '',
+        level: studentInfoData.level || req.user.level || '',
+        email: req.user.email
+      },
       userId: req.user._id,
       answers: new Map(Object.entries(answers)),
-      score,
-      percentage,
-      passed: percentage >= (exam.passingScore || 70),
-      totalQuestions: questions.length,
+      score: score,
+      percentage: percentage,
+      passed: passed,
+      totalQuestions: exam.questions.length,
       examTitle: exam.title,
       examLevel: exam.level,
       domain: exam.domain,
       subject: exam.subject,
-      examOption: exam.examOption,
-      examQuestions: questions
+      duration: exam.duration,
+      passingScore: exam.passingScore,
+      examOption: examOption,
+      examQuestions: exam.questions,
+      config: {
+        examOption: examOption,
+        openRange: openRange,
+        requiredQuestions: requiredQuestions,
+        sequencing: config.sequencing || 'identical',
+        allowRetry: config.allowRetry || false,
+        showBinaryResult: showBinaryResult,
+        showCorrectAnswer: showCorrectAnswer,
+        timerPerQuestion: config.timerPerQuestion || false,
+        timePerQuestion: config.timePerQuestion || 60,
+        totalTime: exam.duration || config.totalTime || 60,
+        pointsType: pointsType,
+        globalPoints: globalPoints
+      },
+      questionDetails: questionResults,
+      generatedAt: new Date(),
+      generatedBy: req.user._id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent']
     });
     
     await result.save();
     
-    // Vérifier si les résultats doivent être affichés
-    const showResult = exam.config?.showBinaryResult !== false;
+    // Nettoyer la session
+    global.examSessions.delete(sessionToken);
+    
+    console.log(`[API] ✅ Résultat enregistré: ${result._id} - ${percentage}% - ${passed ? 'REÇU' : 'ÉCHOUÉ'}`);
     
     res.json({
-      showResult,
-      score: showResult ? score : null,
-      percentage: showResult ? percentage : null,
-      passed: showResult ? (percentage >= (exam.passingScore || 70)) : null,
-      totalQuestions: questions.length
+      success: true,
+      showResult: showBinaryResult,
+      score: showBinaryResult ? score : null,
+      percentage: showBinaryResult ? percentage : null,
+      passed: showBinaryResult ? passed : null,
+      totalQuestions: exam.questions.length,
+      resultId: result._id,
+      message: passed ? 'Félicitations !' : 'Vous pouvez réessayer.'
     });
+    
   } catch (err) {
+    console.error('[API] ❌ Erreur submit exam:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // Heartbeat pour garder la session active
 app.post('/api/exam/heartbeat', protect, authorize('APPRENANT'), async (req, res) => {
+  const { examId, sessionToken } = req.body;
+  
+  if (global.examSessions && sessionToken && global.examSessions.get(sessionToken)) {
+    const session = global.examSessions.get(sessionToken);
+    session.lastHeartbeat = new Date();
+    global.examSessions.set(sessionToken, session);
+  }
+  
   res.json({ success: true });
 });
 
 // Signaler une tentative de triche
 app.post('/api/exam/violation', protect, authorize('APPRENANT'), async (req, res) => {
-  const { examId, sessionToken, type } = req.body;
-  console.log(`[TRICHE] Tentative détectée: ${type}, examId: ${examId}, user: ${req.user.email}`);
+  const { examId, sessionToken, type, details } = req.body;
+  console.log(`[TRICHE] 🚨 Tentative détectée: ${type}, examId: ${examId}, user: ${req.user.email}, details: ${JSON.stringify(details)}`);
   res.json({ success: true });
 });
 
