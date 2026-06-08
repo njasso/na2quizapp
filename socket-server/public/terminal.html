@@ -155,7 +155,7 @@
         <div class="exam-opt" id="ovOpt">OPTION — CONFIGURATION</div>
         <div class="exam-desc" id="ovDesc"></div>
     </div>
-    <div class="exam-cd" id="ovCd">▋ REDIRECTION EN COURS…</div>
+    <div class="exam-cd" id="ovCd">▋ PRÉPARATION DE L'ÉPREUVE…</div>
 </div>
 <div class="shell">
     <div class="identity">
@@ -271,8 +271,11 @@
     
     var SERVER_URL = window.location.origin;
     
-    // ✅ CORRECTION: Pour Expo (React Native) rediriger vers le frontend web (port 3000)
-    // Backend = port 5000, Frontend Web = port 3000
+    // ✅ Détection de l'environnement (Web ou React Native)
+    var isReactNative = typeof window.ReactNativeWebView !== 'undefined';
+    var isWeb = !isReactNative;
+    
+    // URL du frontend en fonction de l'environnement
     var FRONTEND_URL = (function() {
         var hostname = window.location.hostname;
         var storedUrl = localStorage.getItem('terminalFrontendUrl');
@@ -282,36 +285,41 @@
             return storedUrl;
         }
         
-        // Détection Expo / React Native
-        var isExpo = navigator.userAgent.includes('Expo') || 
-                     navigator.userAgent.includes('ReactNative') ||
-                     navigator.userAgent.includes('Hermes') ||
-                     (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ === 'undefined');
+        // ✅ Pour React Native, on utilise une URL factice (la redirection se fait via postMessage)
+        if (isReactNative) {
+            console.log('[Terminal] 📡 Mode React Native - redirection via postMessage');
+            return window.location.origin;
+        }
         
-        // Détection IP réseau (192.168.x.x, 10.x.x.x, 172.x.x.x)
+        // ✅ Pour le Web, redirection normale
+        // Production Netlify
+        if (hostname.includes('netlify.app') || hostname.includes('na2quizapp')) {
+            console.log('[Terminal] 📡 Mode Web Production - Netlify');
+            return 'https://na2quizapp.netlify.app';
+        }
+        
+        // IP réseau locale
         if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) && 
             (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.'))) {
-            
-            // ✅ TOUJOURS vers le port 3000 (frontend web)
             var url = 'http://' + hostname + ':3000';
-            console.log('[Terminal] 📡 Redirection IP', isExpo ? '(Expo)' : '(Web)', 'vers:', url);
+            console.log('[Terminal] 📡 Mode Web IP réseau:', url);
             return url;
         }
         
         // Localhost
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
             var url = 'http://localhost:3000';
-            console.log('[Terminal] 📡 Redirection localhost vers:', url);
+            console.log('[Terminal] 📡 Mode Web localhost:', url);
             return url;
         }
         
-        // Production
-        console.log('[Terminal] 📡 Redirection production vers: https://na2quizapp.netlify.app');
-        return 'https://na2quizapp.netlify.app';
+        console.log('[Terminal] 📡 Mode Web fallback:', window.location.origin);
+        return window.location.origin;
     })();
     
-    console.log('[Terminal] 🌐 Serveur (backend - port 5000):', SERVER_URL);
-    console.log('[Terminal] 🌍 Frontend (redirection - port 3000):', FRONTEND_URL);
+    console.log('[Terminal] 🌐 Serveur (backend):', SERVER_URL);
+    console.log('[Terminal] 🌍 Frontend URL:', FRONTEND_URL);
+    console.log('[Terminal] 📱 Environnement:', isReactNative ? 'React Native' : 'Web');
     
     var MAX_RECONNECT = 20;
     var socket = null;
@@ -359,7 +367,14 @@
     if(homeBtn) {
         homeBtn.addEventListener('click', function() {
             console.log('[Terminal] 🏠 Redirection vers accueil');
-            window.location.href = FRONTEND_URL;
+            if (isReactNative && window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'RETURN_TO_HOME',
+                    url: FRONTEND_URL
+                }));
+            } else {
+                window.location.href = FRONTEND_URL;
+            }
         });
     }
     
@@ -372,7 +387,7 @@
     };
     
     var CONFIG_DESCRIPTIONS = {
-        'A': 'Plage fermée · Seqentiel figé · Même QCM pour tous · Avancement automatique par timer/question · Résultat binaire · Sans reprise.',
+        'A': 'Plage fermée · Séquentiel figé · Même QCM pour tous · Avancement automatique par timer/question · Résultat binaire · Sans reprise.',
         'B': 'Plage fermée · Séquentiel figé · Même QCM pour tous · Navigation libre · Résultat binaire+ (bonne réponse) · Sans reprise.',
         'C': 'Plage fermée · Séquentiel figé · Même QCM pour tous · Navigation libre · Sans affichage de résultat · Sans reprise.',
         'D': 'Plage fermée · Séquentiel figé · QCM aléatoire par étudiant · Avancement auto après chaque réponse · Résultat binaire · Sans reprise.',
@@ -492,7 +507,8 @@
         socket.emit('terminalReady', {
             terminalId: sessionId, status: 'ready',
             terminalInfo: termInfo, socketId: socket.id,
-            frontendUrl: FRONTEND_URL, serverUrl: SERVER_URL
+            frontendUrl: FRONTEND_URL, serverUrl: SERVER_URL,
+            isReactNative: isReactNative
         });
         socket.emit('terminalHeartbeat', {
             terminalId: sessionId, status: 'online', timestamp: new Date().toISOString()
@@ -502,7 +518,14 @@
     
     function safeRedirectToHome() {
         console.log('[Terminal] 🏠 Redirection sécurisée vers accueil');
-        window.location.href = FRONTEND_URL;
+        if (isReactNative && window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'RETURN_TO_HOME',
+                url: FRONTEND_URL
+            }));
+        } else {
+            window.location.href = FRONTEND_URL;
+        }
     }
     
     function connect(){
@@ -587,6 +610,7 @@
             }
         });
         
+        // ✅ ÉVÉNEMENT PRINCIPAL - Distribution d'épreuve
         socket.on('examDistributed', function(data){
             console.log('[Terminal] 📋 examDistributed reçu:', data);
             if(!data || isRedirecting) return;
@@ -620,6 +644,7 @@
             
             var token = localStorage.getItem('userToken') || localStorage.getItem('token');
             
+            // ✅ Construction de l'URL de redirection
             var redirectUrl = FRONTEND_URL + '/exam/profile/' + examId + '?option=' + option;
             
             if (token) {
@@ -640,6 +665,7 @@
             }
             
             console.log('[Terminal] 🔗 Redirection vers:', redirectUrl);
+            console.log('[Terminal] 📱 Environnement:', isReactNative ? 'React Native - envoi message' : 'Web - redirection directe');
             
             isRedirecting = true;
             cleanup();
@@ -647,25 +673,46 @@
             var optName = OPTIONS_LABELS[option] || ('OPTION ' + (option || '?'));
             var optDesc = CONFIG_DESCRIPTIONS[option] || '';
             
-            setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — redirection…');
+            setStatus('exam', '📋', 'Épreuve reçue', 'Option ' + (option || '?') + ' — préparation…');
             addFeed('success', '📋 Épreuve reçue — Option ' + (option || '?'), optName);
             ovTitle.textContent = (option ? 'Option ' + option + ' — ' : '') + 'Épreuve reçue';
             ovOpt.textContent = optName;
             ovDesc.textContent = optDesc;
             overlay.classList.add('on');
             
-            var s = 1;
-            var tick = setInterval(function(){
-                s--;
-                ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
-                if(s <= 0) clearInterval(tick);
-            }, 1000);
-            
-            redirTimeout = setTimeout(function(){
-                console.log('[Terminal] 🚀 Redirection finale vers:', redirectUrl);
-                if (!isRedirecting) return;
-                window.location.href = redirectUrl;
-            }, 1000);
+            // ✅ Pour React Native : envoyer un message via postMessage
+            if (isReactNative && window.ReactNativeWebView) {
+                console.log('[Terminal] 📤 Envoi message à React Native');
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'EXAM_PROFILE_REDIRECT',
+                    url: redirectUrl,
+                    examId: examId,
+                    examOption: option,
+                    token: token,
+                    sessionId: sessionId,
+                    config: config
+                }));
+                
+                // Fermer l'overlay après 2 secondes
+                setTimeout(function(){
+                    overlay.classList.remove('on');
+                }, 2000);
+            } 
+            // ✅ Pour le Web : redirection normale
+            else {
+                var s = 1;
+                var tick = setInterval(function(){
+                    s--;
+                    ovCd.textContent = s > 0 ? ('▋ REDIRECTION DANS ' + s + 's…') : '▋ CHARGEMENT DU FORMULAIRE…';
+                    if(s <= 0) clearInterval(tick);
+                }, 1000);
+                
+                redirTimeout = setTimeout(function(){
+                    console.log('[Terminal] 🚀 Redirection finale vers:', redirectUrl);
+                    if (!isRedirecting) return;
+                    window.location.href = redirectUrl;
+                }, 1000);
+            }
         });
         
         socket.on('waitingCountUpdate', function(data){
