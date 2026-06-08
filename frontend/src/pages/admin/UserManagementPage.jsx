@@ -1,8 +1,10 @@
-// src/pages/UserManagementPage.jsx - VERSION COMPLÈTE ET CORRIGÉE
+// src/pages/UserManagementPage.jsx - VERSION COMPLÈTE CORRIGÉE AVEC LOGS
 // ✅ Import CSV fonctionnel
 // ✅ Labels selon spec Excel
 // ✅ Gestion complète des rôles (6 rôles)
 // ✅ Drag & drop pour l'import
+// ✅ Gestion des erreurs 404 avec fallback
+// ✅ Logs de débogage intégrés
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
@@ -27,11 +29,16 @@ const NODE_BACKEND_URL = process.env.NODE_ENV === 'production'
 
 const PAGE_SIZE = 10;
 
+// 🔍 LOGS de débogage pour l'environnement
+console.log('[UserManagement] 🚀 Environnement:', process.env.NODE_ENV);
+console.log('[UserManagement] 🔗 Backend URL:', NODE_BACKEND_URL);
+
 const getAuthHeaders = (token) => {
   if (!token) {
-    console.warn('⚠️ Pas de token disponible');
+    console.warn('[Auth] ⚠️ Pas de token disponible');
     return null;
   }
+  console.log('[Auth] 🔑 Token valide (début):', token.substring(0, 30) + '...');
   return { headers: { Authorization: `Bearer ${token}` } };
 };
 
@@ -228,64 +235,102 @@ const ImportModal = ({ isOpen, onClose, onImport, onDownloadTemplate, loading })
   );
 };
 
-// Modal de détail utilisateur
+// Modal de détail utilisateur - VERSION CORRIGÉE AVEC GESTION DES ERREURS
 const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({});
   const [sessions, setSessions] = useState([]);
   const [stats, setStats] = useState({});
   const [loadingStats, setLoadingStats] = useState(false);
+  const [statsError, setStatsError] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (user && user._id) {
+      console.log('[Modal] 📋 Chargement détails pour user:', user._id, user.name);
       setFormData(user);
       loadUserStats(user._id);
       loadUserSessions(user._id);
+      setStatsError(false);
+    } else {
+      console.warn('[Modal] ⚠️ user ou user._id manquant:', user);
     }
   }, [user]);
 
   const loadUserStats = async (userId) => {
+    // ✅ PROTECTION CONTRE userId undefined
+    if (!userId) {
+      console.warn('[Stats] ⚠️ loadUserStats: userId est undefined/null');
+      setStats({});
+      setLoadingStats(false);
+      return;
+    }
+    
     setLoadingStats(true);
     try {
       const token = localStorage.getItem('userToken');
-      const res = await axios.get(`${NODE_BACKEND_URL}/api/users/${userId}/stats`, getAuthHeaders(token));
-      if (res.data?.success && res.data?.data) {
-        setStats(res.data.data);
-      } else if (res.data) {
-        setStats(res.data);
-      } else {
-        console.warn('⚠️ Format de stats inattendu:', res);
+      if (!token) {
+        console.warn('[Stats] ⚠️ Pas de token');
+        setStats({});
+        return;
       }
-    } catch (err) { 
-      console.error('❌ Erreur chargement stats:', err);
-      toast.error('Impossible de charger les statistiques');
+      
+      const url = `${NODE_BACKEND_URL}/api/users/${userId}/stats`;
+      console.log('[Stats] 📡 Appel API:', url);
+      
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      console.log('[Stats] ✅ Réponse reçue:', response.status);
+      
+      if (response.data?.success && response.data?.data) {
+        setStats(response.data.data);
+      } else {
+        setStats({});
+      }
+    } catch (err) {
+      console.error('[Stats] ❌ Erreur:', err.response?.status, err.message);
+      setStatsError(true);
+      // Données mock en cas d'erreur pour ne pas bloquer l'UI
+      setStats({
+        examsCreated: 0,
+        questionsCreated: 0,
+        lastLogin: null,
+        sessionCount: 0
+      });
     } finally {
       setLoadingStats(false);
     }
   };
 
   const loadUserSessions = async (userId) => {
+    if (!userId) {
+      console.warn('[Sessions] ⚠️ loadUserSessions: userId est undefined/null');
+      setSessions([]);
+      return;
+    }
+    
     try {
       const token = localStorage.getItem('userToken');
-      const res = await axios.get(`${NODE_BACKEND_URL}/api/users/${userId}/sessions`, getAuthHeaders(token));
-      if (res.data?.success && res.data?.data) {
-        setSessions(res.data.data);
-      } else if (res.data?.sessions) {
-        setSessions(res.data.sessions);
-      } else if (Array.isArray(res.data)) {
-        setSessions(res.data);
-      } else if (res.data?.data && Array.isArray(res.data.data)) {
-        setSessions(res.data.data);
-      } else {
-        setSessions([]);
-      }
-    } catch (err) { 
-      console.error('❌ Erreur chargement sessions:', err);
+      if (!token) return;
+      
+      const response = await axios.get(`${NODE_BACKEND_URL}/api/users/${userId}/sessions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const sessionsData = response.data?.data || response.data?.sessions || [];
+      setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+      console.log('[Sessions] ✅', sessions.length, 'session(s) chargée(s)');
+    } catch (err) {
+      console.error('[Sessions] ❌ Erreur:', err.message);
+      setSessions([]);
     }
   };
 
   const handleUpdate = () => {
-    onUpdate(user._id, formData);
-    onClose();
+    if (user && user._id) {
+      onUpdate(user._id, formData);
+      onClose();
+    }
   };
 
   if (!isOpen || !user) return null;
@@ -323,6 +368,11 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
             <h4 style={{ color: '#60a5fa', fontSize: '0.8rem', marginBottom: 12 }}>📊 Statistiques</h4>
             {loadingStats ? (
               <div style={{ textAlign: 'center', padding: 20 }}>Chargement...</div>
+            ) : statsError ? (
+              <div style={{ textAlign: 'center', padding: 20, color: '#f59e0b' }}>
+                <AlertCircle size={24} />
+                <p>Statistiques non disponibles</p>
+              </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <StatCard title="Épreuves créées" value={stats.examsCreated || 0} icon={<FileSpreadsheet size={16} />} color="#10b981" />
@@ -509,13 +559,18 @@ const UserManagementPage = () => {
   const isAdminDelegue = hasRole('ADMIN_DELEGUE');
 
   useEffect(() => {
+    console.log('[UserManagement] 🚀 Initialisation du composant');
+    console.log('[UserManagement] 👤 Utilisateur connecté:', user?.email, 'Rôle:', user?.role);
+    console.log('[UserManagement] 🔐 isAdminSysteme:', isAdminSysteme);
+    console.log('[UserManagement] 🔐 isAdminDelegue:', isAdminDelegue);
+    
     if (!isAuthenticated) {
       toast.error('Veuillez vous connecter');
       setTimeout(() => navigate('/login'), 1500);
       return;
     }
     if (!isAdminSysteme && !isAdminDelegue) {
-      toast.error("Accès non autorisé.");
+      toast.error("Accès non autorisé. Rôle ADMIN_DELEGUE requis.");
       setTimeout(() => navigate('/evaluate'), 1500);
       return;
     }
@@ -526,14 +581,19 @@ const UserManagementPage = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[LoadUsers] 🔑 Token présent?', !!token);
+      
       if (!token) throw new Error('Token non trouvé');
       
       const response = await axios.get(`${NODE_BACKEND_URL}/api/users`, getAuthHeaders(token));
+      console.log('[LoadUsers] 📡 Réponse reçue, status:', response.status);
+      
       let usersData = [];
       if (Array.isArray(response.data)) usersData = response.data;
       else if (response.data?.data && Array.isArray(response.data.data)) usersData = response.data.data;
       else if (response.data?.users && Array.isArray(response.data.users)) usersData = response.data.users;
       
+      console.log('[LoadUsers] ✅', usersData.length, 'utilisateur(s) chargé(s)');
       setUsers(usersData);
       
       const byRole = {};
@@ -542,13 +602,16 @@ const UserManagementPage = () => {
       
       toast.success(`${usersData.length} utilisateur(s) chargé(s)`);
     } catch (err) {
-      console.error('Erreur:', err);
+      console.error('[LoadUsers] ❌ Erreur:', err);
+      console.error('[LoadUsers] Status:', err.response?.status);
+      console.error('[LoadUsers] Message:', err.response?.data?.message);
+      
       if (err.response?.status === 401) {
-        toast.error('Session expirée');
+        toast.error('Session expirée, veuillez vous reconnecter');
         localStorage.removeItem('userToken');
         setTimeout(() => navigate('/login'), 1500);
       } else {
-        toast.error(err.response?.data?.message || "Erreur chargement");
+        toast.error(err.response?.data?.message || "Erreur chargement des utilisateurs");
       }
     } finally {
       setLoading(false);
@@ -559,11 +622,14 @@ const UserManagementPage = () => {
     setCreateLoading(true);
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Create] 📝 Création utilisateur:', formData.email);
+      
       await axios.post(`${NODE_BACKEND_URL}/api/auth/register`, formData, getAuthHeaders(token));
       toast.success("Utilisateur créé avec succès");
       setShowCreateModal(false);
       loadUsers();
     } catch (err) {
+      console.error('[Create] ❌ Erreur:', err.response?.data?.message);
       toast.error(err.response?.data?.message || "Erreur création");
     } finally {
       setCreateLoading(false);
@@ -577,10 +643,14 @@ const UserManagementPage = () => {
       const formData = new FormData();
       formData.append('file', file);
       
+      console.log('[Import] 📤 Import du fichier:', file.name);
+      
       const response = await axios.post(`${NODE_BACKEND_URL}/api/users/import`, formData, {
         ...getAuthHeaders(token),
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      
+      console.log('[Import] ✅ Réponse:', response.data);
       
       if (response.data.success) {
         const { imported, errors } = response.data.data;
@@ -598,7 +668,7 @@ const UserManagementPage = () => {
         throw new Error(response.data.message || 'Erreur import');
       }
     } catch (err) {
-      console.error('Erreur import:', err);
+      console.error('[Import] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur lors de l'import");
     } finally {
       setImportLoading(false);
@@ -608,10 +678,13 @@ const UserManagementPage = () => {
   const downloadTemplate = async () => {
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Template] 📥 Téléchargement du template');
+      
       const response = await axios.get(`${NODE_BACKEND_URL}/api/users/template`, {
         ...getAuthHeaders(token),
         responseType: 'blob'
       });
+      
       const url = URL.createObjectURL(new Blob([response.data], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url;
@@ -620,17 +693,30 @@ const UserManagementPage = () => {
       URL.revokeObjectURL(url);
       toast.success('Template téléchargé');
     } catch (err) {
-      toast.error('Erreur téléchargement template');
+      console.error('[Template] ❌ Erreur:', err);
+      // Fallback: créer un template local
+      const csvContent = "nom;email;username;role;niveau\nJean Dupont;jean@example.com;jean.dupont;APPRENANT;Terminale\nMarie Martin;marie@example.com;marie.martin;ENSEIGNANT;Seconde";
+      const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'template_utilisateurs.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Template généré localement');
     }
   };
 
   const handleUpdate = async (userId, data) => {
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Update] ✏️ Mise à jour utilisateur:', userId);
+      
       await axios.put(`${NODE_BACKEND_URL}/api/users/${userId}`, data, getAuthHeaders(token));
       toast.success("Utilisateur mis à jour");
       loadUsers();
     } catch (err) {
+      console.error('[Update] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur mise à jour");
     }
   };
@@ -640,9 +726,12 @@ const UserManagementPage = () => {
       toast.error("Aucun utilisateur sélectionné");
       return;
     }
+    
     setBulkActionLoading(true);
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Bulk] 📦 Action groupée:', action, selectedUsers.length, 'utilisateur(s)');
+      
       await axios.post(`${NODE_BACKEND_URL}/api/users/bulk`, 
         { userIds: selectedUsers, action },
         getAuthHeaders(token)
@@ -651,6 +740,7 @@ const UserManagementPage = () => {
       setSelectedUsers([]);
       loadUsers();
     } catch (err) {
+      console.error('[Bulk] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur action groupée");
     } finally {
       setBulkActionLoading(false);
@@ -661,11 +751,14 @@ const UserManagementPage = () => {
     setDeleteLoading(true);
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Delete] 🗑️ Suppression utilisateur:', userId);
+      
       await axios.delete(`${NODE_BACKEND_URL}/api/users/${userId}`, getAuthHeaders(token));
       toast.success("Utilisateur supprimé");
       loadUsers();
       setDeleteConfirm(null);
     } catch (err) {
+      console.error('[Delete] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur suppression");
     } finally {
       setDeleteLoading(false);
@@ -676,6 +769,8 @@ const UserManagementPage = () => {
     try {
       const token = localStorage.getItem('userToken');
       const willBeActive = currentStatus !== 'active';
+      console.log('[Status] 🔄 Changement statut:', userId, '->', willBeActive ? 'actif' : 'inactif');
+      
       await axios.patch(`${NODE_BACKEND_URL}/api/users/${userId}/status`, 
         { active: willBeActive },
         getAuthHeaders(token)
@@ -683,7 +778,7 @@ const UserManagementPage = () => {
       toast.success(`Utilisateur ${willBeActive ? 'activé' : 'désactivé'}`);
       loadUsers();
     } catch (err) {
-      console.error('Erreur toggle status:', err);
+      console.error('[Status] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur lors du changement de statut");
     }
   };
@@ -691,14 +786,19 @@ const UserManagementPage = () => {
   const handleResetPassword = async (userId) => {
     try {
       const token = localStorage.getItem('userToken');
+      console.log('[Password] 🔑 Réinitialisation mot de passe:', userId);
+      
       const res = await axios.post(`${NODE_BACKEND_URL}/api/users/${userId}/reset-password`, {}, getAuthHeaders(token));
       toast.success(`Nouveau mot de passe: ${res.data.temporaryPassword}`);
     } catch (err) {
+      console.error('[Password] ❌ Erreur:', err);
       toast.error(err.response?.data?.message || "Erreur");
     }
   };
 
   const exportToCSV = () => {
+    console.log('[Export] 📊 Export CSV de', filteredUsers.length, 'utilisateurs');
+    
     const headers = ['Nom', 'Email', 'Nom utilisateur', 'Rôle', 'Matricule', 'Niveau', 'Statut', 'Date création'];
     const rows = filteredUsers.map(u => [
       u.name, u.email, u.username,
@@ -718,6 +818,7 @@ const UserManagementPage = () => {
   };
 
   const exportToPDF = () => {
+    console.log('[Export] 🖨️ Export PDF');
     window.print();
   };
 
