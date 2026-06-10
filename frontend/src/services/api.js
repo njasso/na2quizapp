@@ -551,5 +551,70 @@ export const forceSocketUrlUpdate = () => {
 
 forceSocketUrlUpdate();
 
+// ==================== RÉFÉRENTIEL OPTIMISÉ ====================
+
+// ✅ Récupérer toutes les matières qui ont des questions validées (1 seul appel)
+export const getMatieresWithQuestions = async () => {
+  try {
+    updateApiBaseUrl();
+    const response = await api.get('/api/referentiel/matieres-with-questions');
+    if (response.data?.success && Array.isArray(response.data.data)) {
+      return { success: true, data: response.data.data, cached: response.data.cached || false };
+    }
+    return { success: false, data: [] };
+  } catch (error) {
+    console.error('[API] Erreur getMatieresWithQuestions:', error);
+    return { success: false, data: [] };
+  }
+};
+
+// ✅ Compter les questions approuvées pour une matière donnée
+export const getQuestionsCountByMatiere = async (matiereId) => {
+  try {
+    updateApiBaseUrl();
+    const response = await api.get(`/api/referentiel/questions-count/${matiereId}`);
+    return response.data?.count || 0;
+  } catch (error) {
+    console.error('[API] Erreur getQuestionsCountByMatiere:', error);
+    return 0;
+  }
+};
+
+// ✅ Récupérer les chapitres distincts pour une matière
+export const getChapitresByMatiere = async (matiereId) => {
+  try {
+    updateApiBaseUrl();
+    const response = await api.get(`/api/referentiel/chapitres/${matiereId}`);
+    return response.data?.data || [];
+  } catch (error) {
+    console.error('[API] Erreur getChapitresByMatiere:', error);
+    return [];
+  }
+};
+
+// ✅ Récupérer les niveaux pour un domaine/sous-domaine
+export const getLevels = async (domaineId, sousDomaineId) => {
+  try {
+    updateApiBaseUrl();
+    const response = await api.get(`/api/referentiel/levels/${domaineId}/${sousDomaineId}`);
+    return response.data?.data || [];
+  } catch (error) {
+    console.error('[API] Erreur getLevels:', error);
+    return [];
+  }
+};
+
+// ✅ Récupérer les matières pour un domaine/sous-domaine
+export const getMatieresBySousDomaine = async (domaineId, sousDomaineId) => {
+  try {
+    updateApiBaseUrl();
+    const response = await api.get(`/api/referentiel/matieres/${domaineId}/${sousDomaineId}`);
+    return response.data?.data || [];
+  } catch (error) {
+    console.error('[API] Erreur getMatieresBySousDomaine:', error);
+    return [];
+  }
+};
+
 // ==================== EXPORT PAR DÉFAUT ====================
 export default api;
