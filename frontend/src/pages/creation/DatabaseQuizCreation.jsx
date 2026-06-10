@@ -1,13 +1,21 @@
-// src/pages/creation/DatabaseQuizCreation.jsx - VERSION CORRIGÉE
+// src/pages/creation/DatabaseQuizCreation.jsx - VERSION COMPLÈTE CORRIGÉE
+// ✅ CORRECTIONS :
+//  1. Sélection simplifiée : liste déroulante UNIQUEMENT pour les matières avec questions
+//  2. Configuration A à K en liste déroulante (plus compacte)
+//  3. Auto-remplissage Domaine/Sous-domaine via la matière sélectionnée
+//  4. Correction de la boucle infinie (Maximum update depth exceeded)
+//  5. Correction de toast.info → toast() avec icône
+//  6. Filtrage des matières : uniquement celles avec au moins une question validée
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Database, Save, Trash2, ArrowLeft, Search,
   BookOpen, BookMarked, Loader, AlertCircle, RefreshCw,
   CheckCircle, XCircle, Tag, Layers, Clock, Plus, Eye,
-  Settings, ChevronDown, ChevronUp, Award, Timer, Image as ImageIcon
+  Settings, ChevronDown, ChevronUp, Award, Timer, Image as ImageIcon,
+  Info
 } from 'lucide-react';
 import DOMAIN_DATA, { 
   getAllDomaines, 
@@ -19,7 +27,7 @@ import DOMAIN_DATA, {
   getLevelNom,
   getMatiereNom
 } from '../../data/domainConfig';
-import { getPublicQuestions, createExam, countExamsBySubject } from '../../services/api';
+import { getPublicQuestions, createExam, countExamsBySubject, getQuestionsCountByMatiere } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import ENV_CONFIG from '../../config/env';
@@ -40,6 +48,21 @@ const TIMER_DISPLAY_MODES = [
   { value: 'once', label: 'Une seule fois', description: 'Au début de l\'épreuve' },
   { value: 'twice', label: 'Instantané 2 fois', description: 'Au 1/3 et au 2/3 du temps' },
   { value: 'fourTimes', label: 'Instantané 4 fois', description: 'Tous les 1/4 du temps' }
+];
+
+// ✅ CONFIGURATIONS COMPLÈTES A à K
+const EXAM_CONFIGURATIONS = [
+  { key: 'A', label: 'Configuration A', desc: 'Plage fermée · Séquentiel figé · Même QCM · Résultat binaire · Pas de reprise', color: '#ef4444', config: { examOption: 'A', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'B', label: 'Configuration B', desc: 'Plage fermée · Séquentiel figé · Même QCM · Résultat binaire+ · Pas de reprise', color: '#ef4444', config: { examOption: 'B', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'C', label: 'Configuration C', desc: 'Plage fermée · Séquentiel figé · Même QCM · Pas de résultat · Pas de reprise', color: '#ef4444', config: { examOption: 'C', openRange: false, sequencing: 'identical', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'D', label: 'Configuration D', desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Résultat binaire · Pas de reprise', color: '#f59e0b', config: { examOption: 'D', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'E', label: 'Configuration E', desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Résultat binaire+ · Pas de reprise', color: '#f59e0b', config: { examOption: 'E', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: true, showCorrectAnswer: true, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'F', label: 'Configuration F', desc: 'Plage fermée · Séquentiel figé · QCM aléatoire · Pas de résultat · Pas de reprise', color: '#f59e0b', config: { examOption: 'F', openRange: false, sequencing: 'randomPerStudent', showBinaryResult: false, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 } },
+  { key: 'G', label: 'Configuration G', desc: 'Plage ouverte · Résultat binaire · Reprise OK', color: '#10b981', config: { examOption: 'G', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: true } },
+  { key: 'H', label: 'Configuration H', desc: 'Plage ouverte · Résultat binaire · No Reply', color: '#10b981', config: { examOption: 'H', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: false, allowRetry: false } },
+  { key: 'I', label: 'Configuration I', desc: 'Plage ouverte · Résultat binaire+ · Reprise OK', color: '#10b981', config: { examOption: 'I', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: true } },
+  { key: 'J', label: 'Configuration J', desc: 'Plage ouverte · Résultat binaire+ · No Reply', color: '#10b981', config: { examOption: 'J', openRange: true, requiredQuestions: 0, showBinaryResult: true, showCorrectAnswer: true, allowRetry: false } },
+  { key: 'K', label: 'Configuration K', desc: 'Plage ouverte · Pas de résultat · No Reply', color: '#10b981', config: { examOption: 'K', openRange: true, requiredQuestions: 0, showBinaryResult: false, showCorrectAnswer: false, allowRetry: false } }
 ];
 
 // Préfixes selon le niveau éducatif
@@ -186,17 +209,11 @@ const DatabaseQuizCreation = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // États pour les IDs
-  const [selectedDomainId, setSelectedDomainId] = useState('');
-  const [selectedSousDomaineId, setSelectedSousDomaineId] = useState('');
-  const [selectedLevelId, setSelectedLevelId] = useState('');
+  // États simplifiés
   const [selectedMatiereId, setSelectedMatiereId] = useState('');
-  
-  // Noms affichés
-  const [domainNom, setDomainNom] = useState('');
-  const [sousDomaineNom, setSousDomaineNom] = useState('');
+  const [selectedMatiereInfo, setSelectedMatiereInfo] = useState(null);
+  const [selectedLevelId, setSelectedLevelId] = useState('');
   const [levelNom, setLevelNom] = useState('');
-  const [matiereNom, setMatiereNom] = useState('');
   const [searchChapitre, setSearchChapitre] = useState('');
 
   // Auto-génération du titre
@@ -211,100 +228,276 @@ const DatabaseQuizCreation = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
   const [previewQuestion, setPreviewQuestion] = useState(null);
+  const [matieresWithQuestions, setMatieresWithQuestions] = useState([]);
+  const [loadingMatieres, setLoadingMatieres] = useState(true);
   
-  // Configuration - conforme spec Excel
+  // Configuration - conforme spec Excel avec A à K
+  const [selectedExamOption, setSelectedExamOption] = useState('A');
   const [config, setConfig] = useState({
-    examOption: 'C',
     openRange: false,
     requiredQuestions: 0,
-    sequencing: 'identical',        // identical / randomPerStudent
-    allowRetry: false,               // Reprise suite feedback négatif
-    feedbackType: 'none',            // none / binary / binary+answer / binary+answer+justification
+    sequencing: 'identical',
+    allowRetry: false,
+    feedbackType: 'none',
     timerPerQuestion: true,
     timePerQuestion: 60,
     totalTime: 60,
-    pointsType: 'uniform',           // uniform / variable (Homogène / Variable)
+    pointsType: 'uniform',
     globalPoints: 1,
-    timerDisplayMode: 'permanent'    // permanent / once / twice / fourTimes
+    timerDisplayMode: 'permanent'
   });
   
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [totalPointsWarning, setTotalPointsWarning] = useState(false);
   const [totalTimeWarning, setTotalTimeWarning] = useState(false);
 
-  // Mise à jour des noms
-  useEffect(() => {
-    if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId));
-    else setDomainNom('');
-  }, [selectedDomainId]);
+  // Refs pour éviter les boucles infinies
+  const autoGeneratedRef = useRef(false);
+  const isLoadingQuestionsRef = useRef(false);
 
+  // ✅ Récupérer toutes les matières avec leur nombre de questions
   useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId) {
-      setSousDomaineNom(getSousDomaineNom(selectedDomainId, selectedSousDomaineId));
-    } else {
-      setSousDomaineNom('');
-    }
-  }, [selectedDomainId, selectedSousDomaineId]);
-
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId) {
-      setLevelNom(getLevelNom(selectedDomainId, selectedSousDomaineId, selectedLevelId));
-    } else {
-      setLevelNom('');
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId]);
-
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedMatiereId) {
-      setMatiereNom(getMatiereNom(selectedDomainId, selectedSousDomaineId, selectedMatiereId));
-    } else {
-      setMatiereNom('');
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedMatiereId]);
-
-  // ✅ Auto-génération du titre selon spec Excel
-  useEffect(() => {
-    const updateAutoTitle = async () => {
-      if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId && matiereNom && levelNom) {
-        try {
-          // Compter les épreuves existantes pour cette matière
-          const count = await countExamsBySubject(selectedMatiereId);
-          setExistingExamsCount(count + 1);
-          
-          const prefix = getExamPrefix(selectedLevelId, levelNom);
-          const autoTitle = generateAutoTitle(prefix, matiereNom, count + 1);
-          
-          if (!examTitleAutoGenerated || !examTitle) {
-            setExamTitle(autoTitle);
-            setExamTitleAutoGenerated(true);
+    const fetchMatieresWithCounts = async () => {
+      setLoadingMatieres(true);
+      try {
+        // Récupérer toutes les matières du référentiel
+        const allMatieres = [];
+        for (const domain of getAllDomaines()) {
+          const sousDomaines = getAllSousDomaines(domain.id);
+          for (const sousDomaine of sousDomaines) {
+            const matieres = getAllMatieres(domain.id, sousDomaine.id);
+            for (const matiere of matieres) {
+              allMatieres.push({
+                id: matiere.id,
+                nom: matiere.nom,
+                domaineId: domain.id,
+                domaineNom: domain.nom,
+                sousDomaineId: sousDomaine.id,
+                sousDomaineNom: sousDomaine.nom
+              });
+            }
           }
-        } catch (error) {
-          console.error('Erreur comptage épreuves:', error);
-          const prefix = getExamPrefix(selectedLevelId, levelNom);
-          setExamTitle(`${prefix} ${matiereNom} - 1`);
+        }
+        
+        // Pour chaque matière, compter les questions validées
+        const matieresWithCounts = [];
+        for (const matiere of allMatieres) {
+          try {
+            const result = await getPublicQuestions({
+              matiereId: matiere.id,
+              limit: 1 // On veut juste savoir s'il y a des questions
+            });
+            
+            let count = 0;
+            if (result.questions && Array.isArray(result.questions)) {
+              count = result.questions.length;
+            } else if (Array.isArray(result)) {
+              count = result.length;
+            } else if (result.data && Array.isArray(result.data)) {
+              count = result.data.length;
+            }
+            
+            if (count > 0) {
+              matieresWithCounts.push({
+                ...matiere,
+                questionsCount: count
+              });
+            }
+          } catch (err) {
+            console.warn(`Erreur comptage pour ${matiere.nom}:`, err);
+          }
+        }
+        
+        // Trier par nombre de questions décroissant
+        matieresWithCounts.sort((a, b) => b.questionsCount - a.questionsCount);
+        setMatieresWithQuestions(matieresWithCounts);
+        
+        if (matieresWithCounts.length === 0) {
+          toast('Aucune matière ne contient de questions validées pour le moment', { icon: 'ℹ️', duration: 5000 });
+        } else {
+          console.log(`📚 ${matieresWithCounts.length} matière(s) avec questions validées`);
+        }
+      } catch (error) {
+        console.error('Erreur chargement matières:', error);
+        toast.error('Impossible de charger la liste des matières');
+      } finally {
+        setLoadingMatieres(false);
+      }
+    };
+    
+    fetchMatieresWithCounts();
+  }, []);
+
+  // Mise à jour des infos matière
+  const handleMatiereChange = useCallback((matiereId) => {
+    if (!matiereId) {
+      setSelectedMatiereId('');
+      setSelectedMatiereInfo(null);
+      setSelectedLevelId('');
+      setLevelNom('');
+      return;
+    }
+    
+    const matiere = matieresWithQuestions.find(m => String(m.id) === String(matiereId));
+    if (matiere) {
+      setSelectedMatiereId(matiereId);
+      setSelectedMatiereInfo(matiere);
+      setSelectedLevelId('');
+      setLevelNom('');
+      autoGeneratedRef.current = false;
+      setExamTitleAutoGenerated(false);
+    }
+  }, [matieresWithQuestions]);
+
+  // Niveaux disponibles pour la matière sélectionnée (useMemo pour stabilité)
+  const levelsForMatiere = useMemo(() => {
+    if (!selectedMatiereInfo) return [];
+    return getAllLevels(selectedMatiereInfo.domaineId, selectedMatiereInfo.sousDomaineId);
+  }, [selectedMatiereInfo?.domaineId, selectedMatiereInfo?.sousDomaineId]);
+
+  // Auto-génération du titre (corrigé)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const updateAutoTitle = async () => {
+      if (!selectedMatiereId || !selectedMatiereInfo?.nom || !levelNom) return;
+      if (autoGeneratedRef.current && examTitleAutoGenerated) return;
+      
+      try {
+        const count = await countExamsBySubject(selectedMatiereId);
+        if (!isMounted) return;
+        setExistingExamsCount(count + 1);
+        
+        const prefix = getExamPrefix(selectedLevelId, levelNom);
+        const autoTitle = generateAutoTitle(prefix, selectedMatiereInfo.nom, count + 1);
+        
+        if (!examTitle || !examTitleAutoGenerated) {
+          setExamTitle(autoTitle);
           setExamTitleAutoGenerated(true);
+          autoGeneratedRef.current = true;
+        }
+      } catch (error) {
+        console.error('Erreur comptage épreuves:', error);
+        if (!isMounted) return;
+        if (!examTitle || !examTitleAutoGenerated) {
+          const prefix = getExamPrefix(selectedLevelId, levelNom);
+          setExamTitle(`${prefix} ${selectedMatiereInfo?.nom || ''} - 1`);
+          setExamTitleAutoGenerated(true);
+          autoGeneratedRef.current = true;
         }
       }
     };
     
     updateAutoTitle();
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, matiereNom, levelNom, examTitleAutoGenerated, examTitle]);
-
-  // Calcul des totaux avec affichage correct
-  const totalPoints = config.pointsType === 'uniform'
-    ? config.globalPoints * selectedQuestions.length
-    : selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
     
-  // ✅ Calcul correct de la durée en minutes et secondes
-  const totalDurationSeconds = config.timerPerQuestion
-    ? config.timePerQuestion * selectedQuestions.length
-    : config.totalTime * 60;
+    return () => { isMounted = false; };
+  }, [selectedMatiereId, selectedMatiereInfo?.nom, levelNom, selectedLevelId, examTitle, examTitleAutoGenerated]);
+
+  // Chargement des questions validées (corrigé)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadAvailableQuestions = async () => {
+      if (!selectedMatiereId) {
+        if (isMounted) setAvailableQuestions([]);
+        return;
+      }
+      
+      if (isLoadingQuestionsRef.current) return;
+      isLoadingQuestionsRef.current = true;
+      setFetchingQuestions(true);
+      
+      try {
+        const result = await getPublicQuestions({
+          matiereId: selectedMatiereId,
+          libChapitre: searchChapitre || undefined,
+          limit: 1000
+        });
+        
+        if (!isMounted) return;
+        
+        let allQuestions = [];
+        if (result.questions && Array.isArray(result.questions)) {
+          allQuestions = result.questions;
+        } else if (Array.isArray(result)) {
+          allQuestions = result;
+        } else if (result.data && Array.isArray(result.data)) {
+          allQuestions = result.data;
+        }
+        
+        const normalized = allQuestions.map((q, idx) => ({
+          id: q._id || q.id || idx,
+          _id: q._id,
+          libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
+          options: q.options || [],
+          correctAnswer: q.correctAnswer,
+          bonOpRep: q.bonOpRep,
+          points: q.points || 1,
+          explanation: q.explanation || '',
+          typeQuestion: q.typeQuestion || 1,
+          tempsMinParQuestion: q.tempsMinParQuestion || 60,
+          domaineId: selectedMatiereInfo?.domaineId || '',
+          sousDomaineId: selectedMatiereInfo?.sousDomaineId || '',
+          niveauId: selectedLevelId,
+          matiereId: selectedMatiereId,
+          domaineNom: selectedMatiereInfo?.domaineNom || '',
+          sousDomaineNom: selectedMatiereInfo?.sousDomaineNom || '',
+          niveauNom: levelNom,
+          matiereNom: selectedMatiereInfo?.nom || '',
+          libChapitre: q.libChapitre || '',
+          imageQuestion: q.imageQuestion || '',
+          imageBase64: q.imageBase64 || '',
+        }));
+        
+        if (isMounted) {
+          setAvailableQuestions(normalized);
+          if (normalized.length === 0) {
+            toast(`Aucune question validée trouvée pour ${selectedMatiereInfo?.nom || 'cette matière'}`, {
+              icon: 'ℹ️',
+              duration: 4000
+            });
+          } else {
+            toast.success(`${normalized.length} question(s) validée(s) trouvée(s)`);
+          }
+        }
+      } catch (error) {
+        console.error('Erreur chargement questions:', error);
+        if (isMounted) {
+          toast.error('Impossible de charger les questions');
+          setAvailableQuestions([]);
+        }
+      } finally {
+        if (isMounted) {
+          setFetchingQuestions(false);
+          isLoadingQuestionsRef.current = false;
+        }
+      }
+    };
+    
+    loadAvailableQuestions();
+    
+    return () => { isMounted = false; };
+  }, [selectedMatiereId, searchChapitre, selectedMatiereInfo]);
+
+  // Calcul des totaux
+  const totalPoints = useMemo(() => {
+    if (config.pointsType === 'uniform') {
+      return config.globalPoints * selectedQuestions.length;
+    }
+    return selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+  }, [config.pointsType, config.globalPoints, selectedQuestions]);
+    
+  const totalDurationSeconds = useMemo(() => {
+    if (config.timerPerQuestion) {
+      return config.timePerQuestion * selectedQuestions.length;
+    }
+    return config.totalTime * 60;
+  }, [config.timerPerQuestion, config.timePerQuestion, config.totalTime, selectedQuestions.length]);
   
   const totalDurationMinutes = totalDurationSeconds / 60;
   const durationMinutes = Math.floor(totalDurationMinutes);
   const durationSeconds = Math.floor((totalDurationMinutes - durationMinutes) * 60);
 
-  // ✅ Message d'alerte avec affichage correct
   const getDurationWarningMessage = () => {
     if (totalDurationMinutes < 15) {
       if (durationSeconds > 0) {
@@ -320,7 +513,6 @@ const DatabaseQuizCreation = () => {
     setTotalTimeWarning(totalDurationMinutes > 180 || totalDurationMinutes < 15);
   }, [totalPoints, totalDurationMinutes]);
 
-  // Ajustement des points
   const adjustPointsToTarget = (targetTotalPoints) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
@@ -341,7 +533,6 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Ajustement du temps
   const adjustTimeToTarget = (targetTotalMinutes) => {
     if (selectedQuestions.length === 0) {
       toast.error('Aucune question sélectionnée');
@@ -357,89 +548,13 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Chargement des questions validées
-  const loadAvailableQuestions = async () => {
-    if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
-      toast.error('Veuillez sélectionner tous les critères');
-      return;
-    }
-
-    setFetchingQuestions(true);
-    try {
-      const result = await getPublicQuestions({
-        domaineId: selectedDomainId,
-        sousDomaineId: selectedSousDomaineId,
-        niveauId: selectedLevelId,
-        matiereId: selectedMatiereId,
-        libChapitre: searchChapitre || undefined,
-        limit: 1000
-      });
-
-      let allQuestions = [];
-      if (result.questions && Array.isArray(result.questions)) {
-        allQuestions = result.questions;
-      } else if (Array.isArray(result)) {
-        allQuestions = result;
-      } else if (result.data && Array.isArray(result.data)) {
-        allQuestions = result.data;
-      }
-
-      if (allQuestions.length === 0) {
-        toast.info(`Aucune question validée trouvée pour ${matiereNom || 'cette matière'}`);
-        setAvailableQuestions([]);
-        return;
-      }
-      
-      const normalized = allQuestions.map((q, idx) => ({
-        id: q._id || q.id || idx,
-        _id: q._id,
-        libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
-        options: q.options || [],
-        correctAnswer: q.correctAnswer,
-        bonOpRep: q.bonOpRep,
-        points: q.points || 1,
-        explanation: q.explanation || '',
-        typeQuestion: q.typeQuestion || 1,
-        tempsMinParQuestion: q.tempsMinParQuestion || 60,
-        domaineId: selectedDomainId,
-        sousDomaineId: selectedSousDomaineId,
-        niveauId: selectedLevelId,
-        matiereId: selectedMatiereId,
-        domaineNom: domainNom,
-        sousDomaineNom: sousDomaineNom,
-        niveauNom: levelNom,
-        matiereNom: matiereNom,
-        libChapitre: q.libChapitre || '',
-        imageQuestion: q.imageQuestion || '',
-        imageBase64: q.imageBase64 || '',
-      }));
-
-      setAvailableQuestions(normalized);
-      toast.success(`${normalized.length} question(s) validée(s) trouvée(s)`);
-      
-    } catch (error) {
-      console.error('Erreur chargement questions:', error);
-      toast.error('Impossible de charger les questions');
-      setAvailableQuestions([]);
-    } finally {
-      setFetchingQuestions(false);
-    }
-  };
-
-  // Rechargement automatique
-  useEffect(() => {
-    if (selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId) {
-      loadAvailableQuestions();
-    } else {
-      setAvailableQuestions([]);
-    }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, searchChapitre]);
-
-  const filteredQuestions = availableQuestions.filter(q =>
-    !searchTerm || 
-    q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    q.libChapitre?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredQuestions = useMemo(() => {
+    return availableQuestions.filter(q =>
+      !searchTerm || 
+      q.libQuestion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      q.libChapitre?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [availableQuestions, searchTerm]);
 
   const addQuestion = (question) => {
     if (!selectedQuestions.some(q => q.id === question.id)) {
@@ -478,17 +593,22 @@ const DatabaseQuizCreation = () => {
       return;
     }
 
-    if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
-      toast.error('Veuillez sélectionner Domaine, Sous-domaine, Niveau et Matière');
+    if (!selectedMatiereId || !selectedMatiereInfo) {
+      toast.error('Veuillez sélectionner une matière valide');
       return;
     }
 
-    if (config.openRange && config.requiredQuestions > selectedQuestions.length) {
-      toast.error(`Le nombre de questions à traiter (${config.requiredQuestions}) ne peut pas dépasser le total (${selectedQuestions.length})`);
+    if (!selectedLevelId || !levelNom) {
+      toast.error('Veuillez sélectionner un niveau');
       return;
     }
 
-    // ✅ Vérifications avec affichage correct
+    const selectedConfig = EXAM_CONFIGURATIONS.find(cfg => cfg.key === selectedExamOption);
+    if (selectedConfig?.config?.openRange && selectedConfig.config.requiredQuestions > selectedQuestions.length) {
+      toast.error(`Le nombre de questions à traiter (${selectedConfig.config.requiredQuestions}) ne peut pas dépasser le total (${selectedQuestions.length})`);
+      return;
+    }
+
     if (totalPoints > 100) {
       if (!window.confirm(`⚠️ Le total des points (${totalPoints}) dépasse 100. Voulez-vous continuer quand même ?`)) return;
     } else if (totalPoints < 10) {
@@ -500,6 +620,10 @@ const DatabaseQuizCreation = () => {
 
     setIsLoading(true);
     try {
+      const showBinaryResult = config.feedbackType !== 'none';
+      const showCorrectAnswer = config.feedbackType === 'binary+answer' || config.feedbackType === 'binary+answer+justification';
+      const showJustification = config.feedbackType === 'binary+answer+justification';
+
       const formattedQuestions = selectedQuestions.map((q, idx) => {
         const validOptions = q.options.filter(opt => opt && opt.trim() !== '');
         
@@ -508,9 +632,9 @@ const DatabaseQuizCreation = () => {
         
         return {
           nQuestion: idx + 1,
-          nDomaine: parseInt(selectedDomainId),
-          nSousDomaine: parseInt(selectedSousDomaineId),
-          niveau: parseInt(selectedLevelId),
+          nDomaine: parseInt(q.domaineId) || parseInt(selectedMatiereInfo.domaineId) || 0,
+          nSousDomaine: parseInt(q.sousDomaineId) || parseInt(selectedMatiereInfo.sousDomaineId) || 0,
+          niveau: parseInt(selectedLevelId) || 0,
           libMatiere: parseInt(selectedMatiereId),
           libChapitre: q.libChapitre || '',
           libQuestion: q.libQuestion,
@@ -532,23 +656,18 @@ const DatabaseQuizCreation = () => {
         };
       });
 
-      // Configuration selon spec Excel avec les 4 niveaux de feedback
-      const showBinaryResult = config.feedbackType !== 'none';
-      const showCorrectAnswer = config.feedbackType === 'binary+answer' || config.feedbackType === 'binary+answer+justification';
-      const showJustification = config.feedbackType === 'binary+answer+justification';
-
       const examData = {
         title: examTitle,
-        description: examDescription || `Épreuve créée depuis la base de données - ${matiereNom}`,
-        subject: matiereNom,
+        description: examDescription || `Épreuve créée depuis la base de données - ${selectedMatiereInfo.nom}`,
+        subject: selectedMatiereInfo.nom,
         level: levelNom,
-        domain: domainNom,
-        nDomaine: parseInt(selectedDomainId),
-        nSousDomaine: parseInt(selectedSousDomaineId),
-        niveau: parseInt(selectedLevelId),
+        domain: selectedMatiereInfo.domaineNom,
+        nDomaine: parseInt(selectedMatiereInfo.domaineId) || 0,
+        nSousDomaine: parseInt(selectedMatiereInfo.sousDomaineId) || 0,
+        niveau: parseInt(selectedLevelId) || 0,
         niveauNom: levelNom,
         matiere: parseInt(selectedMatiereId),
-        matiereNom: matiereNom,
+        matiereNom: selectedMatiereInfo.nom,
         questions: formattedQuestions,
         duration: Math.ceil(totalDurationMinutes),
         durationSeconds: totalDurationSeconds,
@@ -559,13 +678,13 @@ const DatabaseQuizCreation = () => {
         teacherGrade: user?.role,
         source: 'database',
         status: 'draft',
-        examOption: config.examOption,
+        examOption: selectedExamOption,
         config: {
-          examOption: config.examOption,
-          openRange: config.openRange,
-          requiredQuestions: config.requiredQuestions,
-          sequencing: config.sequencing,
-          allowRetry: config.allowRetry,
+          examOption: selectedExamOption,
+          openRange: selectedConfig?.config?.openRange || false,
+          requiredQuestions: selectedConfig?.config?.requiredQuestions || 0,
+          sequencing: selectedConfig?.config?.sequencing || 'identical',
+          allowRetry: selectedConfig?.config?.allowRetry || false,
           showBinaryResult: showBinaryResult,
           showCorrectAnswer: showCorrectAnswer,
           showJustification: showJustification,
@@ -593,12 +712,15 @@ const DatabaseQuizCreation = () => {
     }
   };
 
-  // Formatage de l'affichage de la durée
   const formatDurationDisplay = () => {
     if (durationSeconds > 0) {
       return `${durationMinutes} min ${durationSeconds} sec`;
     }
     return `${durationMinutes.toFixed(1)} min`;
+  };
+
+  const getSelectedConfig = () => {
+    return EXAM_CONFIGURATIONS.find(cfg => cfg.key === selectedExamOption);
   };
 
   return (
@@ -618,7 +740,6 @@ const DatabaseQuizCreation = () => {
         zIndex: 1, 
         maxWidth: 1400, 
         margin: '0 auto',
-        // ✅ Container parent avec align-items: stretch pour scroll indépendant
         display: 'flex',
         flexDirection: 'column',
         height: 'calc(100vh - 48px)'
@@ -653,17 +774,17 @@ const DatabaseQuizCreation = () => {
             <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>
               Créer depuis la base
             </h1>
-            <p style={{ color: '#64748b' }}>Sélectionnez des questions validées depuis votre base de données</p>
+            <p style={{ color: '#64748b' }}>Sélectionnez une matière puis les questions validées</p>
           </div>
         </div>
 
-        {/* ✅ 3 colonnes avec scroll INDÉPENDANT */}
+        {/* 3 colonnes avec scroll INDÉPENDANT */}
         <div style={{ 
           display: 'grid', 
           gridTemplateColumns: '1fr 1fr 1fr', 
           gap: 24,
           flex: 1,
-          minHeight: 0  // Important pour le scroll
+          minHeight: 0
         }}>
           {/* Colonne 1: Configuration - scroll indépendant */}
           <div style={{
@@ -672,7 +793,6 @@ const DatabaseQuizCreation = () => {
             border: '1px solid rgba(99,102,241,0.2)',
             borderRadius: 24,
             padding: 24,
-            // ✅ Scroll indépendant
             overflowY: 'auto',
             height: '100%',
             display: 'flex',
@@ -694,6 +814,7 @@ const DatabaseQuizCreation = () => {
                 onChange={(e) => {
                   setExamTitle(e.target.value);
                   setExamTitleAutoGenerated(false);
+                  autoGeneratedRef.current = false;
                 }}
                 placeholder="Ex: Management de Projet - Examen"
                 style={{
@@ -710,6 +831,7 @@ const DatabaseQuizCreation = () => {
               )}
             </div>
 
+            {/* Description */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 Description
@@ -728,44 +850,84 @@ const DatabaseQuizCreation = () => {
               />
             </div>
 
-            {/* Référentiel */}
+            {/* ✅ SÉLECTION SIMPLIFIÉE : Matières AVEC questions uniquement */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
-                Domaine *
+                <BookMarked size={14} style={{ display: 'inline', marginRight: 4 }} />
+                Matière * {!loadingMatieres && matieresWithQuestions.length > 0 && <span style={{ fontSize: '0.65rem', color: '#10b981' }}>({matieresWithQuestions.length} matière(s) disponible(s))</span>}
               </label>
-              <select
-                value={selectedDomainId}
-                onChange={(e) => {
-                  setSelectedDomainId(e.target.value);
-                  setSelectedSousDomaineId('');
-                  setSelectedLevelId('');
-                  setSelectedMatiereId('');
-                }}
-                style={{
-                  width: '100%', padding: 12,
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
-                  color: '#f8fafc', outline: 'none'
-                }}
-              >
-                <option value="">Sélectionner...</option>
-                {getAllDomaines().map(d => (
-                  <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>
-                ))}
-              </select>
+              
+              {loadingMatieres ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 12, background: 'rgba(255,255,255,0.05)', borderRadius: 10 }}>
+                  <Loader size={16} className="animate-spin" color="#6366f1" />
+                  <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Chargement des matières disponibles...</span>
+                </div>
+              ) : (
+                <select
+                  value={selectedMatiereId}
+                  onChange={(e) => handleMatiereChange(e.target.value)}
+                  style={{
+                    width: '100%', padding: 12,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
+                    color: '#f8fafc', outline: 'none'
+                  }}
+                >
+                  <option value="">Sélectionner une matière...</option>
+                  {matieresWithQuestions.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.nom} ({m.domaineNom} - {m.sousDomaineNom}) — {m.questionsCount} question(s)
+                    </option>
+                  ))}
+                </select>
+              )}
+              
+              {!loadingMatieres && matieresWithQuestions.length === 0 && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '10px 12px',
+                  background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                  borderRadius: 8,
+                  fontSize: '0.7rem',
+                  color: '#ef4444'
+                }}>
+                  ⚠️ Aucune matière ne contient de questions validées. Veuillez d'abord créer et valider des questions.
+                </div>
+              )}
+              
+              {selectedMatiereInfo && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.2)',
+                  borderRadius: 8,
+                  fontSize: '0.7rem'
+                }}>
+                  <strong style={{ color: '#10b981' }}>✓ Matière sélectionnée :</strong> {selectedMatiereInfo.nom}<br/>
+                  <strong>Domaine :</strong> {selectedMatiereInfo.domaineNom}<br/>
+                  <strong>Sous-domaine :</strong> {selectedMatiereInfo.sousDomaineNom}<br/>
+                  <strong>Questions disponibles :</strong> {selectedMatiereInfo.questionsCount}
+                </div>
+              )}
             </div>
 
-            {selectedDomainId && (
+            {/* Niveau */}
+            {selectedMatiereId && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
-                  Sous-domaine *
+                  <Layers size={14} style={{ display: 'inline', marginRight: 4 }} />
+                  Niveau *
                 </label>
                 <select
-                  value={selectedSousDomaineId}
+                  value={selectedLevelId}
                   onChange={(e) => {
-                    setSelectedSousDomaineId(e.target.value);
-                    setSelectedLevelId('');
-                    setSelectedMatiereId('');
+                    const newLevelId = e.target.value;
+                    setSelectedLevelId(newLevelId);
+                    setLevelNom(getLevelNom(selectedMatiereInfo?.domaineId, selectedMatiereInfo?.sousDomaineId, newLevelId));
+                    autoGeneratedRef.current = false;
+                    setExamTitleAutoGenerated(false);
                   }}
                   style={{
                     width: '100%', padding: 12,
@@ -774,62 +936,16 @@ const DatabaseQuizCreation = () => {
                     color: '#f8fafc', outline: 'none'
                   }}
                 >
-                  <option value="">Sélectionner...</option>
-                  {getAllSousDomaines(selectedDomainId).map(sd => (
-                    <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>
+                  <option value="">Sélectionner un niveau...</option>
+                  {levelsForMatiere.map(l => (
+                    <option key={l.id} value={l.id}>{l.nom}</option>
                   ))}
                 </select>
               </div>
             )}
 
-            {selectedSousDomaineId && (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
-                    Niveau *
-                  </label>
-                  <select
-                    value={selectedLevelId}
-                    onChange={(e) => setSelectedLevelId(e.target.value)}
-                    style={{
-                      width: '100%', padding: 12,
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
-                      color: '#f8fafc', outline: 'none'
-                    }}
-                  >
-                    <option value="">Sélectionner...</option>
-                    {getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => (
-                      <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
-                    Matière *
-                  </label>
-                  <select
-                    value={selectedMatiereId}
-                    onChange={(e) => setSelectedMatiereId(e.target.value)}
-                    style={{
-                      width: '100%', padding: 12,
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
-                      color: '#f8fafc', outline: 'none'
-                    }}
-                  >
-                    <option value="">Sélectionner...</option>
-                    {getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => (
-                      <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-
             {/* Filtre par chapitre */}
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 16 }}>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <BookMarked size={14} style={{ display: 'inline', marginRight: 4 }} />
                 Filtrer par chapitre (optionnel)
@@ -848,25 +964,62 @@ const DatabaseQuizCreation = () => {
               />
             </div>
 
-            {/* ✅ CTA vers le pavé 2 - selon spec testeur */}
-            {selectedDomainId && selectedSousDomaineId && selectedLevelId && selectedMatiereId && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+            {/* ✅ CONFIGURATION A à K - EN LISTE DÉROULANTE */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
+                <Settings size={14} style={{ display: 'inline', marginRight: 4 }} />
+                Configuration de l'épreuve *
+              </label>
+              <select
+                value={selectedExamOption}
+                onChange={(e) => setSelectedExamOption(e.target.value)}
                 style={{
-                  marginTop: 16,
-                  padding: '12px 16px',
-                  background: 'rgba(59,130,246,0.15)',
-                  border: '1px solid rgba(59,130,246,0.3)',
-                  borderRadius: 12,
-                  textAlign: 'center'
+                  width: '100%', padding: 12,
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10,
+                  color: '#f8fafc', outline: 'none',
+                  fontSize: '0.9rem'
                 }}
               >
-                <p style={{ color: '#60a5fa', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <ArrowLeft size={14} style={{ transform: 'rotate(180deg)' }} />
-                  → Passez au Pavé 2 pour sélectionner vos questions
-                </p>
-              </motion.div>
+                {EXAM_CONFIGURATIONS.map((cfg) => (
+                  <option 
+                    key={cfg.key} 
+                    value={cfg.key}
+                    style={{ 
+                      background: '#1e293b', 
+                      color: '#f8fafc',
+                      borderLeft: `3px solid ${cfg.color}`
+                    }}
+                  >
+                    {cfg.key} - {cfg.label} ({cfg.desc.substring(0, 60)}...)
+                  </option>
+                ))}
+              </select>
+              
+              {/* Affichage du détail de la configuration sélectionnée */}
+              {(() => {
+                const selectedCfg = EXAM_CONFIGURATIONS.find(c => c.key === selectedExamOption);
+                return (
+                  <div style={{
+                    marginTop: 8,
+                    padding: '8px 12px',
+                    background: `${selectedCfg?.color}12`,
+                    border: `1px solid ${selectedCfg?.color}33`,
+                    borderRadius: 8,
+                    fontSize: '0.7rem',
+                    color: '#94a3b8'
+                  }}>
+                    <strong style={{ color: selectedCfg?.color }}>Config {selectedExamOption}</strong> : {selectedCfg?.desc}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Option A : avancement automatique */}
+            {selectedExamOption === 'A' && (
+              <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+                ⏱ Config A : avancement automatique par timer question côté candidat
+              </div>
             )}
 
             {/* Paramètres avancés */}
@@ -881,34 +1034,14 @@ const DatabaseQuizCreation = () => {
                 }}
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Settings size={14} /> Paramètres d'évaluation
+                  <Settings size={14} /> Paramètres avancés (Feedback & Chrono)
                 </span>
                 {advancedOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
 
               {advancedOpen && (
                 <div style={{ marginTop: 12 }}>
-                  {/* Option d'examen */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
-                      Mode de survenance des QCM
-                    </label>
-                    <select
-                      value={config.examOption}
-                      onChange={(e) => setConfig({...config, examOption: e.target.value})}
-                      style={{
-                        width: '100%', padding: 8,
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                        color: '#f8fafc'
-                      }}
-                    >
-                      <option value="A">Directif (imposé par l'Application)</option>
-                      <option value="C">Libre choix par l'apprenant</option>
-                    </select>
-                  </div>
-
-                  {/* ✅ Type de feedback - 4 niveaux selon spec Excel */}
+                  {/* Type de feedback */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
                       Type de feedback à l'apprenant
@@ -953,7 +1086,7 @@ const DatabaseQuizCreation = () => {
                     </select>
                   </div>
 
-                  {/* Reprise suite feedback négatif */}
+                  {/* Reprise */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -1053,7 +1186,7 @@ const DatabaseQuizCreation = () => {
                     )}
                   </div>
 
-                  {/* ✅ Type d'affichage Chrono - 4 modes visuels */}
+                  {/* Type d'affichage Chrono */}
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block' }}>
                       <Timer size={12} style={{ display: 'inline', marginRight: 4 }} />
@@ -1078,34 +1211,6 @@ const DatabaseQuizCreation = () => {
                       ))}
                     </div>
                   </div>
-
-                  {/* Plage ouverte */}
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={config.openRange}
-                        onChange={(e) => setConfig({...config, openRange: e.target.checked})}
-                      />
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Plage ouverte (l'étudiant choisit les questions)</span>
-                    </label>
-                    {config.openRange && (
-                      <input
-                        type="number"
-                        min="1"
-                        max={selectedQuestions.length || 10}
-                        value={config.requiredQuestions}
-                        onChange={(e) => setConfig({...config, requiredQuestions: parseInt(e.target.value) || 0})}
-                        placeholder="Nombre de questions à traiter"
-                        style={{
-                          width: '100%', padding: 8, marginTop: 6,
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8,
-                          color: '#f8fafc'
-                        }}
-                      />
-                    )}
-                  </div>
                 </div>
               )}
             </div>
@@ -1116,8 +1221,7 @@ const DatabaseQuizCreation = () => {
                 📋 Résumé de la configuration
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: '0.6rem' }}>
-                <span style={{ color: '#a5b4fc' }}>Mode: {config.examOption === 'A' ? 'Directif' : 'Libre'}</span>
-                {config.openRange && <span style={{ color: '#f59e0b' }}>Plage ouverte ({config.requiredQuestions} req.)</span>}
+                <span style={{ color: '#a5b4fc' }}>Config: {selectedExamOption}</span>
                 <span style={{ color: '#10b981' }}>{config.pointsType === 'uniform' ? `Points: ${config.globalPoints}` : 'Points variables'}</span>
                 <span style={{ color: '#8b5cf6' }}>
                   Chrono: {
@@ -1164,14 +1268,13 @@ const DatabaseQuizCreation = () => {
             )}
           </div>
 
-          {/* Colonne 2: Questions disponibles - scroll indépendant */}
+          {/* Colonne 2: Questions disponibles */}
           <div style={{
             background: 'rgba(15,23,42,0.7)',
             backdropFilter: 'blur(12px)',
             border: '1px solid rgba(99,102,241,0.2)',
             borderRadius: 24,
             padding: 24,
-            // ✅ Scroll indépendant
             overflowY: 'auto',
             height: '100%',
             display: 'flex',
@@ -1209,8 +1312,54 @@ const DatabaseQuizCreation = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={loadAvailableQuestions}
-                disabled={!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId}
+                onClick={() => {
+                  isLoadingQuestionsRef.current = false;
+                  const load = async () => {
+                    setFetchingQuestions(true);
+                    try {
+                      const result = await getPublicQuestions({
+                        matiereId: selectedMatiereId,
+                        libChapitre: searchChapitre || undefined,
+                        limit: 1000
+                      });
+                      let allQuestions = [];
+                      if (result.questions && Array.isArray(result.questions)) allQuestions = result.questions;
+                      else if (Array.isArray(result)) allQuestions = result;
+                      else if (result.data && Array.isArray(result.data)) allQuestions = result.data;
+                      const normalized = allQuestions.map((q, idx) => ({
+                        id: q._id || q.id || idx,
+                        _id: q._id,
+                        libQuestion: q.libQuestion || q.question || q.text || 'Sans titre',
+                        options: q.options || [],
+                        correctAnswer: q.correctAnswer,
+                        bonOpRep: q.bonOpRep,
+                        points: q.points || 1,
+                        explanation: q.explanation || '',
+                        typeQuestion: q.typeQuestion || 1,
+                        tempsMinParQuestion: q.tempsMinParQuestion || 60,
+                        domaineId: selectedMatiereInfo?.domaineId || '',
+                        sousDomaineId: selectedMatiereInfo?.sousDomaineId || '',
+                        niveauId: selectedLevelId,
+                        matiereId: selectedMatiereId,
+                        domaineNom: selectedMatiereInfo?.domaineNom || '',
+                        sousDomaineNom: selectedMatiereInfo?.sousDomaineNom || '',
+                        niveauNom: levelNom,
+                        matiereNom: selectedMatiereInfo?.nom || '',
+                        libChapitre: q.libChapitre || '',
+                        imageQuestion: q.imageQuestion || '',
+                        imageBase64: q.imageBase64 || '',
+                      }));
+                      setAvailableQuestions(normalized);
+                    } catch (error) {
+                      console.error('Erreur chargement questions:', error);
+                      toast.error('Impossible de charger les questions');
+                    } finally {
+                      setFetchingQuestions(false);
+                    }
+                  };
+                  load();
+                }}
+                disabled={!selectedMatiereId}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
                   padding: '4px 8px',
@@ -1219,8 +1368,8 @@ const DatabaseQuizCreation = () => {
                   borderRadius: 6,
                   color: '#3b82f6',
                   fontSize: '0.7rem',
-                  cursor: (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) ? 'not-allowed' : 'pointer',
-                  opacity: (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) ? 0.5 : 1
+                  cursor: !selectedMatiereId ? 'not-allowed' : 'pointer',
+                  opacity: !selectedMatiereId ? 0.5 : 1
                 }}
               >
                 <RefreshCw size={12} /> Actualiser
@@ -1231,17 +1380,17 @@ const DatabaseQuizCreation = () => {
               <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
                 <Loader size={32} color="#6366f1" className="animate-spin" />
               </div>
-            ) : !selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId ? (
+            ) : !selectedMatiereId ? (
               <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
                 <Database size={32} style={{ marginBottom: 12, opacity: 0.3 }} />
-                <p>Sélectionnez tous les critères</p>
-                <p style={{ fontSize: '0.7rem' }}>Domaine, Sous-domaine, Niveau et Matière</p>
+                <p>Sélectionnez une matière</p>
+                <p style={{ fontSize: '0.7rem' }}>Dans le panneau de gauche</p>
               </div>
             ) : filteredQuestions.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
                 <AlertCircle size={32} style={{ marginBottom: 12 }} />
                 <p>Aucune question validée trouvée</p>
-                <p style={{ fontSize: '0.7rem' }}>Vérifiez que des questions ont été validées pour ces critères</p>
+                <p style={{ fontSize: '0.7rem' }}>Vérifiez que des questions ont été validées pour cette matière</p>
               </div>
             ) : (
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
@@ -1259,14 +1408,13 @@ const DatabaseQuizCreation = () => {
             )}
           </div>
 
-          {/* Colonne 3: Questions sélectionnées - scroll indépendant */}
+          {/* Colonne 3: Questions sélectionnées */}
           <div style={{
             background: 'rgba(15,23,42,0.7)',
             backdropFilter: 'blur(12px)',
             border: '1px solid rgba(99,102,241,0.2)',
             borderRadius: 24,
             padding: 24,
-            // ✅ Scroll indépendant
             overflowY: 'auto',
             height: '100%',
             display: 'flex',
@@ -1393,17 +1541,17 @@ const DatabaseQuizCreation = () => {
                     <span style={{ color: '#10b981', fontWeight: 600 }}>{selectedQuestions.length}</span>
                   </div>
                   
-                  {/* ✅ Bouton "Créer l'épreuve" en bas du Pavé 3 */}
+                  {/* Bouton "Créer l'épreuve" */}
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={saveExam}
-                    disabled={isLoading || selectedQuestions.length === 0}
+                    disabled={isLoading || selectedQuestions.length === 0 || !selectedLevelId}
                     style={{
                       width: '100%',
                       padding: 14,
                       marginTop: 16,
-                      background: (isLoading || selectedQuestions.length === 0) 
+                      background: (isLoading || selectedQuestions.length === 0 || !selectedLevelId) 
                         ? 'rgba(16,185,129,0.3)' 
                         : 'linear-gradient(135deg, #10b981, #059669)',
                       border: 'none',
@@ -1414,7 +1562,7 @@ const DatabaseQuizCreation = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      cursor: (isLoading || selectedQuestions.length === 0) ? 'not-allowed' : 'pointer'
+                      cursor: (isLoading || selectedQuestions.length === 0 || !selectedLevelId) ? 'not-allowed' : 'pointer'
                     }}
                   >
                     {isLoading ? (
@@ -1424,10 +1572,10 @@ const DatabaseQuizCreation = () => {
                     )}
                   </motion.button>
                   
-                  {config.openRange && config.requiredQuestions > 0 && (
+                  {getSelectedConfig()?.config?.openRange && getSelectedConfig()?.config?.requiredQuestions > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(99,102,241,0.2)' }}>
                       <span style={{ color: '#f59e0b' }}>À traiter</span>
-                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>{config.requiredQuestions}</span>
+                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>{getSelectedConfig()?.config?.requiredQuestions}</span>
                     </div>
                   )}
                 </div>

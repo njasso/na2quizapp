@@ -1,6 +1,7 @@
 // src/data/domainConfig.js
 // Version complète - Référentiel du système éducatif camerounais
 // INCLUT : Système francophone + Système anglophone + Doctorat (7 ans)
+// DERNIÈRE MISE À JOUR : Santé humaine complète (Cardiologie, Chirurgies, etc.)
 
 const DOMAIN_DATA = {
   // ==================== DOMAINE 1: ÉDUCATIF ====================
@@ -243,22 +244,52 @@ const DOMAIN_DATA = {
           { id: "1D105", nom: "Droit International / International Law", code: "DRI" },
           { id: "1D106", nom: "Droit Administratif / Administrative Law", code: "DAD" },
           { id: "1D107", nom: "Science Politique / Political Science", code: "SCP" },
-          // ========== MÉDECINE / MEDICINE ==========
+          
+          // ========== SCIENCES FONDAMENTALES / BASIC SCIENCES ==========
           { id: "1D108", nom: "Anatomie / Anatomy", code: "ANA" },
           { id: "1D109", nom: "Physiologie / Physiology", code: "PHY" },
           { id: "1D110", nom: "Pathologie / Pathology", code: "PAT" },
           { id: "1D111", nom: "Pharmacologie / Pharmacology", code: "PHA" },
-          { id: "1D112", nom: "Médecine Interne / Internal Medicine", code: "MED" },
-          { id: "1D113", nom: "Chirurgie / Surgery", code: "CHI" },
-          { id: "1D114", nom: "Pédiatrie / Pediatrics", code: "PED" },
-          { id: "1D115", nom: "Gynécologie / Gynecology", code: "GYN" },
-          { id: "1D116", nom: "Santé Publique / Public Health", code: "SPU" },
+          
+          // ========== MÉDECINE (SPÉCIALITÉS MÉDICALES) ==========
+          { id: "1D160", nom: "Cardiologie / Cardiology", code: "CAR" },
+          { id: "1D161", nom: "Pédiatrie / Pediatrics", code: "PED" },
+          { id: "1D162", nom: "Dermatologie / Dermatology", code: "DER" },
+          { id: "1D163", nom: "Neurologie / Neurology", code: "NEU" },
+          { id: "1D164", nom: "Gynécologie-Obstétrique / Gynecology-Obstetrics", code: "GYN" },
+          { id: "1D165", nom: "Oncologie / Oncology", code: "ONC" },
+          { id: "1D166", nom: "Gériatrie / Geriatrics", code: "GER" },
+          { id: "1D167", nom: "Psychiatrie / Psychiatry", code: "PSY" },
+          { id: "1D168", nom: "Médecine Générale / General Medicine", code: "MGE" },
+
+          // ========== CHIRURGIE (SPÉCIALITÉS CHIRURGICALES) ==========
+          { id: "1D169", nom: "Chirurgie viscérale et digestive / Visceral & Digestive Surgery", code: "CVD" },
+          { id: "1D170", nom: "Chirurgie orthopédique et traumatologie / Orthopedic Surgery", code: "COT" },
+          { id: "1D171", nom: "Neurochirurgie / Neurosurgery", code: "NCS" },
+          { id: "1D172", nom: "Chirurgie plastique, reconstructrice et esthétique / Plastic Surgery", code: "CPR" },
+          { id: "1D173", nom: "Ophtalmologie / Ophthalmology", code: "OPH" },
+          { id: "1D174", nom: "Oto-rhino-laryngologie / Otorhinolaryngology (ENT)", code: "ORL" },
+
+          // ========== SPÉCIALITÉS TRANSVERSALES ==========
+          { id: "1D175", nom: "Anesthésie-Réanimation / Anesthesiology", code: "ANE" },
+          { id: "1D176", nom: "Médecine d'Urgence / Emergency Medicine", code: "URG" },
+          { id: "1D177", nom: "Médecine du Travail / Occupational Medicine", code: "MTR" },
+          { id: "1D178", nom: "Santé Publique et Epidémiologie / Public Health", code: "SPE" },
+
+          // ========== SCIENCES BIOMEDICALES ==========
+          { id: "1D179", nom: "Génétique et Biologie moléculaire / Genetics", code: "GBM" },
+          { id: "1D180", nom: "Biochimie et Pharmacologie / Biochemistry", code: "BPC" },
+          { id: "1D181", nom: "Microbiologie et Immunologie / Microbiology", code: "MIC" },
+          { id: "1D182", nom: "Physiologie et Anatomie / Advanced Physiology", code: "PHA" },
+          { id: "1D183", nom: "Génie Biomédical / Biomedical Engineering", code: "GBI" },
+          
           // ========== SCIENCES / SCIENCES ==========
           { id: "1D117", nom: "Mathématiques / Mathematics", code: "MAT" },
           { id: "1D118", nom: "Physique / Physics", code: "PHY" },
           { id: "1D119", nom: "Chimie / Chemistry", code: "CHM" },
           { id: "1D120", nom: "Biologie / Biology", code: "BIO" },
           { id: "1D121", nom: "Sciences de la Terre / Earth Sciences", code: "STE" },
+          
           // ========== INFORMATIQUE / COMPUTER SCIENCE ==========
           { id: "1D122", nom: "Informatique / Computer Science", code: "INF" },
           { id: "1D123", nom: "Programmation Avancée / Advanced Programming", code: "PRA" },
@@ -267,37 +298,44 @@ const DOMAIN_DATA = {
           { id: "1D126", nom: "Génie Logiciel / Software Engineering", code: "GSL" },
           { id: "1D127", nom: "Cybersécurité / Cybersecurity", code: "SEC" },
           { id: "1D128", nom: "Data Science", code: "DSC" },
+          
           // ========== INGÉNIERIE / ENGINEERING ==========
           { id: "1D129", nom: "Génie Civil / Civil Engineering", code: "GCI" },
           { id: "1D130", nom: "Génie Électrique / Electrical Engineering", code: "GEL" },
           { id: "1D131", nom: "Génie Mécanique / Mechanical Engineering", code: "GME" },
           { id: "1D132", nom: "Génie Informatique / Computer Engineering", code: "GIN" },
           { id: "1D133", nom: "Génie Énergétique / Energy Engineering", code: "GEN" },
+          
           // ========== ÉCONOMIE / ECONOMICS ==========
           { id: "1D134", nom: "Microéconomie / Microeconomics", code: "MIC" },
           { id: "1D135", nom: "Macroéconomie / Macroeconomics", code: "MAC" },
           { id: "1D136", nom: "Économétrie / Econometrics", code: "ECO" },
           { id: "1D137", nom: "Économie du Développement / Development Economics", code: "EDE" },
+          
           // ========== FINANCE / FINANCE ==========
           { id: "1D138", nom: "Finance d'Entreprise / Corporate Finance", code: "FIN" },
           { id: "1D139", nom: "Comptabilité / Accounting", code: "CPT" },
           { id: "1D140", nom: "Audit et Contrôle / Audit and Control", code: "AUD" },
           { id: "1D141", nom: "Marchés Financiers / Financial Markets", code: "MAR" },
+          
           // ========== MARKETING / MARKETING ==========
           { id: "1D142", nom: "Marketing Digital / Digital Marketing", code: "MKD" },
           { id: "1D143", nom: "Marketing Stratégique / Strategic Marketing", code: "MKS" },
+          
           // ========== MANAGEMENT ==========
           { id: "1D144", nom: "Gestion des RH / HR Management", code: "GRH" },
           { id: "1D145", nom: "Management Stratégique / Strategic Management", code: "MGS" },
           { id: "1D146", nom: "Entrepreneuriat / Entrepreneurship", code: "ENT" },
           { id: "1D147", nom: "Management de Projet / Project Management", code: "MGP" },
           { id: "1D148", nom: "Management des Opérations / Operations Management", code: "MGO" },
+          
           // ========== SCIENCES SOCIALES ==========
           { id: "1D149", nom: "Sociologie / Sociology", code: "SOC" },
           { id: "1D150", nom: "Anthropologie / Anthropology", code: "ANT" },
           { id: "1D151", nom: "Psychologie / Psychology", code: "PSY" },
           { id: "1D152", nom: "Pédagogie / Pedagogy", code: "PED" },
-          // ========== CULTURE ==========
+          
+          // ========== CULTURE ET RECHERCHE ==========
           { id: "1D153", nom: "Culture et Spiritualité Camerounaise", code: "CSC" },
           { id: "1D154", nom: "Histoire du Cameroun / Cameroonian History", code: "HIS" },
           { id: "1D155", nom: "Langues Nationales / National Languages", code: "LAN" },

@@ -1,6 +1,10 @@
 // socket-server/server.js - Version COMPLÈTE avec TOUTES les routes conservées
 // ✅ Ajouts: route /api/exams/count-by-subject/:matiereId
 // ✅ Ajouts: route /api/exams/paginated
+// ✅ Ajouts: route /api/referentiel/matieres-with-questions
+// ✅ Ajouts: route /api/referentiel/questions-count/:matiereId
+// ✅ Ajouts: cache pour routes référentiel
+// ✅ Ajouts: priorité config épreuve dans Socket.IO
 // ✅ Toutes les routes existantes sont conservées
 
 import express from 'express';
@@ -52,6 +56,22 @@ if (!MONGODB_URI) {
   console.error('❌ MONGODB_URI non défini');
   if (isProduction) process.exit(1);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CACHE SIMPLE POUR LES ROUTES RÉFÉRENTIEL
+// ═══════════════════════════════════════════════════════════════
+const referentielCache = new Map();
+const CACHE_TTL = 3600000; // 1 heure
+
+const getCachedOrFetch = (key, fetcher) => {
+  const cached = referentielCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  const data = fetcher();
+  referentielCache.set(key, { data, timestamp: Date.now() });
+  return data;
+};
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIGURATIONS COMPLÈTES A à K
@@ -684,7 +704,7 @@ app.get('/health', (req, res) => {
 // ==================== ROUTES RÉFÉRENTIEL ====================
 app.get('/api/referentiel/domains', (req, res) => {
   try {
-    const domains = getAllDomaines();
+    const domains = getCachedOrFetch('domains', getAllDomaines);
     res.json({ success: true, data: domains });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -694,7 +714,7 @@ app.get('/api/referentiel/domains', (req, res) => {
 app.get('/api/referentiel/sous-domaines/:domaineId', (req, res) => {
   try {
     const { domaineId } = req.params;
-    const sousDomaines = getAllSousDomaines(domaineId);
+    const sousDomaines = getCachedOrFetch(`sous-domaines-${domaineId}`, () => getAllSousDomaines(domaineId));
     res.json({ success: true, data: sousDomaines });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -704,7 +724,7 @@ app.get('/api/referentiel/sous-domaines/:domaineId', (req, res) => {
 app.get('/api/referentiel/levels/:domaineId/:sousDomaineId', (req, res) => {
   try {
     const { domaineId, sousDomaineId } = req.params;
-    const levels = getAllLevels(domaineId, sousDomaineId);
+    const levels = getCachedOrFetch(`levels-${domaineId}-${sousDomaineId}`, () => getAllLevels(domaineId, sousDomaineId));
     res.json({ success: true, data: levels });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -714,8 +734,67 @@ app.get('/api/referentiel/levels/:domaineId/:sousDomaineId', (req, res) => {
 app.get('/api/referentiel/matieres/:domaineId/:sousDomaineId', (req, res) => {
   try {
     const { domaineId, sousDomaineId } = req.params;
-    const matieres = getAllMatieres(domaineId, sousDomaineId);
+    const matieres = getCachedOrFetch(`matieres-${domaineId}-${sousDomaineId}`, () => getAllMatieres(domaineId, sousDomaineId));
     res.json({ success: true, data: matieres });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ NOUVELLE ROUTE OPTIMISÉE: Récupérer toutes les matières avec leur nombre de questions
+app.get('/api/referentiel/matieres-with-questions', async (req, res) => {
+  try {
+    const cacheKey = 'matieres-with-questions';
+    const cached = referentielCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return res.json({ success: true, data: cached.data, count: cached.data.length, cached: true });
+    }
+    
+    const allMatieres = [];
+    
+    for (const domain of getAllDomaines()) {
+      const sousDomaines = getAllSousDomaines(domain.id);
+      for (const sousDomaine of sousDomaines) {
+        const matieres = getAllMatieres(domain.id, sousDomaine.id);
+        for (const matiere of matieres) {
+          const count = await Question.countDocuments({ 
+            matiereId: String(matiere.id), 
+            status: 'approved' 
+          });
+          
+          if (count > 0) {
+            allMatieres.push({
+              id: matiere.id,
+              nom: matiere.nom,
+              domaineId: domain.id,
+              domaineNom: domain.nom,
+              sousDomaineId: sousDomaine.id,
+              sousDomaineNom: sousDomaine.nom,
+              questionsCount: count
+            });
+          }
+        }
+      }
+    }
+    
+    allMatieres.sort((a, b) => b.questionsCount - a.questionsCount);
+    
+    referentielCache.set(cacheKey, { data: allMatieres, timestamp: Date.now() });
+    
+    console.log(`[API] 📚 ${allMatieres.length} matière(s) avec questions retournées`);
+    res.json({ success: true, data: allMatieres, count: allMatieres.length });
+  } catch (err) {
+    console.error('[API] Erreur matieres-with-questions:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ NOUVELLE ROUTE: Compter les questions par matière
+app.get('/api/referentiel/questions-count/:matiereId', async (req, res) => {
+  try {
+    const { matiereId } = req.params;
+    const count = await Question.countDocuments({ matiereId: matiereId, status: 'approved' });
+    res.json({ success: true, count });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -3561,36 +3640,47 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('distributeExam', (data) => {
+  // ✅ VERSION OPTIMISÉE AVEC PRIORITÉ À LA CONFIG DE L'ÉPREUVE
+  socket.on('distributeExam', async (data) => {
     const { examId, examOption } = data || {};
     if (!examId) {
       console.warn('[Socket] distributeExam: examId manquant');
       return;
     }
 
-    console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${examOption} par ${socket.id}`);
+    try {
+      // ✅ Récupérer l'épreuve depuis la base de données pour vérifier sa config
+      const exam = await Exam.findById(examId);
+      // Priorité à la config de l'épreuve si elle existe
+      const effectiveOption = exam?.config?.examOption || examOption;
+      
+      console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, requête: ${examOption})`);
 
-    const config = EXAM_FULL_CONFIGS[examOption] || EXAM_FULL_CONFIGS['C'];
+      const config = EXAM_FULL_CONFIGS[effectiveOption] || EXAM_FULL_CONFIGS['C'];
 
-    activeDistributedExams.set(examId, { examId, examOption, config, distributedAt: Date.now() });
+      activeDistributedExams.set(examId, { examId, examOption: effectiveOption, config, distributedAt: Date.now() });
 
-    let terminalCount = 0;
-    for (const [sid, session] of activeSessions) {
-      if (session.type === 'terminal') {
-        session.status = 'exam_distributed';
-        session.currentExamId = examId;
-        session.examOption = examOption;
-        terminalCount++;
-        const termSocket = io.sockets.sockets.get(sid);
-        if (termSocket && termSocket.connected) {
-          termSocket.emit('examDistributed', { examId, examOption, config });
+      let terminalCount = 0;
+      for (const [sid, session] of activeSessions) {
+        if (session.type === 'terminal') {
+          session.status = 'exam_distributed';
+          session.currentExamId = examId;
+          session.examOption = effectiveOption;
+          terminalCount++;
+          const termSocket = io.sockets.sockets.get(sid);
+          if (termSocket && termSocket.connected) {
+            termSocket.emit('examDistributed', { examId, examOption: effectiveOption, config });
+          }
         }
       }
-    }
 
-    console.log(`[Socket] ✅ Épreuve distribuée à ${terminalCount} terminal(aux)`);
-    emitSessionUpdate();
-    socket.emit('distributeExamConfirm', { success: true, terminalCount, examId, examOption });
+      console.log(`[Socket] ✅ Épreuve distribuée à ${terminalCount} terminal(aux)`);
+      emitSessionUpdate();
+      socket.emit('distributeExamConfirm', { success: true, terminalCount, examId, examOption: effectiveOption });
+    } catch (err) {
+      console.error('[Socket] Erreur distribution:', err);
+      socket.emit('distributeExamConfirm', { success: false, error: err.message });
+    }
   });
 
   socket.on('terminalReadyForExam', (data) => {
@@ -3606,31 +3696,42 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('startExam', (data) => {
+  // ✅ VERSION OPTIMISÉE AVEC PRIORITÉ À LA CONFIG DE L'ÉPREUVE
+  socket.on('startExam', async (data) => {
     const { examId, option } = data || {};
     if (!examId) return;
 
-    console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${option}`);
+    try {
+      // ✅ Récupérer l'épreuve depuis la base de données pour vérifier sa config
+      const exam = await Exam.findById(examId);
+      // Priorité à la config de l'épreuve si elle existe
+      const effectiveOption = exam?.config?.examOption || option;
+      
+      console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, requête: ${option})`);
 
-    let startedCount = 0;
+      let startedCount = 0;
 
-    for (const [sid, session] of activeSessions) {
-      if (session.type === 'student' && session.currentExamId === examId && session.status === 'waiting') {
-        session.status = 'composing';
-        startedCount++;
-        const stuSocket = io.sockets.sockets.get(sid);
-        if (stuSocket && stuSocket.connected) {
-          stuSocket.emit('examStarted', { examId, examOption: option || session.examOption });
+      for (const [sid, session] of activeSessions) {
+        if (session.type === 'student' && session.currentExamId === examId && session.status === 'waiting') {
+          session.status = 'composing';
+          startedCount++;
+          const stuSocket = io.sockets.sockets.get(sid);
+          if (stuSocket && stuSocket.connected) {
+            stuSocket.emit('examStarted', { examId, examOption: effectiveOption });
+          }
         }
       }
+
+      io.to(`exam:${examId}`).emit('examStarted', { examId, examOption: effectiveOption });
+
+      console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés`);
+      socket.emit('examStartedConfirm', { success: true, startedCount, examId });
+      emitSessionUpdate();
+      emitRealtimeStats(examId);
+    } catch (err) {
+      console.error('[Socket] Erreur démarrage:', err);
+      socket.emit('examStartedConfirm', { success: false, error: err.message });
     }
-
-    io.to(`exam:${examId}`).emit('examStarted', { examId, examOption: option });
-
-    console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés`);
-    socket.emit('examStartedConfirm', { success: true, startedCount, examId });
-    emitSessionUpdate();
-    emitRealtimeStats(examId);
   });
 
   socket.on('finishExam', (data) => {
@@ -3837,7 +3938,7 @@ server.listen(PORT, '0.0.0.0', () => {
 
   console.log('');
   console.log(`╔${LINE}╗`);
-  console.log(`║${'  NA²QUIZ — Serveur Socket.IO v5.0.0'.padEnd(64)}║`);
+  console.log(`║${'  NA²QUIZ — Serveur Socket.IO v5.1.0 (Optimisé)'.padEnd(64)}║`);
   console.log(`╠${LINE}╣`);
   console.log(row('🌍 Environnement : ', NODE_ENV));
   console.log(row('🖥️  Hostname      : ', os.hostname()));

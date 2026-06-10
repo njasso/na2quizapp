@@ -1,16 +1,16 @@
-// src/pages/creation/CreateQuestion.jsx — VERSION FINALE
+// src/pages/creation/CreateQuestion.jsx — VERSION COMPLÈTE CORRIGÉE
 // CORRECTIONS :
-//  1. Save via POST /api/questions (route unitaire) → .save() déclenche les hooks Mongoose
-//     → cleInterne généré → plus de "0 questions insérées"
-//  2. libChapitre déplacé AVANT typeQuestion et rendu OBLIGATOIRE
-//  3. Après save : modal avec 4 variantes de réinitialisation intelligente
-//  4. Refs pour repositionner le curseur sur le bon champ après reset
+//  1. Type de question : choix UNIQUE uniquement (pas de multiple)
+//  2. Suppression des champs Points et Temps (réservés pour les épreuves)
+//  3. Save via POST /api/questions (route unitaire) → .save() déclenche les hooks Mongoose
+//  4. libChapitre déplacé AVANT typeQuestion et rendu OBLIGATOIRE
+//  5. Après save : modal avec 4 variantes de réinitialisation intelligente
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Save, ArrowLeft, BookOpen, Clock, Award,
+  Save, ArrowLeft, BookOpen, Clock, Award, Info,
   HelpCircle, PlusCircle, Trash2, AlertCircle, Loader,
   XCircle, Eye, CheckCircle, Image as ImageIcon,
   RefreshCw, ChevronRight
@@ -56,8 +56,8 @@ const QuestionPreviewModal = ({ question, onClose }) => {
 
   const imageSrc = getFullImageUrl();
   const filledOptions = question.options?.filter(o => o && o.trim()) || [];
-  const isMultiple = question.typeQuestion === 2;
-  const correctAnswers = isMultiple ? (question.correctAnswers || []) : [question.correctAnswer];
+  // Choix unique uniquement
+  const correctAnswer = question.correctAnswer;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -68,7 +68,7 @@ const QuestionPreviewModal = ({ question, onClose }) => {
         onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>
-            Aperçu {isMultiple && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: '0.7rem' }}>(Choix multiples)</span>}
+            Aperçu de la question
           </h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><XCircle size={20} /></button>
         </div>
@@ -91,7 +91,7 @@ const QuestionPreviewModal = ({ question, onClose }) => {
           <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>Options :</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {filledOptions.map((opt, i) => {
-              const isCorrect = isMultiple ? correctAnswers.includes(opt) : opt === question.correctAnswer;
+              const isCorrect = opt === correctAnswer;
               return (
                 <div key={i} style={{ padding: '10px 12px', background: isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCorrect ? '#10b981' : 'rgba(99,102,241,0.2)'}`, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ color: isCorrect ? '#10b981' : '#64748b', fontWeight: 600 }}>{String.fromCharCode(65 + i)}.</span>
@@ -118,9 +118,7 @@ const QuestionPreviewModal = ({ question, onClose }) => {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {[['Points', `${question.points} pt${question.points > 1 ? 's' : ''}`, '#f59e0b'],
-            ['Temps', `${question.tempsMin} min`, '#60a5fa'],
-            ['Niveau', question.niveau, '#a78bfa'],
+          {[['Niveau', question.niveau, '#a78bfa'],
             ['Matière', question.matiere, '#34d399']].map(([lbl, val, color]) => (
             <div key={lbl} style={{ padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
               <p style={{ color: '#64748b', fontSize: '0.6rem' }}>{lbl}</p>
@@ -245,10 +243,10 @@ const CreateQuestion = () => {
   const [libQuestion,    setLibQuestion]    = useState('');
   const [options,        setOptions]        = useState(['', '', '']);
   const [correctAnswer,  setCorrectAnswer]  = useState('');
-  const [correctAnswers, setCorrectAnswers] = useState([]);
-  const [points,         setPoints]         = useState(1);
-  const [tempsMin,       setTempsMin]       = useState(1);
   const [explanation,    setExplanation]    = useState('');
+
+  // NOTE: points et tempsMin sont supprimés car configurés au niveau de l'épreuve
+  // Ils ne sont plus utilisés dans le formulaire
 
   // ── Image ──────────────────────────────────────────────────────────────────
   const [imageQuestion, setImageQuestion] = useState('');
@@ -278,17 +276,13 @@ const CreateQuestion = () => {
     setLibChapitre(q.libChapitre || '');
     setOptions(q.options?.length >= 3 ? q.options : ['', '', '']);
     setTypeQuestion(q.typeQuestion || 1);
-    setPoints(q.points || 1);
-    setTempsMin(q.tempsMin || 1);
     setExplanation(q.explanation || '');
     setImageQuestion(q.imageQuestion || '');
     setImageBase64(q.imageBase64 || '');
     setImageMetadata(q.imageMetadata || {});
-    if (q.typeQuestion === 1) {
-      setCorrectAnswer(q.correctAnswer || (q.options?.[q.bonOpRep] ?? ''));
-    } else {
-      setCorrectAnswers(q.correctAnswers || []);
-    }
+    // Choix unique
+    setCorrectAnswer(q.correctAnswer || (q.options?.[q.bonOpRep] ?? ''));
+    
     if (q.domaine) {
       const found = getAllDomaines().find(d => d.nom === q.domaine);
       if (found) setSelectedDomainId(found.id);
@@ -309,12 +303,12 @@ const CreateQuestion = () => {
     const n = options.filter((_, idx) => idx !== i);
     setOptions(n);
     if (correctAnswer === options[i]) setCorrectAnswer('');
-    if (correctAnswers.includes(options[i])) setCorrectAnswers(correctAnswers.filter(a => a !== options[i]));
   };
   const handleOptionChange = (i, v) => { const n = [...options]; n[i] = v; setOptions(n); };
+  
+  // Choix unique uniquement
   const handleCorrectChange = (v) => {
-    if (typeQuestion === 1) { setCorrectAnswer(v); }
-    else { setCorrectAnswers(prev => prev.includes(v) ? prev.filter(a => a !== v) : [...prev, v]); }
+    setCorrectAnswer(v);
   };
 
   // ── Image ──────────────────────────────────────────────────────────────────
@@ -327,7 +321,7 @@ const CreateQuestion = () => {
   // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = () => {
     const filled   = options.filter(o => o.trim());
-    const hasCorrect = typeQuestion === 1 ? correctAnswer.trim() !== '' : correctAnswers.length > 0;
+    const hasCorrect = correctAnswer.trim() !== '';
     const errs = {
       libQuestion:   !libQuestion.trim(),
       libChapitre:   !libChapitre.trim(),
@@ -342,124 +336,111 @@ const CreateQuestion = () => {
   };
 
   // ── Sauvegarde ─────────────────────────────────────────────────────────────
-  // ✅ FIX: utilise POST /api/questions (route unitaire avec .save())
-  // → déclenche les hooks Mongoose → cleInterne généré → pas de doublons silencieux
- // ── Sauvegarde ─────────────────────────────────────────────────────────────
-const handleSave = async () => {
-  if (!validateForm()) { 
-    toast.error('Veuillez corriger les erreurs avant d\'enregistrer'); 
-    return; 
-  }
-
-  const filled = options.filter(o => o.trim());
-  
-  // ✅ Récupération des données du référentiel avec IDs
-  const domainData = DOMAIN_DATA[selectedDomainId];
-  const sousDomaineData = domainData?.sousDomaines[selectedSousDomaineId];
-  const levelData = sousDomaineData?.levels?.find(l => String(l.id) === selectedLevelId);
-  const matiereData = sousDomaineData?.matieres?.find(m => String(m.id) === selectedMatiereId);
-
-  // Validation des IDs
-  if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
-    toast.error('Veuillez sélectionner tous les champs du référentiel');
-    return;
-  }
-
-  // Calculer bonOpRep correctement
-  let bonOpRep = -1;
-  if (typeQuestion === 1) {
-    bonOpRep = filled.findIndex(o => o === correctAnswer);
-  } else {
-    // Pour les questions multiples, prendre la première réponse correcte comme référence
-    if (correctAnswers.length > 0) {
-      bonOpRep = filled.findIndex(o => o === correctAnswers[0]);
+  const handleSave = async () => {
+    if (!validateForm()) { 
+      toast.error('Veuillez corriger les erreurs avant d\'enregistrer'); 
+      return; 
     }
-  }
-  if (bonOpRep < 0) bonOpRep = 0;
 
-  // ✅ Payload COMPLET avec IDs ET noms
-  const payload = {
-    domaineId: selectedDomainId,
-    sousDomaineId: selectedSousDomaineId,
-    niveauId: selectedLevelId,
-    matiereId: selectedMatiereId,
-    domaine: domainData?.nom || '',
-    domaineCode: domainData?.code || '',
-    sousDomaine: sousDomaineData?.nom || '',
-    sousDomaineCode: sousDomaineData?.code || '',
-    niveau: levelData?.nom || '',
-    matiere: matiereData?.nom || '',
-    matiereCode: matiereData?.code || '',
-    libQuestion,
-    libChapitre: libChapitre.trim(),
-    options: filled,
-    correctAnswer: typeQuestion === 1 ? correctAnswer : correctAnswers,
-    bonOpRep,
-    typeQuestion,
-    points,
-    tempsMin,
-    explanation,
-    imageQuestion: imageQuestion || '',
-    imageBase64: imageBase64 || '',
-    imageMetadata: imageMetadata || { originalName: '', mimeType: '', size: 0, storageType: 'none' },
-    matriculeAuteur: user?.matricule || user?.email || '',
-    status: 'pending',
+    const filled = options.filter(o => o.trim());
+    
+    // Récupération des données du référentiel avec IDs
+    const domainData = DOMAIN_DATA[selectedDomainId];
+    const sousDomaineData = domainData?.sousDomaines[selectedSousDomaineId];
+    const levelData = sousDomaineData?.levels?.find(l => String(l.id) === selectedLevelId);
+    const matiereData = sousDomaineData?.matieres?.find(m => String(m.id) === selectedMatiereId);
+
+    // Validation des IDs
+    if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
+      toast.error('Veuillez sélectionner tous les champs du référentiel');
+      return;
+    }
+
+    // Calculer bonOpRep correctement (choix unique)
+    let bonOpRep = filled.findIndex(o => o === correctAnswer);
+    if (bonOpRep < 0) bonOpRep = 0;
+
+    // Payload COMPLET avec IDs ET noms
+    // NOTE: points et tempsMin ne sont plus envoyés (valeur par défaut)
+    const payload = {
+      domaineId: selectedDomainId,
+      sousDomaineId: selectedSousDomaineId,
+      niveauId: selectedLevelId,
+      matiereId: selectedMatiereId,
+      domaine: domainData?.nom || '',
+      domaineCode: domainData?.code || '',
+      sousDomaine: sousDomaineData?.nom || '',
+      sousDomaineCode: sousDomaineData?.code || '',
+      niveau: levelData?.nom || '',
+      matiere: matiereData?.nom || '',
+      matiereCode: matiereData?.code || '',
+      libQuestion,
+      libChapitre: libChapitre.trim(),
+      options: filled,
+      correctAnswer: correctAnswer,
+      bonOpRep,
+      typeQuestion,
+      points: 1,  // Valeur par défaut, sera configurée dans l'épreuve
+      tempsMin: 1, // Valeur par défaut, sera configurée dans l'épreuve
+      explanation,
+      imageQuestion: imageQuestion || '',
+      imageBase64: imageBase64 || '',
+      imageMetadata: imageMetadata || { originalName: '', mimeType: '', size: 0, storageType: 'none' },
+      matriculeAuteur: user?.matricule || user?.email || '',
+      status: 'pending',
+    };
+
+    console.log('[CreateQuestion] 📤 Payload:', {
+      ...payload,
+      correctAnswer,
+      imageBase64: payload.imageBase64 ? 'present' : 'absent'
+    });
+
+    setIsLoading(true);
+    try {
+      let response;
+      if (isEditing && editingQuestionId) {
+        console.log('[CreateQuestion] ✏️ Mise à jour question:', editingQuestionId);
+        response = await api.put(`/api/questions/${editingQuestionId}`, payload);
+        console.log('[CreateQuestion] 📦 Réponse mise à jour:', response.data);
+        
+        if (response.data?.success) {
+          toast.success('Question mise à jour avec succès !');
+          
+          // FORCER LE RAFRAÎCHISSEMENT DE LA PAGE PRÉCÉDENTE
+          sessionStorage.setItem('refreshQuestions', Date.now().toString());
+          localStorage.setItem('forceRefreshQuestions', Date.now().toString());
+          
+          navigate('/teacher/questions', { 
+            state: { refreshed: true, timestamp: Date.now(), questionId: editingQuestionId },
+            replace: true 
+          });
+          return;
+        } else {
+          throw new Error(response.data?.error || 'Erreur lors de la mise à jour');
+        }
+      } else {
+        response = await api.post('/api/questions', payload);
+        if (response.data?.success) {
+          toast.success('Question créée et envoyée en validation !');
+          setShowPostSaveModal(true);
+          return;
+        } else {
+          throw new Error(response.data?.error || 'Erreur lors de la création');
+        }
+      }
+    } catch (err) {
+      console.error('[CreateQuestion] ❌ Erreur:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Erreur lors de l\'enregistrement';
+      toast.error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  console.log('[CreateQuestion] 📤 Payload:', {
-    ...payload,
-    bonOpRep,
-    correctAnswer: typeQuestion === 1 ? correctAnswer : correctAnswers,
-    imageBase64: payload.imageBase64 ? 'present' : 'absent'
-  });
-
-  setIsLoading(true);
-  try {
-    let response;
-    if (isEditing && editingQuestionId) {
-      console.log('[CreateQuestion] ✏️ Mise à jour question:', editingQuestionId);
-      response = await api.put(`/api/questions/${editingQuestionId}`, payload);
-      console.log('[CreateQuestion] 📦 Réponse mise à jour:', response.data);
-      
-      // ✅ Vérifier la réponse
-      if (response.data?.success) {
-        toast.success('Question mise à jour avec succès !');
-        
-        // ✅ FORCER LE RAFRAÎCHISSEMENT DE LA PAGE PRÉCÉDENTE
-        // Méthode 1: sessionStorage
-        sessionStorage.setItem('refreshQuestions', Date.now().toString());
-        // Méthode 2: localStorage
-        localStorage.setItem('forceRefreshQuestions', Date.now().toString());
-        
-        // Rediriger vers la page des questions avec un flag
-        navigate('/teacher/questions', { 
-          state: { refreshed: true, timestamp: Date.now(), questionId: editingQuestionId },
-          replace: true 
-        });
-        return;
-      } else {
-        throw new Error(response.data?.error || 'Erreur lors de la mise à jour');
-      }
-    } else {
-      response = await api.post('/api/questions', payload);
-      if (response.data?.success) {
-        toast.success('Question créée et envoyée en validation !');
-        setShowPostSaveModal(true);
-        return;
-      } else {
-        throw new Error(response.data?.error || 'Erreur lors de la création');
-      }
-    }
-  } catch (err) {
-    console.error('[CreateQuestion] ❌ Erreur:', err);
-    const errorMessage = err.response?.data?.error || err.message || 'Erreur lors de l\'enregistrement';
-    toast.error(errorMessage);
-  } finally {
-    setIsLoading(false);
-  }
-};  // ── Réinitialisations après sauvegarde (4 variantes) ──────────────────────
+  // ── Réinitialisations après sauvegarde (4 variantes) ──────────────────────
   const resetContent = () => {
-    setLibQuestion(''); setOptions(['', '', '']); setCorrectAnswer(''); setCorrectAnswers([]);
+    setLibQuestion(''); setOptions(['', '', '']); setCorrectAnswer('');
     setExplanation(''); setImageQuestion(''); setImageBase64(''); setImageMetadata({});
   };
 
@@ -470,25 +451,19 @@ const handleSave = async () => {
 
     switch (variant) {
       case 'libelle':
-        // Garde : référentiel + chapitre + type
-        // Reset : libellé, options, réponse, image, explication
         resetContent();
         setTimeout(() => libQuestionRef.current?.focus(), 100);
         toast('Nouveau libellé — même chapitre et même type', { icon: '✏️' });
         break;
 
       case 'type':
-        // Garde : référentiel + chapitre
-        // Reset : type + tout le contenu
-        setTypeQuestion(1); setCorrectAnswer(''); setCorrectAnswers([]);
+        setTypeQuestion(1); setCorrectAnswer('');
         resetContent();
         setTimeout(() => typeQuestionRef.current?.focus(), 100);
         toast('Nouveau type — même chapitre', { icon: '🔄' });
         break;
 
       case 'chapitre':
-        // Garde : référentiel seulement
-        // Reset : chapitre + type + tout le contenu
         setLibChapitre(''); setTypeQuestion(1);
         resetContent();
         setTimeout(() => libChapitreRef.current?.focus(), 100);
@@ -496,7 +471,6 @@ const handleSave = async () => {
         break;
 
       case 'referentiel':
-        // Reset : tout
         setSelectedDomainId(''); setSelectedSousDomaineId(''); setSelectedLevelId(''); setSelectedMatiereId('');
         setDomainNom(''); setSousDomaineNom(''); setLevelNom(''); setMatiereNom('');
         setLibChapitre(''); setTypeQuestion(1);
@@ -524,7 +498,7 @@ const handleSave = async () => {
   // ── Aperçu ─────────────────────────────────────────────────────────────────
   const previewQuestion = {
     libQuestion, options: options.filter(o => o.trim()),
-    correctAnswer, correctAnswers, typeQuestion, points, tempsMin,
+    correctAnswer, typeQuestion,
     explanation, domaine: domainNom, niveau: levelNom, matiere: matiereNom,
     libChapitre, imageQuestion, imageBase64, imageMetadata,
   };
@@ -645,7 +619,7 @@ const handleSave = async () => {
           <section style={{ marginBottom: 20 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.8rem', display: 'block', marginBottom: 6 }}>Type de question *</label>
             <select ref={typeQuestionRef} value={typeQuestion}
-              onChange={e => { setTypeQuestion(parseInt(e.target.value)); setCorrectAnswer(''); setCorrectAnswers([]); }}
+              onChange={e => { setTypeQuestion(parseInt(e.target.value)); setCorrectAnswer(''); }}
               style={inputStyle()}>
               {QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.id} — {t.nom}</option>)}
             </select>
@@ -710,52 +684,36 @@ const handleSave = async () => {
             )}
           </section>
 
-          {/* ═══ 7. POINTS & TEMPS ═══ */}
+          {/* ═══ 7. POINTS & TEMPS SUPPRIMÉS - RÉSERVÉS POUR LES ÉPREUVES ═══ */}
           <section style={{ marginBottom: 20 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <label style={{ color: '#94a3b8', fontSize: '0.7rem', display: 'block', marginBottom: 4 }}>
-                  <Award size={12} style={{ display: 'inline', marginRight: 4 }} /> Points (1–10)
-                </label>
-                <input type="number" min="1" max="10" value={points} onChange={e => setPoints(parseInt(e.target.value))} style={inputStyle()} />
-              </div>
-              <div>
-                <label style={{ color: '#94a3b8', fontSize: '0.7rem', display: 'block', marginBottom: 4 }}>
-                  <Clock size={12} style={{ display: 'inline', marginRight: 4 }} /> Temps (minutes)
-                </label>
-                <input type="number" min="0.5" max="30" step="0.5" value={tempsMin} onChange={e => setTempsMin(parseFloat(e.target.value))} style={inputStyle()} />
-              </div>
+            <div style={{ padding: 12, background: 'rgba(59,130,246,0.08)', borderRadius: 10, border: '1px solid rgba(59,130,246,0.2)' }}>
+              <p style={{ fontSize: '0.75rem', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <Info size={14} />
+                ⚙️ La configuration des points et du temps sera effectuée lors de la création de l'épreuve
+              </p>
             </div>
           </section>
 
-          {/* ═══ 8. BONNE RÉPONSE ═══ */}
+          {/* ═══ 8. BONNE RÉPONSE - UNIQUE SEULEMENT ═══ */}
           <section style={{ marginBottom: 20 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.7rem', display: 'block', marginBottom: 6 }}>
-              Bonne réponse * {typeQuestion === 2 && <span style={{ color: '#f59e0b', fontSize: '0.65rem' }}>(Cochez toutes les bonnes réponses)</span>}
+              Bonne réponse * <span style={{ color: '#f59e0b', fontSize: '0.65rem' }}>(Sélection unique)</span>
             </label>
-            {typeQuestion === 1 ? (
-              <select value={correctAnswer} onChange={e => handleCorrectChange(e.target.value)}
-                style={inputStyle(validationErrors.correctAnswer)}>
-                <option value="">Sélectionner la bonne réponse...</option>
-                {options.filter(o => o.trim()).map((opt, idx) => (
-                  <option key={idx} value={opt}>{String.fromCharCode(65 + idx)} — {opt}</option>
-                ))}
-              </select>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {options.filter(o => o.trim()).map((opt, idx) => (
-                  <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: correctAnswers.includes(opt) ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.02)', border: `1px solid ${correctAnswers.includes(opt) ? '#10b981' : 'rgba(99,102,241,0.2)'}`, borderRadius: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={correctAnswers.includes(opt)} onChange={() => handleCorrectChange(opt)}
-                      style={{ accentColor: '#10b981', width: 16, height: 16 }} />
-                    <span style={{ color: '#f8fafc' }}>{String.fromCharCode(65 + idx)} — {opt}</span>
-                    {correctAnswers.includes(opt) && <CheckCircle size={14} color="#10b981" style={{ marginLeft: 'auto' }} />}
-                  </label>
-                ))}
-              </div>
-            )}
+            <select 
+              value={correctAnswer} 
+              onChange={e => handleCorrectChange(e.target.value)}
+              style={inputStyle(validationErrors.correctAnswer)}
+            >
+              <option value="">Sélectionner la bonne réponse...</option>
+              {options.filter(o => o.trim()).map((opt, idx) => (
+                <option key={idx} value={opt}>
+                  {String.fromCharCode(65 + idx)} — {opt}
+                </option>
+              ))}
+            </select>
             {validationErrors.correctAnswer && (
               <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <AlertCircle size={12} /> Sélectionnez au moins une réponse correcte
+                <AlertCircle size={12} /> Sélectionnez une réponse correcte
               </p>
             )}
           </section>

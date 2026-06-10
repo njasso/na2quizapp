@@ -1,4 +1,7 @@
 // src/pages/surveillance/SurveillancePage.jsx - VERSION CORRIGÉE AVEC SESSION PERSISTANTE
+// ✅ MISE À JOUR : Priorité à la config de l'épreuve (si existante)
+// ✅ Si l'épreuve a une configuration enregistrée, elle prime sur la config de surveillance
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
 import { toast, Toaster } from 'react-hot-toast';
@@ -74,11 +77,10 @@ const SurveillancePage = () => {
   const [rankingsData, setRankingsData] = useState([]);
   const [isLoadingRankings, setIsLoadingRankings] = useState(false);
   const [waitingCounts, setWaitingCounts] = useState({});
-  // ✅ États temps réel supplémentaires (événements précédemment ignorés)
   const [submittingStudents, setSubmittingStudents] = useState(new Set());
-  const [finishedStudents,   setFinishedStudents]   = useState(new Set());
-  const [disconnectedIds,    setDisconnectedIds]    = useState(new Set());
-  const [examFinishedIds,    setExamFinishedIds]    = useState(new Set());
+  const [finishedStudents, setFinishedStudents] = useState(new Set());
+  const [disconnectedIds, setDisconnectedIds] = useState(new Set());
+  const [examFinishedIds, setExamFinishedIds] = useState(new Set());
   const [accessDenied, setAccessDenied] = useState(false);
 
   const socketRef = useRef(null);
@@ -87,21 +89,23 @@ const SurveillancePage = () => {
   const autoAdvanceTimerRef = useRef(null);
   const isMounted = useRef(true);
   
-  // ✅ Session ID persistant pour la surveillance
+  // Session ID persistant pour la surveillance
   const surveillanceSessionIdRef = useRef(null);
 
-  // ✅ Créer ou récupérer un sessionId persistant
-  const getOrCreateSessionId = useCallback(() => {
-    let id = localStorage.getItem('surveillanceSessionId');
-    if (!id) {
-      id = `SURV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('surveillanceSessionId', id);
-      console.log('[Surveillance] 🆕 Nouvelle session créée:', id);
-    } else {
-      console.log('[Surveillance] 🔄 Session existante:', id);
+  // ✅ Fonction pour obtenir la configuration effective d'une épreuve
+  // Priorité : config de l'épreuve > config de surveillance
+  const getEffectiveExamOption = useCallback((examId, fallbackOption = null) => {
+    const exam = exams.find(e => e._id === examId);
+    if (exam?.config?.examOption) {
+      console.log(`[Surveillance] 📋 Épreuve ${exam.title} utilise sa config: ${exam.config.examOption}`);
+      return exam.config.examOption;
     }
-    return id;
-  }, []);
+    if (fallbackOption) {
+      console.log(`[Surveillance] 📋 Épreuve ${examId} utilise la config de surveillance: ${fallbackOption}`);
+      return fallbackOption;
+    }
+    return 'C'; // Configuration par défaut
+  }, [exams]);
 
   // ✅ Vérification d'accès
   useEffect(() => {
@@ -159,7 +163,13 @@ const SurveillancePage = () => {
 
   const getExamInfo = useCallback((examId) => {
     const exam = exams.find(e => e._id === examId);
-    return { domain: exam?.domain || '', level: exam?.level || '', subject: exam?.subject || '', coverImage: getImageUrl(exam) };
+    return { 
+      domain: exam?.domain || '', 
+      level: exam?.level || '', 
+      subject: exam?.subject || '', 
+      coverImage: getImageUrl(exam),
+      configOption: exam?.config?.examOption || null
+    };
   }, [exams, getImageUrl]);
 
   const getFilteredSessions = useCallback(() => {
@@ -182,15 +192,26 @@ const SurveillancePage = () => {
   //  SOCKET.IO AVEC SESSION PERSISTANTE
   // ══════════════════════════════════════════════════════════════
 
-  // ✅ Refs stables pour éviter que le socket se recrée à chaque changement d'état
   const examsRef = useRef([]);
   const addAlertRef = useRef(addAlert);
   useEffect(() => { addAlertRef.current = addAlert; }, [addAlert]);
   const getImageUrlRef = useRef(getImageUrl);
   useEffect(() => { getImageUrlRef.current = getImageUrl; }, [getImageUrl]);
 
-  // Synchronise examsRef avec le state exams sans toucher aux deps du socket
   useEffect(() => { examsRef.current = exams; }, [exams]);
+
+  // ✅ Créer ou récupérer un sessionId persistant
+  const getOrCreateSessionId = useCallback(() => {
+    let id = localStorage.getItem('surveillanceSessionId');
+    if (!id) {
+      id = `SURV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('surveillanceSessionId', id);
+      console.log('[Surveillance] 🆕 Nouvelle session créée:', id);
+    } else {
+      console.log('[Surveillance] 🔄 Session existante:', id);
+    }
+    return id;
+  }, []);
 
   useEffect(() => {
     if (socketInitialized.current) return;
@@ -201,17 +222,17 @@ const SurveillancePage = () => {
 
     console.log('[Surveillance] 🔌 Connexion socket avec sessionId:', sessionId);
 
- const socket = io(SOCKET_URL, { 
-  transports: ['polling'],     // ✅ Uniquement polling
-  reconnection: true, 
-  reconnectionAttempts: 10,    // ✅ Augmenter les tentatives
-  reconnectionDelay: 2000,
-  reconnectionDelayMax: 10000,
-  timeout: 60000,              // ✅ Augmenter le timeout
-  forceNew: false,
-  path: '/socket.io/',
-  withCredentials: true        // ✅ Important pour CORS
-})
+    const socket = io(SOCKET_URL, { 
+      transports: ['polling'],
+      reconnection: true, 
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      timeout: 60000,
+      forceNew: false,
+      path: '/socket.io/',
+      withCredentials: true
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => { 
@@ -220,7 +241,6 @@ const SurveillancePage = () => {
       setReconnectAttempt(0);
       console.log('[Surveillance] ✅ Socket connecté, ID:', socket.id);
       
-      // ✅ Envoyer le sessionId persistant
       socket.emit('registerSession', { 
         type: 'surveillance', 
         sessionId: surveillanceSessionIdRef.current,
@@ -246,7 +266,6 @@ const SurveillancePage = () => {
     socket.on('reconnect', (attempt) => {
       console.log('[Surveillance] 🔄 Reconnecté après', attempt, 'tentatives');
       setReconnectAttempt(0);
-      // ✅ Ré-envoyer le sessionId après reconnexion
       if (socket.connected) {
         socket.emit('registerSession', { 
           type: 'surveillance', 
@@ -258,11 +277,10 @@ const SurveillancePage = () => {
 
     socket.on('sessionUpdate', (data) => { 
       const sessions = data.activeSessions || []; 
-      // ✅ Utilise examsRef.current (toujours à jour) au lieu de getExamInfo (qui changeait à chaque setExams)
       const enriched = sessions.map(s => { 
         if (s.type === 'student' && s.currentExamId) {
           const exam = examsRef.current.find(e => e._id === s.currentExamId);
-          return { ...s, examInfo: { domain: exam?.domain || '', level: exam?.level || '', subject: exam?.subject || '', coverImage: exam ? getImageUrlRef.current(exam) : null } };
+          return { ...s, examInfo: { domain: exam?.domain || '', level: exam?.level || '', subject: exam?.subject || '', coverImage: exam ? getImageUrlRef.current(exam) : null, configOption: exam?.config?.examOption || null } };
         }
         return s; 
       }); 
@@ -290,7 +308,6 @@ const SurveillancePage = () => {
       toast.error(alert.message, { duration: 8000, icon: '⚠️' }); 
     });
 
-    // ✅ Étudiant en cours de soumission
     socket.on('studentSubmitting', (data) => {
       setSubmittingStudents(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
       setActiveSessions(prev => prev.map(session =>
@@ -299,7 +316,6 @@ const SurveillancePage = () => {
       addAlertRef.current({ type: 'submit', message: `📤 Soumission en cours — examId: ${data.examId?.slice(0,8)}`, severity: 'low' });
     });
 
-    // ✅ Étudiant a terminé et résultat enregistré
     socket.on('studentFinished', (data) => {
       setSubmittingStudents(prev => { const s = new Set(prev); s.delete(data.studentId); return s; });
       setFinishedStudents(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
@@ -309,7 +325,6 @@ const SurveillancePage = () => {
       toast.success('✅ Un étudiant a soumis son épreuve', { duration: 3000 });
     });
 
-    // ✅ Étudiant déconnecté pendant la composition
     socket.on('studentDisconnected', (data) => {
       setDisconnectedIds(prev => { const s = new Set(prev); s.add(data.studentId); return s; });
       setActiveSessions(prev => prev.map(session =>
@@ -322,11 +337,9 @@ const SurveillancePage = () => {
       }
     });
 
-    // ✅ Clôture épreuve confirmée par le serveur
     socket.on('examFinishedConfirm', (data) => {
       setExamFinishedIds(prev => { const s = new Set(prev); s.add(data.examId); return s; });
       toast.success('🏁 Épreuve clôturée — sessions nettoyées', { duration: 4000 });
-      // Purger les sessions de cette épreuve
       setActiveSessions(prev => prev.filter(s => s.currentExamId !== data.examId));
       setSubmittingStudents(new Set());
       setFinishedStudents(new Set());
@@ -340,8 +353,6 @@ const SurveillancePage = () => {
       }
       socketInitialized.current = false; 
     };
-  // ✅ Dépendances vides : le socket ne doit s'initialiser qu'UNE seule fois.
-  // addAlert, getExamInfo et getOrCreateSessionId sont lus via des refs stables ci-dessus.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -353,31 +364,22 @@ const SurveillancePage = () => {
       try {
         const [examsRes, sessionsRes] = await Promise.all([getExams(), getActiveSessions()]);
         
-        // ✅ Le serveur retourne { success: true, data: [...], count: N }
-        // Selon si api.js renvoie response.data ou la réponse axios brute :
-        //   • api.js retourne response.data           → examsRes = { success, data:[...] }  → examsRes.data est le tableau
-        //   • api.js retourne la réponse axios brute  → examsRes = { data: { success, data:[...] } } → examsRes.data.data est le tableau
         let examsData = [];
-        if (Array.isArray(examsRes))                          examsData = examsRes;              // tableau direct
-        else if (Array.isArray(examsRes?.data))               examsData = examsRes.data;          // { data: [...] }
-        else if (Array.isArray(examsRes?.data?.data))         examsData = examsRes.data.data;     // axios: { data: { data: [...] } }
-        else if (examsRes?.success && Array.isArray(examsRes?.exams)) examsData = examsRes.exams; // { success, exams:[...] }
+        if (Array.isArray(examsRes)) examsData = examsRes;
+        else if (Array.isArray(examsRes?.data)) examsData = examsRes.data;
+        else if (Array.isArray(examsRes?.data?.data)) examsData = examsRes.data.data;
+        else if (examsRes?.success && Array.isArray(examsRes?.exams)) examsData = examsRes.exams;
         
-        console.log(`[Surveillance] 📚 Épreuves récupérées: ${examsData.length}`, examsRes);
-        // ✅ Utilise getImageUrlRef.current (stable) pour ne pas créer de dépendance sur getImageUrl
+        console.log(`[Surveillance] 📚 Épreuves récupérées: ${examsData.length}`);
         const normalizedExams = examsData.map(exam => ({ ...exam, coverImage: getImageUrlRef.current(exam) }));
         setExams(normalizedExams);
-        // ✅ Même logique pour les sessions : extraire le tableau quelle que soit la profondeur
-        const rawSessions = sessionsRes?.data?.sessions   // axios: { data: { sessions:[...] } }
-          ?? sessionsRes?.sessions                        // { sessions:[...] }
-          ?? sessionsRes?.data                            // { data:[...] }
-          ?? null;
+        
+        const rawSessions = sessionsRes?.data?.sessions ?? sessionsRes?.sessions ?? sessionsRes?.data ?? null;
         if (Array.isArray(rawSessions)) {
-          // ✅ Enrichissement inline avec normalizedExams (fraîchement chargé) — plus de dépendance sur getExamInfo
           const enriched = rawSessions.map(s => {
             if (s.type === 'student' && s.currentExamId) {
               const exam = normalizedExams.find(e => e._id === s.currentExamId);
-              return { ...s, examInfo: { domain: exam?.domain || '', level: exam?.level || '', subject: exam?.subject || '', coverImage: exam?.coverImage } };
+              return { ...s, examInfo: { domain: exam?.domain || '', level: exam?.level || '', subject: exam?.subject || '', coverImage: exam?.coverImage, configOption: exam?.config?.examOption || null } };
             }
             return s;
           });
@@ -388,34 +390,54 @@ const SurveillancePage = () => {
     fetchData();
     pollingIntervalRef.current = setInterval(fetchData, 30000);
     return () => { if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current); };
-  // ✅ Dépendances vides : fetchData ne doit s'enregistrer qu'une fois.
-  // getImageUrl est lu via getImageUrlRef.current pour rester stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ══════════════════════════════════════════════════════════════
   //  HANDLERS
   // ══════════════════════════════════════════════════════════════
+  
   const handleDistributeExam = useCallback(() => {
     if (!selectedExamId || !socketRef.current?.connected) {
       toast.error(!selectedExamId ? 'Sélectionnez une épreuve.' : 'Socket non connecté.');
       return;
     }
-    socketRef.current.emit('distributeExam', { examId: selectedExamId, examOption: selectedExamOption });
-    toast.success(`Épreuve distribuée — Option ${selectedExamOption}`);
-  }, [selectedExamId, selectedExamOption]);
+    
+    // ✅ Récupérer la configuration effective de l'épreuve
+    const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
+    const exam = exams.find(e => e._id === selectedExamId);
+    
+    console.log(`[Surveillance] 📡 Distribution épreuve: ${exam?.title}, config effective: ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillance: ${selectedExamOption})`);
+    
+    socketRef.current.emit('distributeExam', { examId: selectedExamId, examOption: effectiveOption });
+    toast.success(`Épreuve distribuée — Configuration ${effectiveOption}`);
+  }, [selectedExamId, selectedExamOption, getEffectiveExamOption, exams]);
 
   const handleStartExam = useCallback(() => {
     if (!selectedExamId || !socketRef.current?.connected) {
       toast.error(!selectedExamId ? 'Sélectionnez une épreuve.' : 'Socket non connecté.');
       return;
     }
-    const targetStudents = getUniqueSessions(activeSessions).filter(s => s.type === 'student' && s.currentExamId === selectedExamId && s.status === 'waiting');
-    if (targetStudents.length === 0) { toast.error('⚠️ Aucun étudiant en attente'); return; }
+    
+    // ✅ Récupérer la configuration effective de l'épreuve
+    const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
+    const exam = exams.find(e => e._id === selectedExamId);
+    
+    console.log(`[Surveillance] 🚀 Démarrage épreuve: ${exam?.title}, config effective: ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillance: ${selectedExamOption})`);
+    
+    const targetStudents = getUniqueSessions(activeSessions).filter(
+      s => s.type === 'student' && s.currentExamId === selectedExamId && s.status === 'waiting'
+    );
+    if (targetStudents.length === 0) { 
+      toast.error('⚠️ Aucun étudiant en attente'); 
+      return; 
+    }
     setIsStartingExam(true);
-    socketRef.current.emit('startExam', { examId: selectedExamId, option: selectedExamOption });
+    
+    // ✅ Envoyer l'option effective
+    socketRef.current.emit('startExam', { examId: selectedExamId, option: effectiveOption });
+    
     setTimeout(() => setIsStartingExam(false), 10000);
-  }, [selectedExamId, selectedExamOption, activeSessions, getUniqueSessions]);
+  }, [selectedExamId, selectedExamOption, activeSessions, getUniqueSessions, getEffectiveExamOption, exams]);
 
   const handleFinishExam = useCallback(() => {
     if (!selectedExamId || !socketRef.current?.connected) {
@@ -448,57 +470,52 @@ const SurveillancePage = () => {
   }, []);
 
   // ── Classements ──────────────────────────────────────────────
-const fetchRankings = useCallback(async (examId) => {
-  if (!examId) { 
-    setRankingsData([]); 
-    return; 
-  }
-  setIsLoadingRankings(true);
-  try {
-    console.log('[Rankings] 🔍 Chargement classement pour examId:', examId);
-    const response = await getRankings(examId);
-    console.log('[Rankings] 📦 Réponse:', response);
-    
-    // ✅ Extraction correcte des rankings
-    let rankings = [];
-    if (response?.rankings && Array.isArray(response.rankings)) {
-      rankings = response.rankings;
-    } else if (response?.data?.rankings && Array.isArray(response.data.rankings)) {
-      rankings = response.data.rankings;
-    } else if (Array.isArray(response)) {
-      rankings = response;
+  const fetchRankings = useCallback(async (examId) => {
+    if (!examId) { 
+      setRankingsData([]); 
+      return; 
     }
-    
-    console.log('[Rankings] ✅ Classement chargé:', rankings.length, 'entrées');
-    setRankingsData(rankings);
-    
-    if (rankings.length === 0) {
-      toast.info('Aucun résultat pour cette épreuve', { icon: 'ℹ️' });
+    setIsLoadingRankings(true);
+    try {
+      console.log('[Rankings] 🔍 Chargement classement pour examId:', examId);
+      const response = await getRankings(examId);
+      
+      let rankings = [];
+      if (response?.rankings && Array.isArray(response.rankings)) {
+        rankings = response.rankings;
+      } else if (response?.data?.rankings && Array.isArray(response.data.rankings)) {
+        rankings = response.data.rankings;
+      } else if (Array.isArray(response)) {
+        rankings = response;
+      }
+      
+      console.log('[Rankings] ✅ Classement chargé:', rankings.length, 'entrées');
+      setRankingsData(rankings);
+      
+      if (rankings.length === 0) {
+        toast.info('Aucun résultat pour cette épreuve', { icon: 'ℹ️' });
+      }
+    } catch (err) { 
+      console.error('[Rankings] ❌ Erreur:', err);
+      setRankingsData([]); 
+      if (err.response?.status === 401) {
+        toast.error('Session expirée, veuillez vous reconnecter');
+      } else if (err.response?.status === 404) {
+        toast.info('Aucun résultat pour cette épreuve');
+      } else {
+        toast.error('Impossible de charger le classement'); 
+      }
+    } finally { 
+      setIsLoadingRankings(false); 
     }
-  } catch (err) { 
-    console.error('[Rankings] ❌ Erreur:', err);
-    setRankingsData([]); 
-    if (err.response?.status === 401) {
-      toast.error('Session expirée, veuillez vous reconnecter');
-    } else if (err.response?.status === 404) {
-      toast.info('Aucun résultat pour cette épreuve');
-    } else {
-      toast.error('Impossible de charger le classement'); 
-    }
-  } finally { 
-    setIsLoadingRankings(false); 
-  }
-}, []);
+  }, []);
 
-// ✅ Ajoutez ce useEffect pour charger automatiquement le classement
-// quand une épreuve est sélectionnée
-useEffect(() => {
-  if (rankingExamId) {
-    fetchRankings(rankingExamId);
-  }
-}, [rankingExamId, fetchRankings])
+  useEffect(() => {
+    if (rankingExamId) {
+      fetchRankings(rankingExamId);
+    }
+  }, [rankingExamId, fetchRankings]);
 
-  // ── Impression classement ────────────────────────────────────
   const printRankings = useCallback(() => {
     if (!rankingsData.length) { toast.error('Aucun classement à imprimer.'); return; }
     const exam = exams.find(e => e._id === rankingExamId);
@@ -511,7 +528,7 @@ useEffect(() => {
     const avg = (rankingsData.reduce((a, e) => a + (e.percentage || 0), 0) / rankingsData.length).toFixed(1);
     const rows = rankingsData.map((entry, i) => `<tr style="border-bottom:1px solid #e2e8f0; background:${i % 2 === 0 ? '#f8fafc' : '#fff'}"><td style="padding:8px 12px; font-weight:700; text-align:center; font-size:1.1rem;">${i < 3 ? medals[i] : entry.rank}<\/td><td style="padding:8px 12px; font-weight:600;">${entry.studentInfo?.firstName || ''} ${entry.studentInfo?.lastName || ''}<\/td><td style="padding:8px 12px; color:#64748b; font-family:monospace;">${entry.studentInfo?.matricule || 'N/A'}<\/td><td style="padding:8px 12px; text-align:center;">${entry.score}<\/td><td style="padding:8px 12px; text-align:center; font-weight:700; color:${entry.percentage >= 50 ? '#15803d' : '#dc2626'};">${entry.percentage}%<\/td><td style="padding:8px 12px; text-align:center;">${entry.resultUrl ? `<a href="${NODE_BACKEND_URL}${entry.resultUrl}" target="_blank" style="color:#7c3aed;font-weight:600;">PDF</a>` : '—'}<\/td><\/tr>`).join('');
     const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head><title>Classement — ${examTitle}</title><style>body{font-family:Arial,sans-serif;margin:20px;}table{border-collapse:collapse;width:100%;}th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd;}th{background:#f2f2f2;}.exam-image{max-width:200px;margin-bottom:20px;border-radius:8px;}</style></head><body><h1>Classement - ${examTitle}</h1>${coverImage ? `<img src="${coverImage}" alt="${examTitle}" class="exam-image" onerror="this.style.display='none'" />` : ''}${examDomain ? `<p><strong>Domaine:</strong> ${examDomain}</p>` : ''}${examLevel ? `<p><strong>Niveau:</strong> ${examLevel}</p>` : ''}<p>Moyenne: ${avg}% | Taux de réussite: ${((passed / rankingsData.length) * 100).toFixed(1)}% | ${rankingsData.length} candidats</p><table><thead><tr><th>Rang</th><th>Candidat</th><th>Matricule</th><th>Score</th><th>%</th><th>Bulletin</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500);}<\/script></body></html>`);
+    win.document.write(`<!DOCTYPE html><html><head><title>Classement — ${examTitle}</title><style>body{font-family:Arial,sans-serif;margin:20px;}table{border-collapse:collapse;width:100%;}th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd;}th{background:#f2f2f2;}.exam-image{max-width:200px;margin-bottom:20px;border-radius:8px;}</style></head><body><h1>Classement - ${examTitle}</h1>${coverImage ? `<img src="${coverImage}" alt="${examTitle}" class="exam-image" onerror="this.style.display='none'" />` : ''}${examDomain ? `<p><strong>Domaine:</strong> ${examDomain}</p>` : ''}${examLevel ? `<p><strong>Niveau:</strong> ${examLevel}</p>` : ''}<p>Moyenne: ${avg}% | Taux de réussite: ${((passed / rankingsData.length) * 100).toFixed(1)}% | ${rankingsData.length} candidats</p><tr><thead><tr><th>Rang</th><th>Candidat</th><th>Matricule</th><th>Score</th><th>%</th><th>Bulletin</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500);}<\/script></body></html>`);
     win.document.close();
   }, [rankingsData, rankingExamId, exams, getImageUrl]);
 
@@ -568,7 +585,6 @@ useEffect(() => {
       'forced-finished':{ color: '#f59e0b', label: 'Clôturé' },
       waiting:          { color: '#8b5cf6', label: 'En attente' },
     };
-    // ✅ Priorité : isOffline > isSubmitting > status
     const effectiveStatus = isOffline ? 'offline' : isSubmitting ? 'submitting' : student.status;
     const cfg = isOffline
       ? { color: '#ef4444', label: '⚡ Hors ligne' }
@@ -592,6 +608,7 @@ useEffect(() => {
           {examInfo.domain && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(59,130,246,0.15)', borderRadius: 4, color: '#60a5fa' }}><Tag size={8} /> {examInfo.domain}</span>}
           {examInfo.level && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(139,92,246,0.15)', borderRadius: 4, color: '#a78bfa' }}><Layers size={8} /> {examInfo.level}</span>}
           {examInfo.subject && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(16,185,129,0.15)', borderRadius: 4, color: '#34d399' }}><BookOpen size={8} /> {examInfo.subject}</span>}
+          {examInfo.configOption && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(245,158,11,0.15)', borderRadius: 4, color: '#f59e0b' }}><Settings size={8} /> Config {examInfo.configOption}</span>}
         </div>}
         {student.progress !== undefined && <div style={{ marginBottom: '10px' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#64748b', marginBottom: '5px' }}><span>Progression</span><span style={{ color: '#94a3b8', fontWeight: 600 }}>{student.progress}%</span></div><div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', overflow: 'hidden' }}><motion.div initial={{ width: 0 }} animate={{ width: `${student.progress}%` }} transition={{ duration: 0.5, ease: 'easeOut' }} style={{ height: '100%', background: student.status === 'finished' ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '3px' }} /></div></div>}
         {student.score !== undefined && <div style={{ display: 'flex', gap: '12px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.78rem' }}><span style={{ color: '#64748b' }}>Score</span><span style={{ color: '#f1f5f9', fontWeight: 600 }}>{student.score} / {student.totalQuestions}</span><span style={{ color: '#64748b' }}>|</span><span style={{ color: student.percentage >= 70 ? '#10b981' : '#ef4444', fontWeight: 700 }}>{student.percentage}%</span></div>}
@@ -643,45 +660,106 @@ useEffect(() => {
           {/* Panneau gestion épreuves avec TOUTES LES CONFIGURATIONS A à K */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}>
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><Radio size={18} color="#3b82f6" /> Gestion des Épreuves</h2>
+            
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '7px' }}>Épreuve à distribuer</label>
               <select value={selectedExamId} onChange={e => setSelectedExamId(e.target.value)} style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: '#f8fafc', fontSize: '0.9rem', outline: 'none' }}>
                 <option value="">-- Choisir --</option>
-                {exams.map(e => <option key={e._id} value={e._id}>{e.title} {e.domain ? `(${e.domain})` : ''}</option>)}
+                {exams.map(e => {
+                  const hasFixedConfig = e.config?.examOption;
+                  return (
+                    <option key={e._id} value={e._id}>
+                      {e.title} {e.domain ? `(${e.domain})` : ''} {hasFixedConfig ? `🔒 Config ${e.config.examOption}` : ''}
+                    </option>
+                  );
+                })}
               </select>
+              {selectedExamId && (() => {
+                const exam = exams.find(e => e._id === selectedExamId);
+                const hasFixedConfig = exam?.config?.examOption;
+                return hasFixedConfig ? (
+                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, fontSize: '0.7rem', color: '#f59e0b' }}>
+                    🔒 Cette épreuve a une configuration figée : <strong>{exam.config.examOption}</strong>
+                  </div>
+                ) : null;
+              })()}
             </div>
 
-            {/* ✅ LISTE COMPLÈTE DES CONFIGURATIONS A à K */}
+            {/* ✅ LISTE COMPLÈTE DES CONFIGURATIONS A à K (disabled si épreuve configurée) */}
             <div style={{ marginBottom: '18px' }}>
               <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={13} color="#3b82f6" /> Configuration de l'épreuve</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-                {EXAM_CONFIGURATIONS.map((cfg) => (
-                  <label key={cfg.key} style={{ display: 'flex', alignItems: 'flex-start', padding: '10px', background: selectedExamOption === cfg.key ? `${cfg.color}12` : 'rgba(255,255,255,0.02)', border: `1px solid ${selectedExamOption === cfg.key ? `${cfg.color}44` : 'rgba(255,255,255,0.06)'}`, borderRadius: '10px', cursor: 'pointer', gap: '8px' }}>
-                    <input type="radio" name="examOption" value={cfg.key} checked={selectedExamOption === cfg.key} onChange={e => setSelectedExamOption(e.target.value)} style={{ accentColor: cfg.color, marginTop: '2px' }} />
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', borderRadius: '4px', background: `${cfg.color}22`, color: cfg.color, fontSize: '0.7rem', fontWeight: 800 }}>{cfg.key}</span><span style={{ color: '#f8fafc', fontSize: '0.8rem', fontWeight: 600 }}>{cfg.label}</span></div>
-                      <p style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '4px' }}>{cfg.desc}</p>
-                    </div>
-                  </label>
-                ))}
+                {EXAM_CONFIGURATIONS.map((cfg) => {
+                  const exam = exams.find(e => e._id === selectedExamId);
+                  const isDisabled = exam?.config?.examOption && exam.config.examOption !== cfg.key;
+                  return (
+                    <label key={cfg.key} style={{ 
+                      display: 'flex', alignItems: 'flex-start', padding: '10px', 
+                      background: selectedExamOption === cfg.key ? `${cfg.color}12` : 'rgba(255,255,255,0.02)', 
+                      border: `1px solid ${selectedExamOption === cfg.key ? `${cfg.color}44` : 'rgba(255,255,255,0.06)'}`, 
+                      borderRadius: '10px', cursor: isDisabled ? 'not-allowed' : 'pointer', gap: '8px',
+                      opacity: isDisabled ? 0.5 : 1
+                    }}>
+                      <input 
+                        type="radio" 
+                        name="examOption" 
+                        value={cfg.key} 
+                        checked={selectedExamOption === cfg.key} 
+                        onChange={e => !isDisabled && setSelectedExamOption(e.target.value)} 
+                        style={{ accentColor: cfg.color, marginTop: '2px' }}
+                        disabled={isDisabled}
+                      />
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', borderRadius: '4px', background: `${cfg.color}22`, color: cfg.color, fontSize: '0.7rem', fontWeight: 800 }}>{cfg.key}</span>
+                          <span style={{ color: '#f8fafc', fontSize: '0.8rem', fontWeight: 600 }}>{cfg.label}</span>
+                          {exam?.config?.examOption === cfg.key && <span style={{ fontSize: '0.55rem', padding: '1px 4px', background: '#f59e0b', borderRadius: 4, color: '#fff' }}>Figée</span>}
+                        </div>
+                        <p style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '4px' }}>{cfg.desc}</p>
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
-            {/* ✅ Option A : avancement automatique géré côté étudiant (timer par question) */}
-            {selectedExamOption === 'A' && (
-              <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
-                ⏱ Config A : avancement automatique par timer question côté candidat
-              </div>
-            )}
+            {/* ✅ Option A : avancement automatique */}
+            {(() => {
+              const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
+              return effectiveOption === 'A' && (
+                <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+                  ⏱ Config A : avancement automatique par timer question côté candidat
+                </div>
+              );
+            })()}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDistributeExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(59,130,246,0.25)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>📡 Distribuer l'épreuve</motion.button>
               {selectedExamId && <motion.button initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleStartExam} disabled={isStartingExam} style={{ padding: '12px', borderRadius: '10px', border: 'none', background: isStartingExam ? 'rgba(16,185,129,0.5)' : 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', fontWeight: 700, cursor: isStartingExam ? 'wait' : 'pointer', fontSize: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: isStartingExam ? 'none' : '0 4px 14px rgba(16,185,129,0.3)', opacity: isStartingExam ? 0.7 : 1 }}>{isStartingExam ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> Démarrage en cours...</> : <><Play size={15} /> COMMENCER L'ÉPREUVE <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem' }}>{waitingCounts[selectedExamId] || 0} en attente</span></>}</motion.button>}
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleFinishExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(239,68,68,0.25)' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>⏹ Terminer l'épreuve (tous)</motion.button>
             </div>
+            
+            {/* Affichage de la config effective */}
+            {selectedExamId && (
+              <div style={{ marginTop: 12, padding: '6px 10px', background: 'rgba(99,102,241,0.1)', borderRadius: 8, fontSize: '0.65rem', textAlign: 'center' }}>
+                <span style={{ color: '#64748b' }}>Configuration effective : </span>
+                <strong style={{ color: '#a5b4fc' }}>
+                  {getEffectiveExamOption(selectedExamId, selectedExamOption)}
+                </strong>
+                {(() => {
+                  const exam = exams.find(e => e._id === selectedExamId);
+                  const examConfig = exam?.config?.examOption;
+                  const surveillanceConfig = selectedExamOption;
+                  if (examConfig && examConfig !== surveillanceConfig) {
+                    return <span style={{ color: '#f59e0b', marginLeft: '6px' }}>(figée par l'épreuve)</span>;
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
           </motion.div>
 
-          {/* Panneau terminaux */}
+          {/* Panneau terminaux (inchangé) */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div><h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '7px' }}><Terminal size={16} color="#10b981" /> Terminaux en attente <span style={{ marginLeft: 'auto', background: 'rgba(16,185,129,0.15)', color: '#10b981', fontSize: '0.72rem', fontWeight: 700, padding: '2px 9px', borderRadius: '999px' }}>{terminalsWaiting.length}</span></h3>{terminalsWaiting.length === 0 ? <p style={{ color: '#475569', fontSize: '0.8rem', textAlign: 'center', padding: '12px 0' }}>Aucun terminal connecté</p> : <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}><AnimatePresence>{terminalsWaiting.map(t => <TerminalCard key={t.socketId || t.sessionId} terminal={t} />)}</AnimatePresence></div>}</div>
             {studentsWaitingForStart.length > 0 && <div><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}><h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '7px' }}><Clock size={16} color="#8b5cf6" /> En attente de démarrage <span style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', fontSize: '0.72rem', fontWeight: 700, padding: '2px 9px', borderRadius: '999px' }}>{studentsWaitingForStart.length}</span></h3><motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { getActiveSessions().then(r => { if (r.data?.sessions) { const enriched = r.data.sessions.map(s => { if (s.type === 'student' && s.currentExamId) return { ...s, examInfo: getExamInfo(s.currentExamId) }; return s; }); setActiveSessions(enriched); } }); }} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)', color: '#8b5cf6', fontSize: '0.7rem', cursor: 'pointer' }}><RefreshCw size={12} /> Rafraîchir</motion.button></div><div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}><AnimatePresence>{studentsWaitingForStart.map(s => <motion.div key={s.socketId || s.studentInfo?.matricule || s.sessionId} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '10px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', display: 'inline-block', animation: 'pulse 1.5s infinite' }} /><div><div style={{ color: '#e2e8f0', fontSize: '0.8rem', fontWeight: 600 }}>{s.studentInfo?.firstName} {s.studentInfo?.lastName}</div><div style={{ color: '#64748b', fontSize: '0.68rem' }}>{s.studentInfo?.matricule || s.socketId?.slice(0, 10)}</div>{s.examInfo?.domain && <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}><span style={{ fontSize: '0.55rem', color: '#60a5fa' }}>{s.examInfo.domain}</span></div>}</div></div><span style={{ color: '#8b5cf6', fontSize: '0.72rem', fontWeight: 600 }}>Prêt</span></motion.div>)}</AnimatePresence></div></div>}
@@ -690,7 +768,7 @@ useEffect(() => {
             <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b' }}><span>Total terminaux</span><span style={{ color: '#94a3b8', fontWeight: 600 }}>{totalTerminals}</span></div>
           </motion.div>
 
-          {/* Stats temps réel */}
+          {/* Stats temps réel (inchangé) */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}>
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><BarChart3 size={18} color="#8b5cf6" /> Statistiques Temps Réel</h2>
             {realtimeStats ? <>
@@ -718,7 +796,7 @@ useEffect(() => {
         {/* LIGNE 3 : Classement */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '20px', padding: '22px', marginTop: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}><h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}><Trophy size={18} color="#f59e0b" /> Classement des Compétiteurs {rankingsData.length > 0 && <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>{rankingsData.length} candidats</span>}</h2><div style={{ display: 'flex', gap: '8px' }}>{rankingsData.length > 0 && <><motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => fetchRankings(rankingExamId)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}><RefreshCw size={13} /> Actualiser</motion.button><motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={printRankings} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', border: 'none', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}><Printer size={13} /> Imprimer PDF</motion.button></>}</div></div>
-          <div style={{ marginBottom: '18px' }}><label style={{ display: 'block', fontSize: '0.78rem', color: '#64748b', marginBottom: '7px' }}>Sélectionner une épreuve</label><select value={rankingExamId} onChange={e => setRankingExamId(e.target.value)} style={{ width: '100%', maxWidth: '520px', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '10px', color: rankingExamId ? '#f8fafc' : '#64748b', fontSize: '0.88rem', outline: 'none' }}><option value="">-- Choisir une épreuve --</option>{exams.map(e => <option key={e._id} value={e._id}>{e.title} {e.domain ? `(${e.domain})` : ''}</option>)}</select></div>
+          <div style={{ marginBottom: '18px' }}><label style={{ display: 'block', fontSize: '0.78rem', color: '#64748b', marginBottom: '7px' }}>Sélectionner une épreuve</label><select value={rankingExamId} onChange={e => setRankingExamId(e.target.value)} style={{ width: '100%', maxWidth: '520px', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '10px', color: rankingExamId ? '#f8fafc' : '#64748b', fontSize: '0.88rem', outline: 'none' }}><option value="">-- Choisir une épreuve --</option>{exams.map(e => <option key={e._id} value={e._id}>{e.title} {e.domain ? `(${e.domain})` : ''} {e.config?.examOption ? `[Config ${e.config.examOption}]` : ''}</option>)}</select></div>
           {!rankingExamId ? <div style={{ textAlign: 'center', padding: '36px 0' }}><Trophy size={36} color="#1e293b" style={{ marginBottom: '12px' }} /><p style={{ color: '#475569', fontSize: '0.85rem' }}>Sélectionnez une épreuve pour afficher le classement.</p></div> : isLoadingRankings ? <div style={{ textAlign: 'center', padding: '36px 0' }}><RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1s linear infinite', marginBottom: '10px' }} /><p style={{ color: '#64748b', fontSize: '0.85rem' }}>Chargement…</p></div> : rankingsData.length === 0 ? <div style={{ textAlign: 'center', padding: '36px 0', color: '#475569', fontSize: '0.85rem' }}>Aucun résultat enregistré pour cette épreuve.</div> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr style={{ borderBottom: '2px solid rgba(139,92,246,0.3)' }}><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Rang</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Image</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Étudiant</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Score</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>%</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Domaine</th><th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8' }}>Niveau</th></tr></thead><tbody>{rankingsData.slice(0, 10).map((entry, index) => { const exam = exams.find(e => e._id === rankingExamId); const imageUrl = getImageUrl(exam); return <tr key={entry.resultId || index} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}><td style={{ padding: '10px 12px' }}>{index + 1}</td><td style={{ padding: '10px 12px' }}>{imageUrl ? <img src={imageUrl} alt="" style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover', background: '#0f172a', border: '1px solid rgba(139,92,246,0.3)' }} onError={(e) => { e.target.style.display = 'none'; }} /> : <div style={{ width: '40px', height: '40px', borderRadius: '6px', background: 'rgba(139,92,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}><ImageIcon size={16} /></div>}</td><td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{entry.studentInfo?.firstName} {entry.studentInfo?.lastName}</td><td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{entry.score}</td><td style={{ padding: '10px 12px' }}><span style={{ color: entry.percentage >= 50 ? '#10b981' : '#ef4444' }}>{entry.percentage}%</span></td><td style={{ padding: '10px 12px', color: '#60a5fa', fontSize: '0.8rem' }}>{exam?.domain || '—'}</td><td style={{ padding: '10px 12px', color: '#a78bfa', fontSize: '0.8rem' }}>{exam?.level || '—'}</td></tr>; })}</tbody></table></div>}
         </motion.div>
       </main>
