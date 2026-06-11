@@ -344,30 +344,70 @@ export const countExamsBySubject = async (matiereId) => {
 };
 
 // ✅ NOUVEAU: Récupérer les épreuves avec pagination
+// src/services/api.js - Modifier getExamsPaginated
+
+// ✅ Remplacer la fonction getExamsPaginated par cette version optimisée
 export const getExamsPaginated = async (page = 1, limit = 20, filters = {}) => {
   try {
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: String(limit),
-    });
+    updateApiBaseUrl();
+    
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('limit', String(limit));
     
     // Ajouter les filtres
     if (filters.search) params.append('search', filters.search);
     if (filters.domain) params.append('domain', filters.domain);
     if (filters.level) params.append('level', filters.level);
     if (filters.subject) params.append('subject', filters.subject);
+    if (filters.status && filters.status !== 'all') params.append('status', filters.status);
     
-    // Utiliser la route paginée
-    const response = await api.get(`/api/exams/paginated?${params.toString()}`);
-    console.log('[API] getExamsPaginated - réponse:', response.data);
-    return response.data;
+    const url = `/api/exams/paginated?${params.toString()}`;
+    console.log('[API] getExamsPaginated URL:', url);
+    
+    const response = await api.get(url);
+    
+    // ✅ Normalisation de la réponse
+    if (response.data?.success && response.data?.data) {
+      return {
+        success: true,
+        data: response.data.data,
+        total: response.data.total || response.data.data.length,
+        page: response.data.page || page,
+        totalPages: response.data.totalPages || 1
+      };
+    }
+    
+    if (Array.isArray(response.data)) {
+      return {
+        success: true,
+        data: response.data,
+        total: response.data.length,
+        page: page,
+        totalPages: 1
+      };
+    }
+    
+    return {
+      success: true,
+      data: response.data?.data || [],
+      total: response.data?.total || 0,
+      page: page,
+      totalPages: 1
+    };
+    
   } catch (error) {
-    console.error('[API] Erreur chargement épreuves paginées:', error);
-    // Fallback vers la route normale si paginated n'existe pas
-    const response = await api.get('/api/exams');
-    return response.data;
+    console.error('[API] Erreur getExamsPaginated:', error);
+    return {
+      success: false,
+      data: [],
+      total: 0,
+      page: page,
+      totalPages: 1,
+      error: error.message
+    };
   }
-}
+};
 
 // ==================== EXAMENS PAR RÔLE ====================
 export const getAvailableExams = () => api.get('/api/exams/available');

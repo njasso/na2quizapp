@@ -1,5 +1,11 @@
-// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION ROBUSTE AVEC FILTRAGE PAR ID
-import React, { useState, useEffect, useMemo } from 'react';
+// src/pages/qcm/QCMBankPage.jsx — Dashboard analytique avancé avec IA - VERSION CORRIGÉE
+// ✅ CORRECTIONS :
+//  1. Chargement de TOUTES les questions (approved, pending, rejected) selon sélection
+//  2. Filtre statut fonctionnel
+//  3. Optimisation des appels API (évite rechargements inutiles)
+//  4. Cache intelligent
+
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -54,29 +60,36 @@ const QUESTION_TYPES = [
   { id: 3, nom: "Savoir-être", color: "#8b5cf6", description: "Potentiel psychologique" }
 ];
 
+const STATUS_CONFIG = {
+  approved: { label: "Validée", color: "#10b981", icon: "✅" },
+  pending: { label: "En attente", color: "#f59e0b", icon: "⏳" },
+  rejected: { label: "Rejetée", color: "#ef4444", icon: "❌" }
+};
+
 const QCMBankPage = () => {
   const navigate = useNavigate();
   const { user, hasRole } = useAuth();
 
   // ========== ÉTATS ==========
-  const [questions, setQuestions] = useState([]);
-  const [allQuestions, setAllQuestions] = useState([]); // Cache toutes les questions approuvées
+  const [allQuestions, setAllQuestions] = useState([]); // Cache TOUTES les questions (tous statuts)
+  const [questions, setQuestions] = useState([]); // Questions après filtres
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dashboardView, setDashboardView] = useState('analytics');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Filtres - Version ROBUSTE avec IDs (plus de conversion nom/ID)
+  // Filtres
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDomainId, setSelectedDomainId] = useState('');
   const [selectedSousDomaineId, setSelectedSousDomaineId] = useState('');
   const [selectedLevelId, setSelectedLevelId] = useState('');
   const [selectedMatiereId, setSelectedMatiereId] = useState('');
   const [selectedType, setSelectedType] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('approved');
+  const [selectedStatus, setSelectedStatus] = useState('approved'); // ✅ Par défaut: validées
   const [showFilters, setShowFilters] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState(null);
 
-  // IA Insights (calculés dynamiquement)
+  // IA Insights
   const [aiInsights, setAiInsights] = useState({
     strengths: [],
     weaknesses: [],
@@ -87,7 +100,7 @@ const QCMBankPage = () => {
     coverageScore: 0
   });
 
-  // Statistiques avancées
+  // Statistiques
   const [stats, setStats] = useState({
     total: 0,
     byType: { 1: 0, 2: 0, 3: 0 },
@@ -104,9 +117,13 @@ const QCMBankPage = () => {
     totalAuthors: 0
   });
 
+  // Refs pour éviter les rechargements multiples
+  const isLoadingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+  const CACHE_DURATION = 30000; // 30 secondes de cache
+
   // ========== FONCTION D'ENRICHISSEMENT DES QUESTIONS ==========
-  // Enrichit une question avec les noms à partir des IDs
-  const enrichQuestionWithNames = (q) => {
+  const enrichQuestionWithNames = useCallback((q) => {
     const domaineId = q.domaineId;
     const sousDomaineId = q.sousDomaineId;
     const niveauId = q.niveauId;
@@ -116,12 +133,12 @@ const QCMBankPage = () => {
       ...q,
       libQuestion: q.libQuestion || q.question || q.text,
       typeInfo: QUESTION_TYPES.find(t => t.id === q.typeQuestion) || QUESTION_TYPES[0],
+      statusInfo: STATUS_CONFIG[q.status] || STATUS_CONFIG.pending,
       imageUrl: q.imageQuestion || (q.imageBase64?.startsWith('data:') ? q.imageBase64 : null),
-      createdAtDate: new Date(q.createdAt),
+      createdAtDate: q.createdAt ? new Date(q.createdAt) : new Date(),
       approvedAtDate: q.approvedAt ? new Date(q.approvedAt) : null,
       authorName: q.createdBy?.name || q.matriculeAuteur || 'Inconnu',
       authorId: q.createdBy?._id || q.matriculeAuteur || 'inconnu',
-      // Enrichissement: obtenir les noms à partir des IDs
       domaineNom: getDomainNom(domaineId) || q.domaine || 'Non classé',
       domaineId: domaineId || null,
       sousDomaineNom: getSousDomaineNom(domaineId, sousDomaineId) || q.sousDomaine || 'Non classé',
@@ -131,18 +148,29 @@ const QCMBankPage = () => {
       matiereNom: getMatiereNom(domaineId, sousDomaineId, matiereId) || q.matiere || 'Non classé',
       matiereId: matiereId || null
     };
-  };
+  }, []);
 
-  // ========== CHARGEMENT DES QUESTIONS (UNE SEULE FOIS) ==========
-  const loadQuestions = async () => {
+  // ========== CHARGEMENT DES QUESTIONS ==========
+  const loadQuestions = useCallback(async (forceRefresh = false) => {
+    // Éviter les chargements multiples simultanés
+    if (isLoadingRef.current) return;
+    
+    const now = Date.now();
+    // Cache: ne pas recharger si moins de 30 secondes et pas de force refresh
+    if (!forceRefresh && allQuestions.length > 0 && (now - lastFetchTimeRef.current) < CACHE_DURATION) {
+      console.log(`[QCMBank] 📦 Utilisation du cache (${allQuestions.length} questions)`);
+      return;
+    }
+    
+    isLoadingRef.current = true;
     setLoading(true);
     setError(null);
+    
     try {
-      // Charger TOUTES les questions approuvées une seule fois
-      console.log('[API] 🔍 Chargement de toutes les questions approuvées...');
+      // ✅ Charger TOUTES les questions (sans filtre de statut) pour avoir tous les statuts
+      console.log('[QCMBank] 🔍 Chargement de toutes les questions...');
       const response = await getQuestions({ 
-        status: 'approved',
-        showAll: true,
+        showAll: true,  // ✅ Ne pas filtrer par statut à l'API
         limit: 10000 
       });
 
@@ -153,46 +181,53 @@ const QCMBankPage = () => {
       else if (response?.success && Array.isArray(response.data)) questionsData = response.data;
       else if (response?.questions && Array.isArray(response.questions)) questionsData = response.questions;
 
-      console.log(`[API] ✅ ${questionsData.length} questions approuvées chargées`);
+      console.log(`[QCMBank] ✅ ${questionsData.length} questions chargées`);
+      console.log(`[QCMBank] 📊 Répartition: Validées=${questionsData.filter(q => q.status === 'approved').length}, En attente=${questionsData.filter(q => q.status === 'pending').length}, Rejetées=${questionsData.filter(q => q.status === 'rejected').length}`);
       
-      // Enrichir chaque question avec les noms à partir des IDs
+      // Enrichir chaque question
       const enriched = questionsData.map(enrichQuestionWithNames);
       
-      // Stocker toutes les questions dans le cache
       setAllQuestions(enriched);
+      lastFetchTimeRef.current = now;
       
-      // Appliquer les filtres initiaux
+      // Appliquer les filtres après chargement
       applyFilters(enriched);
       
     } catch (err) {
-      console.error('Erreur chargement questions:', err);
+      console.error('[QCMBank] Erreur chargement:', err);
       setError(err.message || 'Erreur lors du chargement');
       toast.error('Impossible de charger les questions');
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
-  };
+  }, [allQuestions.length, enrichQuestionWithNames]);
 
-  // ========== APPLICATION DES FILTRES (CÔTÉ CLIENT - ROBUSTE) ==========
-  const applyFilters = (questionsToFilter = allQuestions) => {
+  // ========== APPLICATION DES FILTRES (CÔTÉ CLIENT) ==========
+  const applyFilters = useCallback((questionsToFilter = allQuestions) => {
     let filtered = [...questionsToFilter];
     
-    // Filtre par domaine (comparaison directe des IDs)
+    // ✅ FILTRE PAR STATUT (maintenant fonctionnel)
+    if (selectedStatus !== 'all') {
+      filtered = filtered.filter(q => q.status === selectedStatus);
+    }
+    
+    // Filtre par domaine
     if (selectedDomainId) {
       filtered = filtered.filter(q => q.domaineId === selectedDomainId);
     }
     
-    // Filtre par sous-domaine (comparaison directe des IDs)
+    // Filtre par sous-domaine
     if (selectedSousDomaineId) {
       filtered = filtered.filter(q => q.sousDomaineId === selectedSousDomaineId);
     }
     
-    // Filtre par niveau (comparaison directe des IDs)
+    // Filtre par niveau
     if (selectedLevelId) {
       filtered = filtered.filter(q => q.niveauId === selectedLevelId);
     }
     
-    // Filtre par matière (comparaison directe des IDs)
+    // Filtre par matière
     if (selectedMatiereId) {
       filtered = filtered.filter(q => q.matiereId === selectedMatiereId);
     }
@@ -202,7 +237,7 @@ const QCMBankPage = () => {
       filtered = filtered.filter(q => q.typeQuestion === parseInt(selectedType));
     }
     
-    // Filtre par recherche textuelle (sur les champs textuels)
+    // Filtre par recherche textuelle
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(q =>
@@ -215,26 +250,26 @@ const QCMBankPage = () => {
       );
     }
     
-    console.log(`[FILTRE] ${filtered.length} questions après filtrage (domaine:${selectedDomainId || 'tous'}, sous-domaine:${selectedSousDomaineId || 'tous'}, niveau:${selectedLevelId || 'tous'}, matière:${selectedMatiereId || 'tous'})`);
+    console.log(`[QCMBank] 🔍 Filtrage: ${filtered.length} / ${questionsToFilter.length} questions (statut: ${selectedStatus})`);
     
     setQuestions(filtered);
     calculateStatistics(filtered);
-  };
+  }, [allQuestions, selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, selectedType, selectedStatus, searchTerm]);
 
   // Reappliquer les filtres quand un critère change
   useEffect(() => {
     if (allQuestions.length > 0) {
       applyFilters(allQuestions);
     }
-  }, [selectedDomainId, selectedSousDomaineId, selectedLevelId, selectedMatiereId, selectedType, searchTerm]);
+  }, [applyFilters, allQuestions]);
 
   // Chargement initial
   useEffect(() => {
     loadQuestions();
-  }, []);
+  }, [loadQuestions]);
 
   // ========== CALCUL DES STATISTIQUES ==========
-  const calculateStatistics = (filteredQuestions) => {
+  const calculateStatistics = useCallback((filteredQuestions) => {
     const statsCalc = {
       total: filteredQuestions.length,
       byType: { 1: 0, 2: 0, 3: 0 },
@@ -268,11 +303,11 @@ const QCMBankPage = () => {
       // Par statut
       if (q.status) statsCalc.byStatus[q.status] = (statsCalc.byStatus[q.status] || 0) + 1;
       
-      // Par niveau (utiliser le nom pour l'affichage)
+      // Par niveau
       const levelName = q.niveauNom || q.niveau || 'Non classé';
       if (levelName) statsCalc.byLevel[levelName] = (statsCalc.byLevel[levelName] || 0) + 1;
       
-      // Par matière (utiliser le nom pour l'affichage)
+      // Par matière
       const matiereName = q.matiereNom || q.matiere || 'Non classé';
       if (matiereName) statsCalc.byMatiere[matiereName] = (statsCalc.byMatiere[matiereName] || 0) + 1;
       
@@ -293,7 +328,7 @@ const QCMBankPage = () => {
         monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
       }
       
-      // Statistiques par auteur
+      // Stats auteur
       const authorId = q.authorId;
       const authorName = q.authorName;
       if (!authorMap.has(authorId)) {
@@ -332,10 +367,10 @@ const QCMBankPage = () => {
 
     setStats(statsCalc);
     generateAIInsights(filteredQuestions, statsCalc);
-  };
+  }, []);
 
   // ========== GÉNÉRATION DES INSIGHTS IA ==========
-  const generateAIInsights = (questionsData, statsCalc) => {
+  const generateAIInsights = useCallback((questionsData, statsCalc) => {
     const insights = {
       strengths: [],
       weaknesses: [],
@@ -365,7 +400,7 @@ const QCMBankPage = () => {
       insights.strengths.push(`${matiere} (${count} questions, ${percentage}% du total)`);
     });
     
-    // Faiblesses: matières avec peu de questions
+    // Faiblesses
     const weakMatieres = Object.entries(statsCalc.byMatiere)
       .filter(([_, count]) => count < 5)
       .sort((a, b) => a[1] - b[1])
@@ -381,7 +416,7 @@ const QCMBankPage = () => {
     
     insights.balanceScore = Math.round(100 - (Math.abs(type1Percent - 33) + Math.abs(type2Percent - 33) + Math.abs(type3Percent - 34)) / 2);
     
-    // Recommandations basées sur les types
+    // Recommandations
     if (type1Percent > 50) {
       insights.recommendations.push(`📚 Trop de questions "Savoir" (${Math.round(type1Percent)}%). Ajoutez plus de "Savoir-Faire" et "Savoir-être".`);
     }
@@ -391,11 +426,8 @@ const QCMBankPage = () => {
     if (type3Percent < 10 && type3Percent > 0) {
       insights.recommendations.push(`💡 Manque de questions "Savoir-être" (${Math.round(type3Percent)}%). Intégrez des mises en situation.`);
     }
-    if (type2Percent === 0 && type3Percent === 0 && type1Percent > 0) {
-      insights.recommendations.push("⚠️ Seulement des questions théoriques. Diversifiez avec du pratique et du comportemental.");
-    }
     
-    // Qualité des questions (explications + images)
+    // Qualité
     const explanationRate = questionsData.filter(q => q.explanation && q.explanation.length > 10).length / total * 100;
     const imageRate = questionsData.filter(q => q.imageQuestion || q.imageBase64).length / total * 100;
     insights.qualityScore = Math.round((explanationRate * 0.6 + imageRate * 0.4));
@@ -403,20 +435,12 @@ const QCMBankPage = () => {
     if (explanationRate < 30) {
       insights.recommendations.push(`📝 Peu d'explications (${Math.round(explanationRate)}%). Ajoutez des explications pédagogiques.`);
     }
-    if (imageRate < 10 && total > 5) {
-      insights.recommendations.push(`🖼️ Très peu d'illustrations (${Math.round(imageRate)}%). Ajoutez des images pour enrichir les questions.`);
-    }
     
     // Couverture des niveaux
     const uniqueLevels = new Set(questionsData.map(q => q.niveauNom).filter(Boolean)).size;
-    const targetLevels = Math.min(20, Math.max(5, uniqueLevels + 5));
-    insights.coverageScore = Math.min(100, Math.round((uniqueLevels / targetLevels) * 100));
+    insights.coverageScore = Math.min(100, Math.round((uniqueLevels / 10) * 100));
     
-    if (uniqueLevels < 5 && total > 10) {
-      insights.recommendations.push(`🎓 Faible diversité des niveaux (${uniqueLevels} niveaux seulement). Élargissez votre cible pédagogique.`);
-    }
-    
-    // Croissance projetée
+    // Croissance
     const monthlyData = statsCalc.monthlyGrowth;
     const growthRates = [];
     for (let i = 1; i < monthlyData.length; i++) {
@@ -430,49 +454,30 @@ const QCMBankPage = () => {
     insights.predictedGrowth = Math.min(100, Math.max(-50, Math.round(avgGrowth * 100)));
     
     if (insights.predictedGrowth > 20) {
-      insights.recommendations.push(`📈 Forte dynamique : +${insights.predictedGrowth}% de croissance projetée. Continuez sur cette lancée !`);
-    } else if (insights.predictedGrowth < -10) {
-      insights.recommendations.push(`📉 Baisse d'activité détectée. Relancez la création de questions.`);
+      insights.recommendations.push(`📈 Forte dynamique : +${insights.predictedGrowth}% de croissance projetée.`);
     }
     
     // Validation
     if (statsCalc.avgValidationDays > 10) {
-      insights.recommendations.push(`⏳ Validation lente (${statsCalc.avgValidationDays} jours en moyenne). Accélérez le circuit de validation.`);
+      insights.recommendations.push(`⏳ Validation lente (${statsCalc.avgValidationDays} jours en moyenne).`);
     }
     
     if (statsCalc.validationRate < 60 && statsCalc.validationRate > 0) {
-      insights.recommendations.push(`⚠️ Taux de validation faible (${statsCalc.validationRate}%). Formez les créateurs de questions.`);
+      insights.recommendations.push(`⚠️ Taux de validation faible (${statsCalc.validationRate}%).`);
     } else if (statsCalc.validationRate > 85) {
-      insights.recommendations.push(`✅ Excellent taux de validation (${statsCalc.validationRate}%). La qualité est au rendez-vous !`);
-    }
-    
-    // Auteurs
-    const topAuthor = statsCalc.topAuthors[0];
-    if (topAuthor && topAuthor.total > 20) {
-      insights.recommendations.push(`🏆 Félicitations à ${topAuthor.name} pour ses ${topAuthor.total} contributions !`);
-    }
-    
-    const lowQualityAuthors = statsCalc.topAuthors.filter(a => a.total >= 3 && (a.rejected / a.total) > 0.5);
-    if (lowQualityAuthors.length > 0) {
-      insights.recommendations.push(`📚 ${lowQualityAuthors.length} auteur(s) ont un taux de rejet élevé. Proposez un accompagnement personnalisé.`);
+      insights.recommendations.push(`✅ Excellent taux de validation (${statsCalc.validationRate}%).`);
     }
     
     setAiInsights(insights);
-  };
+  }, []);
 
-  // ========== FILTRAGE TEXTUEL SUPPLÉMENTAIRE ==========
-  const filteredQuestions = useMemo(() => {
-    if (!searchTerm) return questions;
-    const term = searchTerm.toLowerCase();
-    return questions.filter(q =>
-      q.libQuestion?.toLowerCase().includes(term) ||
-      q.matiereNom?.toLowerCase().includes(term) ||
-      q.niveauNom?.toLowerCase().includes(term) ||
-      q.domaineNom?.toLowerCase().includes(term) ||
-      q.sousDomaineNom?.toLowerCase().includes(term) ||
-      q.authorName?.toLowerCase().includes(term)
-    );
-  }, [questions, searchTerm]);
+  // ========== RAFRAÎCHISSEMENT ==========
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadQuestions(true);
+    setIsRefreshing(false);
+    toast.success('Données actualisées');
+  };
 
   // ========== RÉINITIALISATION DES FILTRES ==========
   const resetFilters = () => {
@@ -489,20 +494,25 @@ const QCMBankPage = () => {
 
   // ========== EXPORT CSV ==========
   const exportToCSV = () => {
-    const headers = ['N°Question', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
+    if (filteredQuestions.length === 0) {
+      toast.error('Aucune donnée à exporter');
+      return;
+    }
+    
+    const headers = ['N°', 'Domaine', 'Sous-domaine', 'Niveau', 'Matière', 'Question', 'Type', 'Points', 'Temps (min)', 'Statut', 'Date création', 'Date validation', 'Auteur'];
     const rows = filteredQuestions.map((q, idx) => [
       idx + 1,
-      q.domaineNom || q.domaine || '',
-      q.sousDomaineNom || q.sousDomaine || '',
-      q.niveauNom || q.niveau || '',
-      q.matiereNom || q.matiere || '',
+      q.domaineNom || '',
+      q.sousDomaineNom || '',
+      q.niveauNom || '',
+      q.matiereNom || '',
       q.libQuestion || '',
       q.typeInfo?.nom || '',
       q.points || 1,
       q.tempsMin || 1,
-      q.status === 'approved' ? 'Validée' : q.status === 'pending' ? 'En attente' : 'Rejetée',
-      new Date(q.createdAt).toLocaleDateString('fr-FR'),
-      q.approvedAt ? new Date(q.approvedAt).toLocaleDateString('fr-FR') : '',
+      STATUS_CONFIG[q.status]?.label || q.status,
+      q.createdAtDate?.toLocaleDateString('fr-FR') || '',
+      q.approvedAtDate?.toLocaleDateString('fr-FR') || '',
       q.authorName
     ]);
 
@@ -511,11 +521,14 @@ const QCMBankPage = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `banque_qcm_analytics_${new Date().toISOString().slice(0, 19)}.csv`;
+    a.download = `banque_qcm_${new Date().toISOString().slice(0, 19)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Export CSV réussi');
   };
+
+  // ========== FILTRAGE TEXTUEL ==========
+  const filteredQuestions = useMemo(() => questions, [questions]);
 
   // ========== GRAPHIQUES ==========
   const typeChartData = {
@@ -564,28 +577,14 @@ const QCMBankPage = () => {
   const QuestionCard = ({ question, index }) => {
     const isExpanded = expandedQuestion === question._id;
     const typeInfo = question.typeInfo;
+    const statusInfo = question.statusInfo;
     const imageUrl = question.imageUrl;
-
-    const getWatermark = () => {
-      if (question.status === 'pending') {
-        return { text: "⏳ En attente de validation - Non éligible à l'insertion dans une épreuve", color: '#f59e0b' };
-      }
-      if (question.status === 'approved') {
-        return { text: "✅ Validée - Éligible à l'insertion dans une épreuve", color: '#10b981' };
-      }
-      if (question.status === 'rejected') {
-        return { text: "❌ Rejetée - Veuillez modifier et renvoyer", color: '#ef4444' };
-      }
-      return null;
-    };
-
-    const watermark = getWatermark();
 
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.03 }}
+        transition={{ delay: index * 0.02 }}
         style={{
           background: 'rgba(15,23,42,0.7)',
           border: `1px solid ${typeInfo?.color || '#6366f1'}30`,
@@ -607,8 +606,8 @@ const QCMBankPage = () => {
               <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600, background: `${typeInfo?.color}20`, color: typeInfo?.color }}>
                 {typeInfo?.nom}
               </span>
-              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600, background: question.status === 'approved' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: question.status === 'approved' ? '#10b981' : '#f59e0b' }}>
-                {question.status === 'approved' ? '✓ Validée' : question.status === 'pending' ? '⏳ En attente' : '✗ Rejetée'}
+              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.6rem', fontWeight: 600, background: `${statusInfo?.color}20`, color: statusInfo?.color }}>
+                {statusInfo?.icon} {statusInfo?.label}
               </span>
               <span style={{ fontSize: '0.6rem', color: '#64748b' }}>⭐ {question.points || 1} pt</span>
               <span style={{ fontSize: '0.6rem', color: '#64748b' }}>⏱️ {question.tempsMin || 1} min</span>
@@ -682,16 +681,10 @@ const QCMBankPage = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 16, fontSize: '0.65rem', color: '#64748b', marginTop: 8 }}>
+                <div style={{ display: 'flex', gap: 16, fontSize: '0.65rem', color: '#64748b', marginTop: 8, flexWrap: 'wrap' }}>
                   <span>👤 Auteur: {question.authorName}</span>
-                  <span>📅 Créée: {new Date(question.createdAt).toLocaleDateString('fr-FR')}</span>
-                  {question.approvedAt && <span>✅ Validée: {new Date(question.approvedAt).toLocaleDateString('fr-FR')}</span>}
-                </div>
-
-                <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
-                  <span style={{ fontSize: '0.65rem', color: watermark?.color || '#64748b', opacity: 0.7, fontStyle: 'italic' }}>
-                    {watermark?.text}
-                  </span>
+                  <span>📅 Créée: {question.createdAtDate?.toLocaleDateString('fr-FR')}</span>
+                  {question.approvedAtDate && <span>✅ Validée: {question.approvedAtDate.toLocaleDateString('fr-FR')}</span>}
                 </div>
               </div>
             </motion.div>
@@ -702,6 +695,17 @@ const QCMBankPage = () => {
   };
 
   // ========== RENDU PRINCIPAL ==========
+  if (loading && allQuestions.length === 0) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <RefreshCw size={48} color="#3b82f6" style={{ animation: 'spin 1s linear infinite' }} />
+          <p style={{ color: '#64748b', marginTop: 16 }}>Chargement de la banque de questions...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', padding: '24px' }}>
       <div style={{
@@ -711,23 +715,38 @@ const QCMBankPage = () => {
       }} />
 
       <main style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto' }}>
-        {/* Header - identique à l'original */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/evaluate')} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: 12, color: '#94a3b8', cursor: 'pointer' }}>
-            <ArrowLeft size={20} />
-          </motion.button>
-          <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, marginBottom: 8 }}>
-              <Library size={14} color="#6366f1" />
-              <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>BANQUE DE QCM</span>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/evaluate')} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: 12, color: '#94a3b8', cursor: 'pointer' }}>
+              <ArrowLeft size={20} />
+            </motion.button>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, marginBottom: 8 }}>
+                <Library size={14} color="#6366f1" />
+                <span style={{ color: '#a5b4fc', fontSize: '0.7rem', fontWeight: 600 }}>BANQUE DE QCM</span>
+              </div>
+              <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>Dashboard Analytique</h1>
+              <p style={{ color: '#64748b' }}>Analyse avancée, insights IA et recommandations pédagogiques</p>
             </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#f8fafc' }}>Dashboard Analytique</h1>
-            <p style={{ color: '#64748b' }}>Analyse avancée, insights IA et recommandations pédagogiques</p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: 8 }}>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 10, color: '#60a5fa', cursor: 'pointer' }}
+            >
+              <RefreshCw size={14} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+              Actualiser
+            </motion.button>
           </div>
         </div>
 
         {/* Onglets Dashboard */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12, flexWrap: 'wrap' }}>
           <button onClick={() => setDashboardView('analytics')} style={{ padding: '8px 20px', borderRadius: 20, background: dashboardView === 'analytics' ? '#3b82f6' : 'rgba(255,255,255,0.05)', border: 'none', color: dashboardView === 'analytics' ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
             <BarChart3 size={16} /> Tableau de bord
           </button>
@@ -739,12 +758,12 @@ const QCMBankPage = () => {
           </button>
         </div>
 
-        {/* Dashboard Analytics - identique à l'original */}
-        {dashboardView === 'analytics' && !loading && questions.length > 0 && (
+        {/* Dashboard Analytics */}
+        {dashboardView === 'analytics' && allQuestions.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 24 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
               <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 12 }}>
-                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6' }}>{stats.total}</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6' }}>{allQuestions.length}</div>
                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Total questions</div>
                 <div style={{ fontSize: '0.6rem', color: '#10b981', marginTop: 4 }}>+{aiInsights.predictedGrowth}% croissance</div>
               </div>
@@ -765,7 +784,7 @@ const QCMBankPage = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 20, marginBottom: 24 }}>
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <PieChart size={16} color="#8b5cf6" /> Répartition par type
@@ -789,7 +808,7 @@ const QCMBankPage = () => {
               </div>
             </div>
 
-            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20, marginBottom: 24 }}>
+            <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
               <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TrendingUp size={16} color="#10b981" /> Top matières
               </h3>
@@ -806,9 +825,9 @@ const QCMBankPage = () => {
         )}
 
         {/* Insights IA */}
-        {dashboardView === 'insights' && !loading && (
+        {dashboardView === 'insights' && allQuestions.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 20, marginBottom: 20 }}>
               <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 20 }}>
                 <h3 style={{ color: '#f8fafc', fontSize: '0.9rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Activity size={16} color="#8b5cf6" /> Scores de qualité
@@ -887,7 +906,7 @@ const QCMBankPage = () => {
                           </div>
                           <div>
                             <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.85rem' }}>{author.name}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>ID: {author.id.substring(0, 12)}...</div>
+                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>ID: {author.id?.substring(0, 12)}...</div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -921,7 +940,7 @@ const QCMBankPage = () => {
         )}
 
         {/* Recommandations IA */}
-        {dashboardView === 'recommendations' && !loading && (
+        {dashboardView === 'recommendations' && allQuestions.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
             <h3 style={{ color: '#f8fafc', fontSize: '1rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Sparkles size={18} color="#f59e0b" /> Recommandations pédagogiques IA
@@ -964,7 +983,7 @@ const QCMBankPage = () => {
             </button>
 
             <button onClick={exportToCSV} disabled={filteredQuestions.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: '#10b981', cursor: filteredQuestions.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredQuestions.length === 0 ? 0.5 : 1 }}>
-              <Download size={14} /> Exporter CSV
+              <Download size={14} /> Exporter CSV ({filteredQuestions.length})
             </button>
 
             {hasActiveFilters && (
@@ -978,6 +997,15 @@ const QCMBankPage = () => {
             {showFilters && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12, padding: 16, background: 'rgba(15,23,42,0.5)', borderRadius: 12, border: '1px solid rgba(99,102,241,0.15)' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label>
+                    <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
+                      <option value="approved">✅ Validées uniquement</option>
+                      <option value="pending">⏳ En attente uniquement</option>
+                      <option value="rejected">❌ Rejetées uniquement</option>
+                      <option value="all">📊 Tous les statuts</option>
+                    </select>
+                  </div>
                   <div>
                     <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Domaine</label>
                     <select value={selectedDomainId} onChange={e => setSelectedDomainId(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
@@ -1013,14 +1041,6 @@ const QCMBankPage = () => {
                       {QUESTION_TYPES.map(t => <option key={t.id} value={t.id}>{t.nom}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4, display: 'block' }}>Statut</label>
-                    <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} style={{ width: '100%', padding: 8, background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc' }}>
-                      <option value="approved">✅ Validées</option>
-                      <option value="pending">⏳ En attente</option>
-                      <option value="all">📊 Toutes</option>
-                    </select>
-                  </div>
                 </div>
               </motion.div>
             )}
@@ -1028,18 +1048,7 @@ const QCMBankPage = () => {
         </div>
 
         {/* Liste des questions */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 60 }}>
-            <RefreshCw size={32} color="#3b82f6" style={{ animation: 'spin 1s linear infinite' }} />
-            <p style={{ color: '#64748b', marginTop: 16 }}>Chargement des questions...</p>
-          </div>
-        ) : error ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#ef4444', background: 'rgba(239,68,68,0.1)', borderRadius: 16 }}>
-            <AlertCircle size={32} />
-            <p style={{ marginTop: 12 }}>{error}</p>
-            <button onClick={loadQuestions} style={{ marginTop: 16, padding: '8px 20px', background: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>Réessayer</button>
-          </div>
-        ) : filteredQuestions.length === 0 ? (
+        {filteredQuestions.length === 0 && !loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#64748b', background: 'rgba(15,23,42,0.5)', borderRadius: 16 }}>
             <Library size={48} color="#1e293b" style={{ marginBottom: 12 }} />
             <p>Aucune question trouvée{hasActiveFilters ? ' avec ces critères' : ''}</p>
@@ -1048,10 +1057,10 @@ const QCMBankPage = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <p style={{ color: '#64748b', fontSize: '0.8rem' }}>{filteredQuestions.length} question(s) trouvée(s)</p>
-              <button onClick={loadQuestions} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'rgba(99,102,241,0.1)', border: 'none', borderRadius: 6, color: '#a5b4fc', cursor: 'pointer', fontSize: '0.7rem' }}>
-                <RefreshCw size={12} /> Actualiser
-              </button>
+              <p style={{ color: '#64748b', fontSize: '0.8rem' }}>
+                {filteredQuestions.length} question(s) trouvée(s) 
+                {selectedStatus !== 'all' && ` (${STATUS_CONFIG[selectedStatus]?.label.toLowerCase()})`}
+              </p>
             </div>
             {filteredQuestions.map((q, idx) => (
               <QuestionCard key={q._id || idx} question={q} index={idx} />
@@ -1065,6 +1074,7 @@ const QCMBankPage = () => {
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 10px; }
+        select option { background: #1e293b; color: #f8fafc; }
       `}</style>
     </div>
   );

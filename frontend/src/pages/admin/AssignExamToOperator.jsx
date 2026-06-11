@@ -1,9 +1,10 @@
-// src/pages/admin/AssignExamToOperator.jsx - VERSION ULTIME COMPLÈTE
+// src/pages/admin/AssignExamToOperator.jsx - VERSION ULTIME COMPLÈTE CORRIGÉE
 // ✅ Assignation des épreuves aux opérateurs
 // ✅ Validation des dates (interdit les dates passées)
 // ✅ Support complet des 11 configurations A à K
 // ✅ Publication des épreuves depuis l'interface admin
 // ✅ Gestion des statuts (draft → published → assigned)
+// ✅ Correction: séparation claire des épreuves assignées/non assignées
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -81,14 +82,6 @@ const AssignExamToOperator = () => {
     return selectedDay >= today;
   };
 
-  // Vérifier si l'épreuve a déjà une date passée
-  const isExamDatePassed = (exam) => {
-    if (!exam.scheduledDate) return false;
-    const examDate = new Date(exam.scheduledDate);
-    const now = new Date();
-    return examDate < now;
-  };
-
   useEffect(() => {
     if (!isAdmin) {
       toast.error('Accès non autorisé');
@@ -137,7 +130,10 @@ const AssignExamToOperator = () => {
         operatorsData = operatorsRes;
       }
       
-      console.log(`[AssignExam] ${examsData.length} épreuves, ${operatorsData.length} opérateurs`);
+      // Filtrer les opérateurs actifs uniquement
+      operatorsData = operatorsData.filter(op => op.status !== 'inactive');
+      
+      console.log(`[AssignExam] ${examsData.length} épreuves, ${operatorsData.length} opérateurs actifs`);
       
       setExams(examsData);
       setOperators(operatorsData);
@@ -146,7 +142,7 @@ const AssignExamToOperator = () => {
         toast('📚 Aucune épreuve trouvée', { icon: 'ℹ️' });
       }
       if (operatorsData.length === 0) {
-        toast('👥 Aucun opérateur trouvé', { icon: 'ℹ️' });
+        toast('👥 Aucun opérateur actif trouvé', { icon: 'ℹ️' });
       }
       
     } catch (error) {
@@ -262,7 +258,7 @@ const AssignExamToOperator = () => {
   );
 
   const assignedExams = filteredExams.filter(e => e.assignedTo);
-  const unassignedExams = filteredExams.filter(e => !e.assignedTo);
+  const unassignedExams = filteredExams.filter(e => !e.assignedTo && e.status !== 'archived');
 
   if (!isAdmin) return null;
 
@@ -274,6 +270,7 @@ const AssignExamToOperator = () => {
     }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 10px; }
@@ -376,10 +373,29 @@ const AssignExamToOperator = () => {
                 {unassignedExams.map(exam => (
                   <option key={exam._id} value={exam._id}>
                     {exam.title} {exam.domain ? `(${exam.domain})` : ''}
-                    {exam.status === 'draft' && ' (Brouillon)'}
+                    {exam.status === 'draft' && ' ✏️ Brouillon'}
                   </option>
                 ))}
+                {assignedExams.length > 0 && (
+                  <optgroup label="⚠️ Déjà assignées (non sélectionnables)">
+                    {assignedExams.slice(0, 5).map(exam => (
+                      <option key={exam._id} value="" disabled style={{ color: '#64748b' }}>
+                        {exam.title} - Assignée
+                      </option>
+                    ))}
+                    {assignedExams.length > 5 && (
+                      <option disabled style={{ color: '#64748b' }}>
+                        + {assignedExams.length - 5} autres épreuves assignées
+                      </option>
+                    )}
+                  </optgroup>
+                )}
               </select>
+              {unassignedExams.length === 0 && (
+                <p style={{ color: '#f59e0b', fontSize: '0.65rem', marginTop: 4 }}>
+                  ⚠️ Aucune épreuve non assignée disponible
+                </p>
+              )}
             </div>
             
             <div>
@@ -406,6 +422,11 @@ const AssignExamToOperator = () => {
                   </option>
                 ))}
               </select>
+              {operators.length === 0 && (
+                <p style={{ color: '#f59e0b', fontSize: '0.65rem', marginTop: 4 }}>
+                  ⚠️ Aucun opérateur actif disponible
+                </p>
+              )}
             </div>
             
             <div>
@@ -511,22 +532,22 @@ const AssignExamToOperator = () => {
           
           <button
             onClick={handleAssign}
-            disabled={!selectedExam || !selectedOperator}
+            disabled={!selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0}
             style={{
               marginTop: 20,
               padding: '10px 24px',
-              background: !selectedExam || !selectedOperator 
+              background: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0
                 ? 'rgba(245,158,11,0.3)' 
                 : 'linear-gradient(135deg, #f59e0b, #d97706)',
               border: 'none',
               borderRadius: 10,
               color: '#fff',
               fontWeight: 600,
-              cursor: !selectedExam || !selectedOperator ? 'not-allowed' : 'pointer',
+              cursor: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0 ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              opacity: !selectedExam || !selectedOperator ? 0.6 : 1
+              opacity: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0 ? 0.6 : 1
             }}
           >
             <CheckCircle size={18} /> Assigner l'épreuve
@@ -766,7 +787,7 @@ const AssignExamToOperator = () => {
                       borderRadius: 4,
                       color: '#f59e0b'
                     }}>
-                      Brouillon
+                      ✏️ Brouillon
                     </span>
                   )}
                 </div>

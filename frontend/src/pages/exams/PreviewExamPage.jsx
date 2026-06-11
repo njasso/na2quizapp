@@ -1,4 +1,5 @@
-// src/pages/PreviewExamPage.jsx - Version avec support des images
+// src/pages/PreviewExamPage.jsx - Version CORRIGÉE (plus d'annulation intempestive)
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -35,20 +36,19 @@ const S = {
   }),
 };
 
-// Helper pour le libellé de l'option
+// Helper pour le libellé de l'option (A à K complet)
 const getOptionLabel = (opt) => {
   const labels = {
-    A: 'Collective Figée',
-    B: 'Collective Souple',
-    C: 'Personnalisée',
-    D: 'Aléatoire'
+    A: 'Collective Figée', B: 'Collective Souple', C: 'Personnalisée',
+    D: 'Aléatoire', E: 'Aléatoire+', F: 'Aléatoire Libre',
+    G: 'Plage Ouverte + Reprise', H: 'Plage Ouverte',
+    I: 'Plage Ouverte+', J: 'Plage Ouverte++', K: 'Plage Ouverte Libre'
   };
   return labels[opt] || `Option ${opt}`;
 };
 
-// Normaliser une question pour l'affichage (AVEC IMAGES)
+// Normaliser une question
 const normalizeQuestion = (q) => {
-  // Récupérer l'URL de l'image (priorité à imageQuestion, fallback imageBase64)
   let imageUrl = q.imageQuestion || '';
   if (!imageUrl && q.imageBase64 && q.imageBase64.startsWith('data:')) {
     imageUrl = q.imageBase64;
@@ -72,7 +72,6 @@ const normalizeQuestion = (q) => {
     sousDomaine: q.sousDomaine || '',
     niveau: q.niveau || '',
     matiere: q.matiere || '',
-    // === STOCKAGE DES IMAGES ===
     imageQuestion: q.imageQuestion || '',
     imageBase64: q.imageBase64 || '',
     imageMetadata: q.imageMetadata || {},
@@ -80,7 +79,7 @@ const normalizeQuestion = (q) => {
   };
 };
 
-// Composant éditeur d'une question (AVEC IMAGES)
+// Composant éditeur de question
 const QuestionEditor = ({ q, idx, total, onChange, onDelete, onDuplicate, onMoveUp, onMoveDown }) => {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -122,7 +121,6 @@ const QuestionEditor = ({ q, idx, total, onChange, onDelete, onDuplicate, onMove
     if (updated.typeQuestion === 1 && updated.correctAnswer) {
       updated.bonOpRep = updated.options.findIndex(opt => opt === updated.correctAnswer);
     }
-    // Mettre à jour l'imageUrl
     updated.imageUrl = draft.imageQuestion || (draft.imageBase64?.startsWith('data:') ? draft.imageBase64 : null);
     onChange(updated);
     setEditing(false);
@@ -250,7 +248,6 @@ const QuestionEditor = ({ q, idx, total, onChange, onDelete, onDuplicate, onMove
                     />
                   </div>
 
-                  {/* Image de la question */}
                   <div>
                     <label style={{ color: '#64748b', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Image</label>
                     {imagePreview ? (
@@ -370,7 +367,6 @@ const QuestionEditor = ({ q, idx, total, onChange, onDelete, onDuplicate, onMove
                 </>
               ) : (
                 <>
-                  {/* Affichage de l'image */}
                   {imageUrl && (
                     <div style={{ marginBottom: 12, textAlign: 'center' }}>
                       <img 
@@ -434,6 +430,9 @@ const PreviewExamPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
+  // ✅ PAS de AbortController - version simple
+  const isMounted = useRef(true);
+
   const newBlank = () => ({
     libQuestion: '',
     text: '',
@@ -457,48 +456,51 @@ const PreviewExamPage = () => {
   const [newQ, setNewQ] = useState(newBlank());
   const [newImagePreview, setNewImagePreview] = useState(null);
 
-  // Chargement de l'épreuve
+  // ========== CHARGEMENT DE L'ÉPREUVE (SANS ABORTCONTROLLER) ==========
   useEffect(() => {
-    const controller = new AbortController();
-
+    isMounted.current = true;
+    
     const loadExam = async () => {
       setIsLoading(true);
       try {
-        const res = await api.get(`/api/exams/${examId}`, {
-          signal: controller.signal,
-        });
-
+        console.log('[PreviewExamPage] Chargement épreuve:', examId);
+        const res = await api.get(`/api/exams/${examId}`);
+        
+        if (!isMounted.current) return;
+        
         const examData = res.data?.data || res.data || res;
         setExam(examData);
         setQuestions((examData?.questions || []).map(q => normalizeQuestion(q)));
       } catch (e) {
-        if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
-          console.log('[PreviewExamPage] Requête annulée');
-          return;
-        }
-
-        console.error('Erreur chargement épreuve:', e);
+        if (!isMounted.current) return;
+        
+        console.error('[PreviewExamPage] Erreur chargement:', e);
         if (e.response?.status === 401) {
           toast.error('Session expirée, veuillez vous reconnecter');
           localStorage.removeItem('userToken');
           localStorage.removeItem('userInfo');
           navigate('/login');
-        } else {
-          toast.error("Épreuve introuvable ou erreur serveur.");
+        } else if (e.response?.status === 404) {
+          toast.error('Épreuve non trouvée');
           navigate('/exams');
+        } else {
+          toast.error(e.response?.data?.message || 'Erreur de chargement');
         }
       } finally {
-        setIsLoading(false);
+        if (isMounted.current) setIsLoading(false);
       }
     };
 
     loadExam();
 
-    return () => controller.abort();
+    return () => {
+      isMounted.current = false;
+    };
   }, [examId, navigate]);
 
-  // Sauvegarde
+  // ========== SAUVEGARDE ==========
   const save = useCallback(async (qs = questions) => {
+    if (!isMounted.current) return;
     setIsSaving(true);
     try {
       const formatted = qs.map(q => ({
@@ -531,7 +533,7 @@ const PreviewExamPage = () => {
       setIsDirty(false);
       toast.success('Épreuve sauvegardée avec succès !');
     } catch (e) {
-      console.error('Erreur sauvegarde:', e);
+      console.error('[PreviewExamPage] Erreur sauvegarde:', e);
       if (e.response?.status === 401) {
         toast.error('Session expirée');
         localStorage.removeItem('userToken');
@@ -541,7 +543,7 @@ const PreviewExamPage = () => {
         toast.error('Erreur lors de la sauvegarde : ' + (e.response?.data?.message || e.message));
       }
     } finally {
-      setIsSaving(false);
+      if (isMounted.current) setIsSaving(false);
     }
   }, [questions, exam, examId, navigate]);
 
@@ -585,7 +587,7 @@ const PreviewExamPage = () => {
     setIsDirty(true);
   };
 
-  // Gestion de l'image pour la nouvelle question
+  // Gestion image nouvelle question
   const handleNewImageFile = (e) => {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
@@ -609,7 +611,6 @@ const PreviewExamPage = () => {
     setNewQ({ ...newQ, imageQuestion: '', imageBase64: '' });
   };
 
-  // Ajouter une question
   const addQuestion = () => {
     if (!newQ.libQuestion.trim()) {
       toast.error("L'énoncé est requis.");
@@ -657,7 +658,6 @@ const PreviewExamPage = () => {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', fontFamily: "'DM Sans', sans-serif", position: 'relative' }}>
       <div style={{ position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 }} />
 
-      {/* HEADER */}
       <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(5,7,26,0.92)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(59,130,246,0.1)', padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
@@ -703,7 +703,7 @@ const PreviewExamPage = () => {
       </header>
 
       <main style={{ position: 'relative', zIndex: 1, maxWidth: 900, margin: '0 auto', padding: '28px 20px' }}>
-        {/* FICHE ÉPREUVE */}
+        {/* Fiche épreuve */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
           style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(59,130,246,0.18)', borderRadius: 18, padding: '22px 24px', marginBottom: 22, backdropFilter: 'blur(12px)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -770,18 +770,38 @@ const PreviewExamPage = () => {
                   </>
                 )}
                 
+                <span style={{ color: '#64748b' }}>Résultat :</span>
+                <span style={{ color: '#e2e8f0' }}>
+                  {exam.config.showBinaryResult 
+                    ? exam.config.showCorrectAnswer 
+                      ? 'Binaire + Bonne réponse' 
+                      : 'Binaire' 
+                    : 'Non communiqué'}
+                </span>
+                
                 <span style={{ color: '#64748b' }}>Chronomètre :</span>
                 <span style={{ color: '#e2e8f0' }}>
                   {exam.config.timerPerQuestion 
                     ? `${exam.config.timePerQuestion} sec/question` 
                     : `${exam.config.totalTime} min totales`}
                 </span>
+                
+                {exam.config.timerDisplayMode && exam.config.timerDisplayMode !== 'permanent' && (
+                  <>
+                    <span style={{ color: '#64748b' }}>Affichage chrono :</span>
+                    <span style={{ color: '#e2e8f0' }}>
+                      {exam.config.timerDisplayMode === 'once' ? 'Une fois' :
+                       exam.config.timerDisplayMode === 'twice' ? 'Deux fois' :
+                       exam.config.timerDisplayMode === 'fourTimes' ? 'Quatre fois' : 'Permanent'}
+                    </span>
+                  </>
+                )}
               </div>
             </motion.div>
           )}
         </motion.div>
 
-        {/* TOOLBAR QUESTIONS */}
+        {/* Toolbar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <h2 style={{ fontFamily: "'Sora', sans-serif", color: '#f8fafc', fontSize: '1rem', fontWeight: 700, margin: 0 }}>
             Questions ({questions.length})
@@ -798,7 +818,7 @@ const PreviewExamPage = () => {
           </div>
         </div>
 
-        {/* FORMULAIRE NOUVELLE QUESTION AVEC IMAGE */}
+        {/* Formulaire nouvelle question */}
         <AnimatePresence>
           {addMode && (
             <motion.div
@@ -814,7 +834,6 @@ const PreviewExamPage = () => {
                     style={{ ...S.input, resize: 'vertical' }} placeholder="Saisissez la question…" />
                 </div>
 
-                {/* Image pour nouvelle question */}
                 <div>
                   <label style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' }}>Image</label>
                   {newImagePreview ? (
@@ -923,7 +942,7 @@ const PreviewExamPage = () => {
           )}
         </AnimatePresence>
 
-        {/* LISTE DES QUESTIONS */}
+        {/* Liste des questions */}
         {questions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#475569', background: 'rgba(15,23,42,0.5)', borderRadius: 14, border: '1px dashed rgba(255,255,255,0.08)' }}>
             <BookOpen size={36} color="#1e293b" style={{ marginBottom: 12 }} />
