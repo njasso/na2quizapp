@@ -1,4 +1,6 @@
-// src/pages/operator/AssignedExamsPage.jsx - Version finale
+// src/pages/operator/AssignedExamsPage.jsx - Version finale corrigée
+// ✅ Correction du fuseau horaire pour l'affichage des dates
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +24,22 @@ const AssignedExamsPage = () => {
   const [showHelp, setShowHelp] = useState(false);
   
   const isOperator = hasRole('OPERATEUR_EVALUATION');
+
+  // ✅ CORRECTION FUSEAU HORAIRE: Fonction pour afficher la date en heure locale
+  const formatScheduledDate = (dateString) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    const options = {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Africa/Douala'
+    };
+    return date.toLocaleString('fr-FR', options);
+  };
   
   useEffect(() => {
     if (!isOperator) {
@@ -33,63 +51,62 @@ const AssignedExamsPage = () => {
   }, []);
   
   const fetchAssignedExams = async () => {
-  setIsLoading(true);
-  try {
-    const response = await api.get('/api/exams/assigned-to-me');
-    
-    console.log('[AssignedExams] Réponse:', response);
-    
-    let examsData = [];
-    
-    // ✅ CORRECTION : Extraire correctement les données
-    if (response?.data?.data && Array.isArray(response.data.data)) {
-      examsData = response.data.data;
-    } else if (response?.data && Array.isArray(response.data)) {
-      examsData = response.data;
-    } else if (Array.isArray(response)) {
-      examsData = response;
+    setIsLoading(true);
+    try {
+      const response = await api.get('/api/exams/assigned-to-me');
+      
+      console.log('[AssignedExams] Réponse:', response);
+      
+      let examsData = [];
+      
+      if (response?.data?.data && Array.isArray(response.data.data)) {
+        examsData = response.data.data;
+      } else if (response?.data && Array.isArray(response.data)) {
+        examsData = response.data;
+      } else if (Array.isArray(response)) {
+        examsData = response;
+      }
+      
+      console.log(`[AssignedExams] ${examsData.length} épreuve(s) assignée(s)`);
+      
+      const enriched = examsData.map(exam => ({
+        ...exam,
+        coverImage: getImageUrl(exam),
+        scheduledDate: exam.scheduledDate || null,
+        sessionRoom: exam.sessionRoom || 'Salle principale',
+        isAvailable: exam.status === 'published',
+        isPending: exam.status === 'draft',
+        isArchived: exam.status === 'archived',
+        statusLabel: getStatusLabel(exam.status),
+        statusColor: getStatusColor(exam.status),
+        statusIcon: getStatusIcon(exam.status),
+        helpMessage: getHelpMessage(exam.status)
+      }));
+      
+      setExams(enriched);
+      
+      const availableCount = enriched.filter(e => e.status === 'published').length;
+      const pendingCount = enriched.filter(e => e.status === 'draft').length;
+      
+      if (availableCount > 0) {
+        toast.success(`${availableCount} épreuve(s) disponible(s) à distribuer`);
+      } else if (pendingCount > 0) {
+        toast(`${pendingCount} épreuve(s) en attente de publication`, {
+          duration: 5000,
+          icon: '⏳',
+          style: { background: '#f59e0b', color: '#fff' }
+        });
+      } else if (examsData.length === 0) {
+        toast('ℹ️ Aucune épreuve assignée pour le moment', { icon: '📋' });
+      }
+      
+    } catch (error) {
+      console.error('Erreur:', error);
+      toast.error('Impossible de charger les épreuves assignées');
+    } finally {
+      setIsLoading(false);
     }
-    
-    console.log(`[AssignedExams] ${examsData.length} épreuve(s) assignée(s)`);
-    
-    const enriched = examsData.map(exam => ({
-      ...exam,
-      coverImage: getImageUrl(exam),
-      scheduledDate: exam.scheduledDate || null,
-      sessionRoom: exam.sessionRoom || 'Salle principale',
-      isAvailable: exam.status === 'published',
-      isPending: exam.status === 'draft',
-      isArchived: exam.status === 'archived',
-      statusLabel: getStatusLabel(exam.status),
-      statusColor: getStatusColor(exam.status),
-      statusIcon: getStatusIcon(exam.status),
-      helpMessage: getHelpMessage(exam.status)
-    }));
-    
-    setExams(enriched);
-    
-    const availableCount = enriched.filter(e => e.status === 'published').length;
-    const pendingCount = enriched.filter(e => e.status === 'draft').length;
-    
-    if (availableCount > 0) {
-      toast.success(`${availableCount} épreuve(s) disponible(s) à distribuer`);
-    } else if (pendingCount > 0) {
-      toast(`${pendingCount} épreuve(s) en attente de publication`, {
-        duration: 5000,
-        icon: '⏳',
-        style: { background: '#f59e0b', color: '#fff' }
-      });
-    } else if (examsData.length === 0) {
-      toast('ℹ️ Aucune épreuve assignée pour le moment', { icon: '📋' });
-    }
-    
-  } catch (error) {
-    console.error('Erreur:', error);
-    toast.error('Impossible de charger les épreuves assignées');
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
   
   const getImageUrl = (exam) => {
     if (exam.coverImage) {
@@ -514,10 +531,11 @@ const AssignedExamsPage = () => {
                     <span><BookOpen size={12} style={{ display: 'inline', marginRight: 4 }} />{exam.questions?.length || 0} Q</span>
                   </div>
                   
+                  {/* ✅ AFFICHAGE DE LA DATE CORRIGÉ AVEC FUSEAU HORAIRE */}
                   {exam.scheduledDate && (
                     <div style={{ marginBottom: '16px', padding: '8px', background: 'rgba(59,130,246,0.1)', borderRadius: '8px', fontSize: '0.7rem', color: '#60a5fa' }}>
                       <Calendar size={12} style={{ display: 'inline', marginRight: 4 }} />
-                      Programmé: {new Date(exam.scheduledDate).toLocaleString()}
+                      Programmé: {formatScheduledDate(exam.scheduledDate)}
                     </div>
                   )}
                   

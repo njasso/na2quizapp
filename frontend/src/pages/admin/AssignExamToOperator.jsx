@@ -5,6 +5,7 @@
 // ✅ Publication des épreuves depuis l'interface admin
 // ✅ Gestion des statuts (draft → published → assigned)
 // ✅ Correction: séparation claire des épreuves assignées/non assignées
+// ✅ Correction du fuseau horaire (UTC+1 - Africa/Douala)
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -34,7 +35,7 @@ const AssignExamToOperator = () => {
 
   const isAdmin = hasRole('ADMIN_SYSTEME') || hasRole('ADMIN_DELEGUE');
 
-  // Configuration des libellés pour les options A à K
+  // ✅ Configuration des libellés pour les options A à K
   const getExamOptionLabel = (option) => {
     const labels = {
       A: 'Collective Figée', B: 'Collective Souple', C: 'Personnalisée',
@@ -70,6 +71,32 @@ const AssignExamToOperator = () => {
       case 'archived': return '#64748b';
       default: return '#64748b';
     }
+  };
+
+  // ✅ CORRECTION FUSEAU HORAIRE: Fonction pour corriger le fuseau horaire (UTC+1)
+  const fixTimezone = (dateString) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    const timezoneOffset = date.getTimezoneOffset();
+    const correctedDate = new Date(date.getTime() - timezoneOffset * 60000);
+    return correctedDate.toISOString();
+  };
+
+  // ✅ CORRECTION FUSEAU HORAIRE: Fonction pour afficher la date en heure locale
+  const formatScheduledDate = (dateString) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    const options = {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Africa/Douala'
+    };
+    return date.toLocaleString('fr-FR', options);
   };
 
   // Vérifier si la date est valide (future ou aujourd'hui)
@@ -111,7 +138,6 @@ const AssignExamToOperator = () => {
         api.get('/api/operators')
       ]);
       
-      // Extraction des données
       let examsData = [];
       if (examsRes?.data?.data && Array.isArray(examsRes.data.data)) {
         examsData = examsRes.data.data;
@@ -130,7 +156,6 @@ const AssignExamToOperator = () => {
         operatorsData = operatorsRes;
       }
       
-      // Filtrer les opérateurs actifs uniquement
       operatorsData = operatorsData.filter(op => op.status !== 'inactive');
       
       console.log(`[AssignExam] ${examsData.length} épreuves, ${operatorsData.length} opérateurs actifs`);
@@ -171,21 +196,35 @@ const AssignExamToOperator = () => {
     return true;
   };
 
+  // ✅ CORRECTION: handleAssign avec correction du fuseau horaire
   const handleAssign = async () => {
     if (!validateAssignment()) return;
     
     try {
-      console.log('[AssignExam] Assignation:', { selectedExam, selectedOperator, scheduledDate, sessionRoom });
+      let finalDate = scheduledDate;
+      if (scheduledDate) {
+        const corrected = fixTimezone(scheduledDate);
+        if (corrected) finalDate = corrected;
+      } else {
+        finalDate = new Date().toISOString();
+      }
+      
+      console.log('[AssignExam] Assignation:', { 
+        selectedExam, 
+        selectedOperator, 
+        scheduledDate: scheduledDate,
+        correctedDate: finalDate,
+        sessionRoom 
+      });
       
       await api.put(`/api/exams/${selectedExam}/assign`, {
         operatorId: selectedOperator,
-        scheduledDate: scheduledDate || new Date().toISOString(),
+        scheduledDate: finalDate,
         sessionRoom: sessionRoom
       });
       
       toast.success('✅ Épreuve assignée avec succès');
       
-      // Réinitialiser le formulaire
       setSelectedExam('');
       setSelectedOperator('');
       setScheduledDate('');
@@ -193,7 +232,6 @@ const AssignExamToOperator = () => {
       setDateError('');
       setSelectedExamDetails(null);
       
-      // Recharger les données
       loadData();
       
     } catch (error) {
@@ -232,23 +270,24 @@ const AssignExamToOperator = () => {
     navigate(`/preview/${examId}`);
   };
 
+  // ✅ CORRECTION: formatDate avec formatScheduledDate
   const formatDate = (dateString) => {
     if (!dateString) return null;
     const date = new Date(dateString);
     const now = new Date();
     const isPassed = date < now;
     return {
-      formatted: date.toLocaleString('fr-FR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      }),
+      formatted: formatScheduledDate(dateString),
       isPassed
     };
   };
 
+  // ✅ CORRECTION: getMinDate avec correction du fuseau horaire
   const getMinDate = () => {
-    const today = new Date();
-    return today.toISOString().slice(0, 16);
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    const corrected = new Date(now.getTime() - offset * 60000);
+    return corrected.toISOString().slice(0, 16);
   };
 
   const filteredExams = exams.filter(e =>

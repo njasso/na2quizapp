@@ -280,7 +280,7 @@ const TeacherQuestionsPage = () => {
       }
       
       const timestamp = Date.now();
-      const url = `/api/questions?limit=500&createdBy=${userId}&_t=${timestamp}`;
+      const url = `/api/questions?limit=5000&createdBy=${userId}&_t=${timestamp}`;
       console.log('[fetchMyQuestions] URL:', url);
       
       const response = await api.get(url);
