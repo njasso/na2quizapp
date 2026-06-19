@@ -3640,7 +3640,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ✅ VERSION OPTIMISÉE AVEC PRIORITÉ À LA CONFIG DE L'ÉPREUVE
+  // ✅ CORRECTION : PRIORITÉ À LA CONFIG DU SURVEILLANT
   socket.on('distributeExam', async (data) => {
     const { examId, examOption } = data || {};
     if (!examId) {
@@ -3649,16 +3649,23 @@ io.on('connection', (socket) => {
     }
 
     try {
-      // ✅ Récupérer l'épreuve depuis la base de données pour vérifier sa config
+      // Récupérer l'épreuve (pour les infos, pas pour la config)
       const exam = await Exam.findById(examId);
-      // Priorité à la config de l'épreuve si elle existe
-      const effectiveOption = exam?.config?.examOption || examOption;
       
-      console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, requête: ${examOption})`);
+      // ✅ CORRECTION : La config du surveillant est PRIORITAIRE
+      // La config de l'épreuve n'est qu'une SUGGESTION
+      const effectiveOption = examOption || exam?.config?.examOption || 'C';
+      
+      console.log(`[Socket] 📡 Distribution épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillant: ${examOption})`);
 
       const config = EXAM_FULL_CONFIGS[effectiveOption] || EXAM_FULL_CONFIGS['C'];
 
-      activeDistributedExams.set(examId, { examId, examOption: effectiveOption, config, distributedAt: Date.now() });
+      activeDistributedExams.set(examId, { 
+        examId, 
+        examOption: effectiveOption, 
+        config, 
+        distributedAt: Date.now() 
+      });
 
       let terminalCount = 0;
       for (const [sid, session] of activeSessions) {
@@ -3674,7 +3681,7 @@ io.on('connection', (socket) => {
         }
       }
 
-      console.log(`[Socket] ✅ Épreuve distribuée à ${terminalCount} terminal(aux)`);
+      console.log(`[Socket] ✅ Épreuve distribuée à ${terminalCount} terminal(aux) avec option ${effectiveOption}`);
       emitSessionUpdate();
       socket.emit('distributeExamConfirm', { success: true, terminalCount, examId, examOption: effectiveOption });
     } catch (err) {
@@ -3696,24 +3703,26 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ✅ VERSION OPTIMISÉE AVEC PRIORITÉ À LA CONFIG DE L'ÉPREUVE
+  // ✅ CORRECTION : PRIORITÉ À LA CONFIG DU SURVEILLANT
   socket.on('startExam', async (data) => {
     const { examId, option } = data || {};
     if (!examId) return;
 
     try {
-      // ✅ Récupérer l'épreuve depuis la base de données pour vérifier sa config
+      // Récupérer l'épreuve (pour les infos, pas pour la config)
       const exam = await Exam.findById(examId);
-      // Priorité à la config de l'épreuve si elle existe
-      const effectiveOption = exam?.config?.examOption || option;
       
-      console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, requête: ${option})`);
+      // ✅ CORRECTION : La config du surveillant est PRIORITAIRE
+      const effectiveOption = option || exam?.config?.examOption || 'C';
+      
+      console.log(`[Socket] 🚀 Démarrage épreuve ${examId} option ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillant: ${option})`);
 
       let startedCount = 0;
 
       for (const [sid, session] of activeSessions) {
         if (session.type === 'student' && session.currentExamId === examId && session.status === 'waiting') {
           session.status = 'composing';
+          session.examOption = effectiveOption;
           startedCount++;
           const stuSocket = io.sockets.sockets.get(sid);
           if (stuSocket && stuSocket.connected) {
@@ -3724,7 +3733,7 @@ io.on('connection', (socket) => {
 
       io.to(`exam:${examId}`).emit('examStarted', { examId, examOption: effectiveOption });
 
-      console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés`);
+      console.log(`[Socket] ✅ ${startedCount} étudiant(s) notifiés avec option ${effectiveOption}`);
       socket.emit('examStartedConfirm', { success: true, startedCount, examId });
       emitSessionUpdate();
       emitRealtimeStats(examId);
@@ -3892,7 +3901,6 @@ io.on('connection', (socket) => {
     }
   });
 });
-
 setInterval(() => {
   const now = Date.now();
   for (const [socketId, session] of activeSessions) {

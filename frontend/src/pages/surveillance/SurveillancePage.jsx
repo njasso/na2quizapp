@@ -1,6 +1,7 @@
-// src/pages/surveillance/SurveillancePage.jsx - VERSION CORRIGÉE AVEC SESSION PERSISTANTE
-// ✅ MISE À JOUR : Priorité à la config de l'épreuve (si existante)
-// ✅ Si l'épreuve a une configuration enregistrée, elle prime sur la config de surveillance
+// src/pages/surveillance/SurveillancePage.jsx - VERSION CORRIGÉE (SURVEILLANCE)
+// ✅ CORRECTION: La configuration choisie par le surveillant est TOUJOURS prioritaire.
+// ✅ La config de l'épreuve n'est qu'une suggestion, jamais un verrou.
+// ✅ Le surveillant peut donc choisir A à K pour n'importe quelle épreuve.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
@@ -33,7 +34,7 @@ console.log('[Surveillance] Backend URL:', NODE_BACKEND_URL);
 console.log('[Surveillance] Socket URL:', SOCKET_URL);
 
 // ══════════════════════════════════════════════════════════════
-//  CONFIGURATIONS DES ÉPREUVES (A à K)
+//  CONFIGURATIONS DES ÉPREUVES (A à K) - INCHANGÉ
 // ══════════════════════════════════════════════════════════════
 const EXAM_CONFIGURATIONS = [
   { key: 'A', label: 'Configuration A', desc: 'Plage fermée · Séquentiel figé · Même QCM · Résultat binaire · Pas de reprise', color: '#ef4444', config: { examOption: 'A', openRange: false, sequencing: 'identical', showBinaryResult: true, showCorrectAnswer: false, allowRetry: false, requiredQuestions: 0 } },
@@ -82,6 +83,7 @@ const SurveillancePage = () => {
   const [disconnectedIds, setDisconnectedIds] = useState(new Set());
   const [examFinishedIds, setExamFinishedIds] = useState(new Set());
   const [accessDenied, setAccessDenied] = useState(false);
+  const [userSelectedOption, setUserSelectedOption] = useState('A');
 
   const socketRef = useRef(null);
   const socketInitialized = useRef(false);
@@ -92,22 +94,17 @@ const SurveillancePage = () => {
   // Session ID persistant pour la surveillance
   const surveillanceSessionIdRef = useRef(null);
 
-  // ✅ Fonction pour obtenir la configuration effective d'une épreuve
-  // Priorité : config de l'épreuve > config de surveillance
+  // ✅ FONCTION CORRIGÉE : La configuration du surveillant est TOUJOURS PRIORITAIRE
   const getEffectiveExamOption = useCallback((examId, fallbackOption = null) => {
-    const exam = exams.find(e => e._id === examId);
-    if (exam?.config?.examOption) {
-      console.log(`[Surveillance] 📋 Épreuve ${exam.title} utilise sa config: ${exam.config.examOption}`);
-      return exam.config.examOption;
-    }
-    if (fallbackOption) {
-      console.log(`[Surveillance] 📋 Épreuve ${examId} utilise la config de surveillance: ${fallbackOption}`);
-      return fallbackOption;
-    }
-    return 'C'; // Configuration par défaut
-  }, [exams]);
+    // La configuration choisie par le surveillant est TOUJOURS utilisée.
+    // La config de l'épreuve n'est qu'une valeur par défaut si le surveillant n'a rien choisi.
+    // Cette fonction est appelée avec la config du surveillant en premier argument.
+    // En pratique, on appelle toujours getEffectiveExamOption(selectedExamId, selectedExamOption)
+    // donc selectedExamOption est toujours prioritaire.
+    return fallbackOption || 'C';
+  }, []);
 
-  // ✅ Vérification d'accès
+  // ✅ Vérification d'accès (inchangée)
   useEffect(() => {
     if (!isOperator && !isAdmin && !isTeacher) {
       setAccessDenied(true);
@@ -393,7 +390,7 @@ const SurveillancePage = () => {
   }, []);
 
   // ══════════════════════════════════════════════════════════════
-  //  HANDLERS
+  //  HANDLERS (CORRIGÉS)
   // ══════════════════════════════════════════════════════════════
   
   const handleDistributeExam = useCallback(() => {
@@ -402,15 +399,15 @@ const SurveillancePage = () => {
       return;
     }
     
-    // ✅ Récupérer la configuration effective de l'épreuve
-    const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
+    // ✅ La configuration du surveillant est TOUJOURS utilisée
+    const effectiveOption = selectedExamOption;
     const exam = exams.find(e => e._id === selectedExamId);
     
-    console.log(`[Surveillance] 📡 Distribution épreuve: ${exam?.title}, config effective: ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillance: ${selectedExamOption})`);
+    console.log(`[Surveillance] 📡 Distribution épreuve: ${exam?.title}, config effective: ${effectiveOption}`);
     
     socketRef.current.emit('distributeExam', { examId: selectedExamId, examOption: effectiveOption });
     toast.success(`Épreuve distribuée — Configuration ${effectiveOption}`);
-  }, [selectedExamId, selectedExamOption, getEffectiveExamOption, exams]);
+  }, [selectedExamId, selectedExamOption, exams]);
 
   const handleStartExam = useCallback(() => {
     if (!selectedExamId || !socketRef.current?.connected) {
@@ -418,11 +415,11 @@ const SurveillancePage = () => {
       return;
     }
     
-    // ✅ Récupérer la configuration effective de l'épreuve
-    const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
+    // ✅ La configuration du surveillant est TOUJOURS utilisée
+    const effectiveOption = selectedExamOption;
     const exam = exams.find(e => e._id === selectedExamId);
     
-    console.log(`[Surveillance] 🚀 Démarrage épreuve: ${exam?.title}, config effective: ${effectiveOption} (épreuve: ${exam?.config?.examOption || 'aucune'}, surveillance: ${selectedExamOption})`);
+    console.log(`[Surveillance] 🚀 Démarrage épreuve: ${exam?.title}, config effective: ${effectiveOption}`);
     
     const targetStudents = getUniqueSessions(activeSessions).filter(
       s => s.type === 'student' && s.currentExamId === selectedExamId && s.status === 'waiting'
@@ -433,11 +430,11 @@ const SurveillancePage = () => {
     }
     setIsStartingExam(true);
     
-    // ✅ Envoyer l'option effective
+    // ✅ Envoyer l'option choisie par le surveillant
     socketRef.current.emit('startExam', { examId: selectedExamId, option: effectiveOption });
     
     setTimeout(() => setIsStartingExam(false), 10000);
-  }, [selectedExamId, selectedExamOption, activeSessions, getUniqueSessions, getEffectiveExamOption, exams]);
+  }, [selectedExamId, selectedExamOption, activeSessions, getUniqueSessions, exams]);
 
   const handleFinishExam = useCallback(() => {
     if (!selectedExamId || !socketRef.current?.connected) {
@@ -632,7 +629,7 @@ const SurveillancePage = () => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  //  RENDER
+  //  RENDER (CORRIGÉ)
   // ══════════════════════════════════════════════════════════════
   return (
     <div style={{ minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '0 0 40px' }}>
@@ -657,7 +654,7 @@ const SurveillancePage = () => {
         {/* LIGNE 1 : Contrôle + Terminaux + Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '20px' }}>
 
-          {/* Panneau gestion épreuves avec TOUTES LES CONFIGURATIONS A à K */}
+          {/* Panneau gestion épreuves (CORRIGÉ) */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}>
             <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><Radio size={18} color="#3b82f6" /> Gestion des Épreuves</h2>
             
@@ -674,46 +671,44 @@ const SurveillancePage = () => {
                   );
                 })}
               </select>
+              {/* ✅ CORRECTION: Simple notification, pas de blocage */}
               {selectedExamId && (() => {
                 const exam = exams.find(e => e._id === selectedExamId);
                 const hasFixedConfig = exam?.config?.examOption;
                 return hasFixedConfig ? (
                   <div style={{ marginTop: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, fontSize: '0.7rem', color: '#f59e0b' }}>
-                    🔒 Cette épreuve a une configuration figée : <strong>{exam.config.examOption}</strong>
+                    💡 Cette épreuve a une configuration suggérée : <strong>{exam.config.examOption}</strong>. Vous pouvez en changer ci-dessous.
                   </div>
                 ) : null;
               })()}
             </div>
 
-            {/* ✅ LISTE COMPLÈTE DES CONFIGURATIONS A à K (disabled si épreuve configurée) */}
+            {/* ✅ CORRECTION: Liste TOUJOURS ACTIVE */}
             <div style={{ marginBottom: '18px' }}>
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={13} color="#3b82f6" /> Configuration de l'épreuve</p>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={13} color="#3b82f6" /> Choisissez la configuration pour cette session</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
                 {EXAM_CONFIGURATIONS.map((cfg) => {
-                  const exam = exams.find(e => e._id === selectedExamId);
-                  const isDisabled = exam?.config?.examOption && exam.config.examOption !== cfg.key;
+                  // ✅ Plus de désactivation, toutes les options sont disponibles.
+                  const isSelected = selectedExamOption === cfg.key;
                   return (
                     <label key={cfg.key} style={{ 
                       display: 'flex', alignItems: 'flex-start', padding: '10px', 
-                      background: selectedExamOption === cfg.key ? `${cfg.color}12` : 'rgba(255,255,255,0.02)', 
-                      border: `1px solid ${selectedExamOption === cfg.key ? `${cfg.color}44` : 'rgba(255,255,255,0.06)'}`, 
-                      borderRadius: '10px', cursor: isDisabled ? 'not-allowed' : 'pointer', gap: '8px',
-                      opacity: isDisabled ? 0.5 : 1
+                      background: isSelected ? `${cfg.color}12` : 'rgba(255,255,255,0.02)', 
+                      border: `1px solid ${isSelected ? `${cfg.color}44` : 'rgba(255,255,255,0.06)'}`, 
+                      borderRadius: '10px', cursor: 'pointer', gap: '8px',
                     }}>
                       <input 
                         type="radio" 
                         name="examOption" 
                         value={cfg.key} 
-                        checked={selectedExamOption === cfg.key} 
-                        onChange={e => !isDisabled && setSelectedExamOption(e.target.value)} 
+                        checked={isSelected} 
+                        onChange={() => setSelectedExamOption(cfg.key)} 
                         style={{ accentColor: cfg.color, marginTop: '2px' }}
-                        disabled={isDisabled}
                       />
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', borderRadius: '4px', background: `${cfg.color}22`, color: cfg.color, fontSize: '0.7rem', fontWeight: 800 }}>{cfg.key}</span>
                           <span style={{ color: '#f8fafc', fontSize: '0.8rem', fontWeight: 600 }}>{cfg.label}</span>
-                          {exam?.config?.examOption === cfg.key && <span style={{ fontSize: '0.55rem', padding: '1px 4px', background: '#f59e0b', borderRadius: 4, color: '#fff' }}>Figée</span>}
                         </div>
                         <p style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '4px' }}>{cfg.desc}</p>
                       </div>
@@ -723,15 +718,12 @@ const SurveillancePage = () => {
               </div>
             </div>
 
-            {/* ✅ Option A : avancement automatique */}
-            {(() => {
-              const effectiveOption = getEffectiveExamOption(selectedExamId, selectedExamOption);
-              return effectiveOption === 'A' && (
-                <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
-                  ⏱ Config A : avancement automatique par timer question côté candidat
-                </div>
-              );
-            })()}
+            {/* ✅ Option A : avancement automatique (message informatif) */}
+            {selectedExamOption === 'A' && (
+              <div style={{ padding: '8px 12px', marginBottom: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.75rem', color: '#ef4444' }}>
+                ⏱ Config A : avancement automatique par timer question côté candidat
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDistributeExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(59,130,246,0.25)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>📡 Distribuer l'épreuve</motion.button>
@@ -739,19 +731,18 @@ const SurveillancePage = () => {
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleFinishExam} disabled={!selectedExamId || !isConnected} style={{ padding: '11px', borderRadius: '10px', border: 'none', background: (!selectedExamId || !isConnected) ? 'rgba(239,68,68,0.25)' : 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', fontWeight: 600, cursor: !selectedExamId ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>⏹ Terminer l'épreuve (tous)</motion.button>
             </div>
             
-            {/* Affichage de la config effective */}
+            {/* Affichage de la config choisie */}
             {selectedExamId && (
               <div style={{ marginTop: 12, padding: '6px 10px', background: 'rgba(99,102,241,0.1)', borderRadius: 8, fontSize: '0.65rem', textAlign: 'center' }}>
-                <span style={{ color: '#64748b' }}>Configuration effective : </span>
+                <span style={{ color: '#64748b' }}>Configuration choisie pour cette session : </span>
                 <strong style={{ color: '#a5b4fc' }}>
-                  {getEffectiveExamOption(selectedExamId, selectedExamOption)}
+                  {selectedExamOption}
                 </strong>
                 {(() => {
                   const exam = exams.find(e => e._id === selectedExamId);
                   const examConfig = exam?.config?.examOption;
-                  const surveillanceConfig = selectedExamOption;
-                  if (examConfig && examConfig !== surveillanceConfig) {
-                    return <span style={{ color: '#f59e0b', marginLeft: '6px' }}>(figée par l'épreuve)</span>;
+                  if (examConfig && examConfig !== selectedExamOption) {
+                    return <span style={{ color: '#f59e0b', marginLeft: '6px' }}>(différente de la config suggérée: {examConfig})</span>;
                   }
                   return null;
                 })()}
@@ -787,13 +778,13 @@ const SurveillancePage = () => {
           </motion.div>
         </div>
 
-        {/* LIGNE 2 : Étudiants en composition */}
+        {/* LIGNE 2 : Étudiants en composition (inchangé) */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '20px', padding: '22px' }}>
           <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}><Users size={18} color="#3b82f6" /> Étudiants en Composition {['composing', 'finished', 'forced-finished'].map(st => { const cnt = studentsActive.filter(s => s.status === st).length; if (!cnt) return null; const colors = { composing: '#3b82f6', finished: '#10b981', 'forced-finished': '#f59e0b' }; const labels = { composing: 'en cours', finished: 'terminé', 'forced-finished': 'clôturé' }; return <span key={st} style={{ background: `${colors[st]}15`, color: colors[st], padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>{cnt} {labels[st]}</span>; })}</h2>
           {studentsActive.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Users size={32} color="#1e293b" style={{ marginBottom: '12px' }} /><p style={{ color: '#475569', fontSize: '0.85rem' }}>Aucun étudiant en composition pour l'instant.</p></div> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '14px' }}><AnimatePresence>{studentsActive.map(student => <StudentCard key={student.socketId || student.sessionId || student.studentInfo?.matricule || Math.random()} student={student} examTitle={getExamTitle(student.currentExamId)} examInfo={getExamInfo(student.currentExamId)} backendUrl={NODE_BACKEND_URL} onAlert={addAlert} isSubmitting={submittingStudents.has(student.socketId)} isOffline={disconnectedIds.has(student.socketId)} />)}</AnimatePresence></div>}
         </motion.div>
 
-        {/* LIGNE 3 : Classement */}
+        {/* LIGNE 3 : Classement (inchangé) */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '20px', padding: '22px', marginTop: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}><h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}><Trophy size={18} color="#f59e0b" /> Classement des Compétiteurs {rankingsData.length > 0 && <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 10px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700 }}>{rankingsData.length} candidats</span>}</h2><div style={{ display: 'flex', gap: '8px' }}>{rankingsData.length > 0 && <><motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => fetchRankings(rankingExamId)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}><RefreshCw size={13} /> Actualiser</motion.button><motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={printRankings} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', border: 'none', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}><Printer size={13} /> Imprimer PDF</motion.button></>}</div></div>
           <div style={{ marginBottom: '18px' }}><label style={{ display: 'block', fontSize: '0.78rem', color: '#64748b', marginBottom: '7px' }}>Sélectionner une épreuve</label><select value={rankingExamId} onChange={e => setRankingExamId(e.target.value)} style={{ width: '100%', maxWidth: '520px', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '10px', color: rankingExamId ? '#f8fafc' : '#64748b', fontSize: '0.88rem', outline: 'none' }}><option value="">-- Choisir une épreuve --</option>{exams.map(e => <option key={e._id} value={e._id}>{e.title} {e.domain ? `(${e.domain})` : ''} {e.config?.examOption ? `[Config ${e.config.examOption}]` : ''}</option>)}</select></div>
@@ -801,7 +792,7 @@ const SurveillancePage = () => {
         </motion.div>
       </main>
 
-      {/* Panneaux */}
+      {/* Panneaux (inchangés) */}
       <AnimatePresence>{showHistory && <SessionHistoryPanel history={sessionHistory} onClose={() => setShowHistory(false)} onExport={exportLogs} onClear={clearHistory} />}</AnimatePresence>
       <AnimatePresence>{showAlerts && <motion.div initial={{ opacity: 0, x: 300 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 300 }} style={{ position: 'fixed', right: 0, top: 0, bottom: 0, zIndex: 100, width: '380px', background: '#0f172a', borderLeft: '1px solid rgba(239,68,68,0.3)', boxShadow: '-4px 0 24px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column' }}><div style={{ padding: '20px', borderBottom: '1px solid rgba(239,68,68,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><AlertCircle size={20} color="#ef4444" /><h3 style={{ color: '#f8fafc', fontWeight: 700 }}>Alertes système</h3><span style={{ background: '#ef4444', padding: '2px 8px', borderRadius: '999px', fontSize: '0.7rem', color: '#fff' }}>{alerts.length}</span></div><button onClick={() => setShowAlerts(false)} style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: '#94a3b8', cursor: 'pointer' }}><X size={14} /></button></div><div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>{alerts.length === 0 ? <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune alerte</div> : alerts.map(alert => <motion.div key={alert.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ background: alert.severity === 'high' ? 'rgba(239,68,68,0.1)' : alert.severity === 'medium' ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)', border: `1px solid ${alert.severity === 'high' ? '#ef4444' : alert.severity === 'medium' ? '#f59e0b' : '#3b82f6'}30`, borderRadius: '10px', padding: '12px', marginBottom: '10px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>{alert.severity === 'high' && <AlertTriangle size={14} color="#ef4444" />}<span style={{ color: '#f8fafc', fontSize: '0.85rem', fontWeight: 600 }}>{alert.type}</span><span style={{ marginLeft: 'auto', color: '#64748b', fontSize: '0.65rem' }}>{new Date(alert.timestamp).toLocaleTimeString()}</span></div><p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{alert.message}</p></motion.div>)}</div><div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}><button onClick={() => setAlerts([])} style={{ width: '100%', padding: '8px', background: '#ef4444', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>Effacer toutes les alertes</button></div></motion.div>}</AnimatePresence>
 

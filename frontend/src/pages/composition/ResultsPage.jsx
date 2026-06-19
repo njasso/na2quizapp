@@ -1,4 +1,8 @@
 // src/pages/composition/ResultsPage.jsx — Version Finale Corrigée
+// ✅ Correction du comptage des questions
+// ✅ Support complet des configurations A à K
+// ✅ CORRECTION: Redirection vers dashboard au lieu de l'accueil
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -88,7 +92,6 @@ const ResultsPage = () => {
       localStorage.removeItem(`exam_${examId}_showResult`);
     }
 
-    // Désactiver le mode kiosque si actif
     if (window.NA2QUIZ?.deactivateKiosk) {
       window.NA2QUIZ.deactivateKiosk();
     }
@@ -96,7 +99,7 @@ const ResultsPage = () => {
     if (allowRetry && isTerminalContext) {
       window.location.replace(ENV_CONFIG.TERMINAL_URL);
     } else {
-      // ✅ Redirection vers le Dashboard (pas l'accueil)
+      // ✅ CORRECTION: Redirection vers le dashboard au lieu de l'accueil
       navigate('/evaluate', { replace: true });
     }
   }, [allowRetry, isTerminalContext, examId, navigate]);
@@ -119,8 +122,9 @@ const ResultsPage = () => {
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
-  // NORMALISATION QUESTIONS
+  // NORMALISATION QUESTIONS - VERSION CORRIGÉE
   // ═══════════════════════════════════════════════════════════════
+
   const normalizeQuestionForDisplay = (q, studentAnswer, questionIndex) => {
     let correctAnswerText = '';
     if (typeof q.bonOpRep === 'number') {
@@ -129,7 +133,6 @@ const ResultsPage = () => {
       correctAnswerText = q.correctAnswer;
     }
 
-    // ✅ FIX : chercher la réponse de l'étudiant dans submittedAnswers par _id puis par index
     let finalStudentAnswer = 'Non répondu';
     if (studentAnswer && studentAnswer !== 'Non répondu') {
       finalStudentAnswer = studentAnswer;
@@ -140,11 +143,9 @@ const ResultsPage = () => {
       finalStudentAnswer = byId || byIdx || byStr || 'Non répondu';
     }
 
-    // ✅ FIX : comparaison isCorrect robuste (texte OU index)
     let isCorrect = false;
     if (finalStudentAnswer !== 'Non répondu') {
       if (typeof q.bonOpRep === 'number') {
-        // La réponse peut être stockée comme texte de l'option ou comme index
         const selectedIndexByText = q.options?.findIndex(opt => opt === finalStudentAnswer);
         const selectedIndexByValue = parseInt(finalStudentAnswer, 10);
         isCorrect = selectedIndexByText === q.bonOpRep
@@ -162,22 +163,41 @@ const ResultsPage = () => {
     };
   };
 
+  // ✅ Fonction corrigée pour obtenir le nombre total de questions
   const getTotalQuestions = () => {
-    if (exam?.questions?.length > 0) return exam.questions.length;
-    if (passedResultSnapshot?.examQuestions?.length > 0) return passedResultSnapshot.examQuestions.length;
-    if (passedExamQuestions?.length > 0) return passedExamQuestions.length;
-    return questionDetailsRef.current.length;
+    // Priorité aux questions détaillées (les plus fiables)
+    if (questionDetailsRef.current.length > 0) {
+      return questionDetailsRef.current.length;
+    }
+    if (exam?.questions?.length > 0) {
+      return exam.questions.length;
+    }
+    if (passedResultSnapshot?.examQuestions?.length > 0) {
+      return passedResultSnapshot.examQuestions.length;
+    }
+    if (passedExamQuestions?.length > 0) {
+      return passedExamQuestions.length;
+    }
+    if (submittedAnswers && Object.keys(submittedAnswers).length > 0) {
+      return Object.keys(submittedAnswers).length;
+    }
+    return 0;
   };
 
+  // ✅ Fonction corrigée pour obtenir le total des points
   const getTotalPoints = () => {
+    if (questionDetailsRef.current.length > 0) {
+      return questionDetailsRef.current.reduce((sum, q) => sum + (q.points || 1), 0);
+    }
     const questions = passedResultSnapshot?.examQuestions || passedExamQuestions || exam?.questions || [];
     if (questions.length === 0) return getTotalQuestions();
     return questions.reduce((sum, q) => sum + (q.points || 1), 0);
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // CHARGEMENT
+  // CHARGEMENT - VERSION CORRIGÉE AVEC LOGS
   // ═══════════════════════════════════════════════════════════════
+
   useEffect(() => {
     if (!examId || !submittedAnswers || !studentInfo || submittedPercentage === undefined) {
       toast.error("Données manquantes.");
@@ -185,56 +205,78 @@ const ResultsPage = () => {
       return;
     }
 
+    console.log('[ResultsPage] 📊 Début chargement des résultats');
+    console.log('[ResultsPage] 📝 submittedAnswers:', Object.keys(submittedAnswers).length, 'réponses');
+
     const fetchAndProcessResults = async () => {
       try {
+        let questionsArray = [];
+        let examTitle = '';
+        let examPassingScore = 70;
+        
         if (passedResultSnapshot?.examQuestions?.length > 0) {
-          // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
-          questionDetailsRef.current = passedResultSnapshot.examQuestions.map((q, idx) => {
-            const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
-            return normalizeQuestionForDisplay(q, studentAns, idx);
-          });
-          setExam({
-            _id: examId, title: passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve',
-            questions: passedResultSnapshot.examQuestions || [],
-            passingScore: passedResultSnapshot.passingScore || passedPassingScore || 70,
-          });
-          setConfig(passedResultSnapshot.config || null);
-          setIsLoading(false);
-          return;
+          console.log('[ResultsPage] ✅ Utilisation des questions du snapshot');
+          questionsArray = passedResultSnapshot.examQuestions;
+          examTitle = passedResultSnapshot.examTitle || passedExamTitle || 'Épreuve';
+          examPassingScore = passedResultSnapshot.passingScore || passedPassingScore || 70;
+        } else if (passedExamQuestions?.length > 0) {
+          console.log('[ResultsPage] ✅ Utilisation des questions passées en state');
+          questionsArray = passedExamQuestions;
+          examTitle = passedExamTitle || 'Épreuve';
+          examPassingScore = passedPassingScore || 70;
+        } else {
+          console.log('[ResultsPage] 🔍 Chargement depuis l\'API');
+          const token = getAuthToken();
+          const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+          const backendUrl = getBackendUrl();
+          const response = await axios.get(`${backendUrl}/api/exams/${examId}`, { timeout: 10000, ...axiosConfig });
+          const examData = response.data;
+          questionsArray = examData.questions || [];
+          examTitle = examData.title || 'Épreuve';
+          examPassingScore = examData.passingScore || 70;
+          setExam({ ...examData, questions: questionsArray });
+          setConfig(examData.config || null);
         }
 
-        const token = getAuthToken();
-        const axiosConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-        const backendUrl = getBackendUrl();
-        const response = await axios.get(`${backendUrl}/api/exams/${examId}`, { timeout: 10000, ...axiosConfig });
-        const examData = response.data;
-        const questionsArray = examData.questions || [];
+        console.log('[ResultsPage] 📊 Questions à traiter:', questionsArray.length);
 
-        // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
+        // ✅ Normaliser les questions avec les réponses
         questionDetailsRef.current = questionsArray.map((q, idx) => {
           const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
           return normalizeQuestionForDisplay(q, studentAns, idx);
         });
-        setExam({ ...examData, questions: questionsArray });
-        setConfig(examData.config || null);
+
+        console.log('[ResultsPage] ✅ Détails des questions générés:', questionDetailsRef.current.length);
+
+        setExam({
+          _id: examId,
+          title: examTitle,
+          questions: questionsArray,
+          passingScore: examPassingScore,
+        });
+
+        setIsLoading(false);
       } catch (error) {
-        console.error("Erreur chargement:", error);
+        console.error('[ResultsPage] ❌ Erreur chargement:', error);
+        // Fallback : utiliser les questions passées si disponibles
         if (passedExamQuestions?.length > 0) {
-          // ✅ FIX : passer submittedAnswers pour que isCorrect soit calculé correctement
+          console.log('[ResultsPage] 🔄 Fallback: utilisation des questions passées');
           questionDetailsRef.current = passedExamQuestions.map((q, idx) => {
             const studentAns = submittedAnswers?.[q._id] ?? submittedAnswers?.[idx] ?? null;
             return normalizeQuestionForDisplay(q, studentAns, idx);
           });
           setExam({
-            _id: examId, title: passedExamTitle || 'Titre inconnu',
-            questions: passedExamQuestions, passingScore: passedPassingScore || 70,
+            _id: examId,
+            title: passedExamTitle || 'Titre inconnu',
+            questions: passedExamQuestions,
+            passingScore: passedPassingScore || 70,
           });
           setConfig(passedResultSnapshot?.config || null);
+          setIsLoading(false);
         } else {
-          toast.error("Erreur de chargement.");
+          toast.error('Erreur de chargement des résultats');
+          setIsLoading(false);
         }
-      } finally {
-        setIsLoading(false);
       }
     };
 
@@ -268,6 +310,7 @@ const ResultsPage = () => {
           </p>
           <button onClick={() => {
             if (window.NA2QUIZ?.deactivateKiosk) window.NA2QUIZ.deactivateKiosk();
+            // ✅ CORRECTION: Redirection vers le dashboard
             navigate('/evaluate', { replace: true });
           }} style={styles.homeButton}>
             Retour au tableau de bord
@@ -280,13 +323,13 @@ const ResultsPage = () => {
   const totalQuestions = getTotalQuestions();
   const totalPoints = getTotalPoints();
 
-  // ✅ FIX : correctCount calculé depuis questionDetailsRef (maintenant correct avec submittedAnswers)
-  // Si aucune question chargée en détail, on déduit depuis le score serveur
+  // ✅ Calcul du nombre de bonnes réponses
   const localCorrectCount = questionDetailsRef.current.filter(q => q.isCorrect).length;
   const serverCorrectCount = totalQuestions > 0
     ? Math.round((submittedPercentage / 100) * totalQuestions)
     : 0;
-  // On préfère le compte local SI les questions ont bien été chargées avec les réponses
+  
+  // ✅ On préfère le compte local si les questions sont chargées
   const correctCount = questionDetailsRef.current.length > 0
     ? localCorrectCount
     : serverCorrectCount;
@@ -347,6 +390,8 @@ const ResultsPage = () => {
                 {config.openRange && <><span>Plage ouverte:</span><span>{config.requiredQuestions} questions</span></>}
                 <span>Séquencement:</span><span>{config.sequencing === 'identical' ? 'Identique' : 'Aléatoire'}</span>
                 {config.allowRetry && <><span>Reprise:</span><span>Autorisée (une fois)</span></>}
+                {config.timerPerQuestion && <><span>Chrono par question:</span><span>{config.timePerQuestion}s</span></>}
+                {!config.timerPerQuestion && config.totalTime && <><span>Temps total:</span><span>{config.totalTime} min</span></>}
               </div>
             </div>
           )}
@@ -402,6 +447,7 @@ const ResultsPage = () => {
 // ═══════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════
+
 const styles = {
   container: { minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: '24px' },
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },

@@ -1,6 +1,8 @@
-// src/pages/composition/QuizCompositionPage.jsx - VERSION CORRIGÉE
-// ✅ Ajout: Feedback "Binaire + Bonne Réponse + Justification"
-// ✅ Support complet des 4 niveaux de feedback selon spec Excel
+// src/pages/composition/QuizCompositionPage.jsx - VERSION COMPLÈTE CORRIGÉE
+// ✅ CORRECTION 1: Jauge avec overflow hidden + max-width
+// ✅ CORRECTION 2: Calcul sécurisé du pourcentage (ne dépasse jamais 100%)
+// ✅ CORRECTION 3: Aucune limite de questions - toutes les questions sont affichées
+// ✅ CORRECTION 4: Feedback NON BLOQUANT - toast avec disparition automatique (2.5s)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
@@ -144,138 +146,93 @@ const Timer = ({ initialTime, onTimeEnd, isActive, resetTrigger, displayMode = '
 };
 
 // ═══════════════════════════════════════════════════════════════
-// COMPOSANT DE FEEDBACK COMPLET (Binaire + Bonne Réponse + Justification)
-// ═══════════════════════════════════════════════════════════════
-
-const FeedbackModal = ({ isOpen, onClose, isCorrect, correctAnswer, explanation, config }) => {
-  if (!isOpen) return null;
-
-  const showBinary = config?.showBinaryResult;
-  const showAnswer = config?.showCorrectAnswer;
-  const showJustification = config?.showJustification;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        background: 'rgba(0,0,0,0.8)',
-        backdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px'
-      }}
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.9, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.9, y: 20 }}
-        style={{
-          background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-          border: `2px solid ${isCorrect ? '#10b981' : '#ef4444'}`,
-          borderRadius: '20px',
-          padding: '28px 32px',
-          maxWidth: '480px',
-          width: '100%',
-          textAlign: 'center'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Résultat binaire */}
-        {showBinary && (
-          <div style={{ marginBottom: '16px' }}>
-            {isCorrect ? (
-              <CheckCircle size={48} color="#10b981" style={{ marginBottom: '8px' }} />
-            ) : (
-              <XCircle size={48} color="#ef4444" style={{ marginBottom: '8px' }} />
-            )}
-            <h2 style={{
-              fontSize: '1.5rem',
-              fontWeight: 700,
-              color: isCorrect ? '#10b981' : '#ef4444',
-              marginBottom: '8px'
-            }}>
-              {isCorrect ? '✓ Bonne réponse !' : '✗ Mauvaise réponse'}
-            </h2>
-          </div>
-        )}
-
-        {/* Bonne réponse */}
-        {showAnswer && !isCorrect && correctAnswer && (
-          <div style={{
-            padding: '12px 16px',
-            background: 'rgba(16,185,129,0.1)',
-            borderRadius: '12px',
-            marginBottom: '12px'
-          }}>
-            <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px' }}>
-              💡 Bonne réponse :
-            </p>
-            <p style={{ color: '#10b981', fontWeight: 600, fontSize: '1rem' }}>
-              {correctAnswer}
-            </p>
-          </div>
-        )}
-
-        {/* Justification */}
-        {showJustification && explanation && (
-          <div style={{
-            padding: '12px 16px',
-            background: 'rgba(59,130,246,0.1)',
-            borderRadius: '12px',
-            marginBottom: '20px'
-          }}>
-            <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Info size={14} /> Justification pédagogique :
-            </p>
-            <p style={{ color: '#a5b4fc', fontSize: '0.9rem', lineHeight: 1.5 }}>
-              {explanation}
-            </p>
-          </div>
-        )}
-
-        <button
-          onClick={onClose}
-          style={{
-            padding: '10px 24px',
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            border: 'none',
-            borderRadius: '10px',
-            color: '#fff',
-            fontWeight: 600,
-            cursor: 'pointer',
-            marginTop: '8px'
-          }}
-        >
-          Continuer
-        </button>
-      </motion.div>
-    </motion.div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════
 // CONFIGURATIONS DES CONTRÔLES DE NAVIGATION (A à K)
 // ═══════════════════════════════════════════════════════════════
 
 const EXAM_CONFIGURATIONS = {
-  A: { code: 'A', isOpenRange: false, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: true, timerPerQuestion: true, disablePrev: true, disableNext: true, label: 'Configuration A', lockMessage: '🔒 Séquentiel figé — Même QCM pour tous' },
-  B: { code: 'B', isOpenRange: false, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration B', lockMessage: '🔒 Séquentiel figé — Résultat Binaire + renvoyé' },
-  C: { code: 'C', isOpenRange: false, shufflePerStudent: false, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration C', lockMessage: '🔒 Séquentiel figé — Résultat non communiqué' },
-  D: { code: 'D', isOpenRange: false, shufflePerStudent: true, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: true, timerPerQuestion: true, disablePrev: true, disableNext: true, label: 'Configuration D', lockMessage: '🎲 QCM aléatoire par apprenant' },
-  E: { code: 'E', isOpenRange: false, shufflePerStudent: true, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration E', lockMessage: '🎲 QCM aléatoire par apprenant · Résultat Binaire +' },
-  F: { code: 'F', isOpenRange: false, shufflePerStudent: true, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: true, disableNext: true, label: 'Configuration F', lockMessage: '🎲 QCM aléatoire par apprenant · Résultat non communiqué' },
-  G: { code: 'G', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: true, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration G', lockMessage: null },
-  H: { code: 'H', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binary', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration H', lockMessage: null },
-  I: { code: 'I', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: true, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration I', lockMessage: null },
-  J: { code: 'J', isOpenRange: true, shufflePerStudent: false, showResult: true, resultType: 'binaryPlus', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration J', lockMessage: null },
-  K: { code: 'K', isOpenRange: true, shufflePerStudent: false, showResult: false, resultType: 'none', allowRetry: false, autoAdvance: false, timerPerQuestion: false, disablePrev: false, disableNext: false, label: 'Configuration K', lockMessage: null }
+  A: {
+    code: 'A', isOpenRange: false, shufflePerStudent: false,
+    showResult: true, resultType: 'binary',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: true,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration A',
+    lockMessage: '🔒 Séquentiel figé — Avancement automatique par timer'
+  },
+  B: {
+    code: 'B', isOpenRange: false, shufflePerStudent: false,
+    showResult: true, resultType: 'binaryPlus',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: true,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration B',
+    lockMessage: '🔒 Séquentiel figé — Avancement automatique par timer'
+  },
+  C: {
+    code: 'C', isOpenRange: false, shufflePerStudent: false,
+    showResult: false, resultType: 'none',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: false,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration C',
+    lockMessage: '🔒 Séquentiel figé — Avancement automatique par timer'
+  },
+  D: {
+    code: 'D', isOpenRange: false, shufflePerStudent: true,
+    showResult: true, resultType: 'binary',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: true,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration D',
+    lockMessage: '🎲 QCM aléatoire — Avancement automatique par timer'
+  },
+  E: {
+    code: 'E', isOpenRange: false, shufflePerStudent: true,
+    showResult: true, resultType: 'binaryPlus',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: true,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration E',
+    lockMessage: '🎲 QCM aléatoire — Avancement automatique par timer'
+  },
+  F: {
+    code: 'F', isOpenRange: false, shufflePerStudent: true,
+    showResult: false, resultType: 'none',
+    allowRetry: false, autoAdvance: true, timerPerQuestion: false,
+    disablePrev: true, disableNext: true,
+    label: 'Configuration F',
+    lockMessage: '🎲 QCM aléatoire — Avancement automatique par timer'
+  },
+  G: {
+    code: 'G', isOpenRange: true, shufflePerStudent: false,
+    showResult: true, resultType: 'binary',
+    allowRetry: true, autoAdvance: false, timerPerQuestion: false,
+    disablePrev: false, disableNext: false,
+    label: 'Configuration G', lockMessage: null
+  },
+  H: {
+    code: 'H', isOpenRange: true, shufflePerStudent: false,
+    showResult: true, resultType: 'binary',
+    allowRetry: false, autoAdvance: false, timerPerQuestion: false,
+    disablePrev: false, disableNext: false,
+    label: 'Configuration H', lockMessage: null
+  },
+  I: {
+    code: 'I', isOpenRange: true, shufflePerStudent: false,
+    showResult: true, resultType: 'binaryPlus',
+    allowRetry: true, autoAdvance: false, timerPerQuestion: false,
+    disablePrev: false, disableNext: false,
+    label: 'Configuration I', lockMessage: null
+  },
+  J: {
+    code: 'J', isOpenRange: true, shufflePerStudent: false,
+    showResult: true, resultType: 'binaryPlus',
+    allowRetry: false, autoAdvance: false, timerPerQuestion: false,
+    disablePrev: false, disableNext: false,
+    label: 'Configuration J', lockMessage: null
+  },
+  K: {
+    code: 'K', isOpenRange: true, shufflePerStudent: false,
+    showResult: false, resultType: 'none',
+    allowRetry: false, autoAdvance: false, timerPerQuestion: false,
+    disablePrev: false, disableNext: false,
+    label: 'Configuration K', lockMessage: null
+  }
 };
 
 const getExamConfig = (option) => EXAM_CONFIGURATIONS[option] || EXAM_CONFIGURATIONS['C'];
@@ -286,7 +243,7 @@ const getNavigationControl = (configOption) => {
     disablePrev: cfg.disablePrev,
     disableNext: cfg.disableNext,
     disableSubmit: cfg.autoAdvance,
-    isLocked: !cfg.isOpenRange,
+    isLocked: cfg.disablePrev && cfg.disableNext,
     lockMessage: cfg.lockMessage,
     autoAdvance: cfg.autoAdvance,
     timerPerQuestion: cfg.timerPerQuestion,
@@ -301,7 +258,7 @@ const QuizCompositionPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
+
   const urlToken = searchParams.get('token');
   const urlSessionId = searchParams.get('sessionId');
 
@@ -329,14 +286,9 @@ const QuizCompositionPage = () => {
   const [openRangeMode, setOpenRangeMode] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
   const [plageOuverteSeuil, setPlageOuverteSeuil] = useState(0);
-  
-  // ✅ État pour le feedback modal
-  const [feedbackModal, setFeedbackModal] = useState({
-    isOpen: false,
-    isCorrect: false,
-    correctAnswer: '',
-    explanation: ''
-  });
+
+  // ✅ CORRECTION 4: Feedback non bloquant - toast avec disparition automatique
+  const [feedbackToastId, setFeedbackToastId] = useState(null);
 
   const socketRef = useRef(null);
   const submittingRef = useRef(false);
@@ -350,7 +302,6 @@ const QuizCompositionPage = () => {
   const studentInfoRef = useRef(studentInfo);
   const terminalSessionIdRef = useRef(null);
   const stableSessionIdRef = useRef(null);
-  const pendingFeedbackRef = useRef(null);
 
   useEffect(() => {
     if (urlToken) {
@@ -376,7 +327,7 @@ const QuizCompositionPage = () => {
   const shouldShowTimer = useCallback(() => {
     const mode = config?.timerDisplayMode || 'permanent';
     const progress = (currentQuestionIndex + 1) / (questions.length || 1);
-    
+
     switch(mode) {
       case 'once': return !timerHasShown;
       case 'twice': return !timerHasShown || (quizFinished && !timerHasShown);
@@ -461,7 +412,7 @@ const QuizCompositionPage = () => {
 
   const handleSelectQuestionForOpenRange = useCallback((questionIndex) => {
     if (quizFinished || submittingRef.current) return;
-    
+
     setSelectedQuestions(prev => {
       if (prev.includes(questionIndex)) {
         return prev.filter(i => i !== questionIndex);
@@ -481,7 +432,7 @@ const QuizCompositionPage = () => {
     const progress = Math.round(((index + 1) / total) * 100);
     const answeredCount = Object.keys(answersRef.current).length;
     const percentage = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
-    
+
     socketRef.current.emit('updateStudentProgress', {
       examId: examRef.current._id,
       progress,
@@ -514,9 +465,9 @@ const QuizCompositionPage = () => {
 
     if (socketRef.current?.connected) {
       try {
-        socketRef.current.emit('examSubmitting', { 
-          studentSocketId: socketRef.current.id, 
-          examId: examRef.current._id 
+        socketRef.current.emit('examSubmitting', {
+          studentSocketId: socketRef.current.id,
+          examId: examRef.current._id
         });
       } catch (e) {}
     }
@@ -560,9 +511,9 @@ const QuizCompositionPage = () => {
 
       if (socketRef.current?.connected) {
         try {
-          socketRef.current.emit('examSubmitted', { 
-            studentSocketId: socketRef.current.id, 
-            examResultId: result._id 
+          socketRef.current.emit('examSubmitted', {
+            studentSocketId: socketRef.current.id,
+            examResultId: result._id
           });
           socketRef.current.disconnect();
         } catch (e) {}
@@ -571,7 +522,7 @@ const QuizCompositionPage = () => {
       setTimeout(() => {
         const opt = configRef.current?.examOption;
         const noResultOptions = ['C', 'F', 'K'];
-        
+
         if (noResultOptions.includes(opt)) {
           navigate(`/exam/completed/${examRef.current._id}`, {
             state: {
@@ -584,7 +535,7 @@ const QuizCompositionPage = () => {
           });
           return;
         }
-        
+
         navigate(`/results/${examRef.current._id}`, {
           state: {
             resultId: result._id,
@@ -618,7 +569,7 @@ const QuizCompositionPage = () => {
       quizFinishedRef.current = false;
       setQuizFinished(false);
       setIsSubmitting(false);
-      
+
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         toast.error("Session expirée. Veuillez vous reconnecter.");
         setTimeout(() => navigate('/login'), 2000);
@@ -636,7 +587,7 @@ const QuizCompositionPage = () => {
 
     if (!examRef.current || !total) return;
 
-    if (opt === 'A' || opt === 'D') {
+    if (['A', 'B', 'C', 'D', 'E', 'F'].includes(opt)) {
       if (idx < total - 1) {
         const nextIndex = idx + 1;
         currentQuestionIndexRef.current = nextIndex;
@@ -645,7 +596,7 @@ const QuizCompositionPage = () => {
         setRemainingTime(timeForNextQuestion);
         setTimerResetTrigger(prev => prev + 1);
         setTimeout(() => sendProgressUpdate(nextIndex), 100);
-        toast(opt === 'D' ? "Temps écoulé! Question suivante." : "Temps écoulé! Passage à la question suivante.");
+        toast("⏱️ Temps écoulé! Passage à la question suivante.");
       } else {
         handleSubmitExam(false);
       }
@@ -657,7 +608,7 @@ const QuizCompositionPage = () => {
 
   const handlePrevQuestion = useCallback(() => {
     if (navControl.disablePrev) {
-      toast.error("Navigation bloquée dans cette configuration");
+      toast("⛔ Navigation bloquée — Avancement automatique par timer", { icon: '🔒' });
       return;
     }
     const idx = currentQuestionIndexRef.current;
@@ -672,7 +623,7 @@ const QuizCompositionPage = () => {
 
   const handleNextQuestion = useCallback(() => {
     if (navControl.disableNext) {
-      toast.error("Navigation bloquée dans cette configuration");
+      toast("⛔ Navigation bloquée — Avancement automatique par timer", { icon: '🔒' });
       return;
     }
     const idx = currentQuestionIndexRef.current;
@@ -687,11 +638,11 @@ const QuizCompositionPage = () => {
 
   const handleManualSubmit = useCallback(() => {
     if (navControl.disableSubmit) {
-      toast.error("Soumission manuelle désactivée dans cette configuration");
+      toast("⛔ Soumission manuelle désactivée — auto-avance activée", { icon: 'ℹ️' });
       return;
     }
     if (quizFinishedRef.current || submittingRef.current) return;
-    
+
     const noResultOptions = ['C', 'F', 'K'];
     if (noResultOptions.includes(configRef.current?.examOption)) {
       setShowSubmitConfirm(true);
@@ -700,34 +651,47 @@ const QuizCompositionPage = () => {
     handleSubmitExam(true);
   }, [navControl.disableSubmit, handleSubmitExam]);
 
-  // ✅ Fonction pour afficher le feedback modal (support complet des 4 niveaux)
+  // ✅ CORRECTION 4: Feedback NON BLOQUANT - toast avec disparition automatique
   const showFeedback = useCallback((isCorrect, question) => {
     const showBinaryResult = configRef.current?.showBinaryResult;
     const showCorrectAnswer = configRef.current?.showCorrectAnswer;
     const showJustification = configRef.current?.showJustification;
-    
-    // Si aucun feedback n'est configuré, ne rien afficher
+
     if (!showBinaryResult && !showCorrectAnswer && !showJustification) {
       return;
     }
+
+    // ✅ Feedback sous forme de toast avec disparition automatique (2.5 secondes)
+    const icon = isCorrect ? '✅' : '❌';
+    const title = isCorrect ? 'Bonne réponse !' : 'Mauvaise réponse';
     
-    // Toast pour le feedback binaire rapide (si modal non nécessaire)
-    if (showBinaryResult && !showCorrectAnswer && !showJustification) {
-      toast[isCorrect ? 'success' : 'error'](
-        isCorrect ? '✓ Bonne réponse!' : '✗ Mauvaise réponse',
-        { duration: 2000 }
-      );
-      return;
+    let message = title;
+    if (!isCorrect && showCorrectAnswer && question?.correctAnswer) {
+      message += ` — Bonne réponse : ${question.correctAnswer}`;
     }
-    
-    // Pour les feedbacks plus détaillés, utiliser la modal
-    setFeedbackModal({
-      isOpen: true,
-      isCorrect,
-      correctAnswer: question?.correctAnswer || '',
-      explanation: question?.explanation || ''
+    if (showJustification && question?.explanation) {
+      message += ` — ${question.explanation}`;
+    }
+
+    // ✅ Annuler le toast précédent s'il existe
+    if (feedbackToastId) {
+      toast.dismiss(feedbackToastId);
+    }
+
+    const id = toast(message, {
+      icon: icon,
+      duration: 2500,
+      style: {
+        background: isCorrect ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+        border: `1px solid ${isCorrect ? '#10b981' : '#ef4444'}`,
+        color: '#f8fafc',
+        borderRadius: '12px',
+        padding: '12px 20px',
+        maxWidth: '500px'
+      }
     });
-  }, []);
+    setFeedbackToastId(id);
+  }, [feedbackToastId]);
 
   const handleOptionChange = useCallback((questionId, selectedOption, questionIndex) => {
     if (quizFinishedRef.current || submittingRef.current) return;
@@ -765,23 +729,23 @@ const QuizCompositionPage = () => {
     attemptsRef.current = newAttempts;
     setAttempts(newAttempts);
 
-    // ✅ Afficher le feedback selon la configuration (support des 4 niveaux)
+    // ✅ Afficher le feedback de manière NON BLOQUANTE
     if (configRef.current?.showBinaryResult || configRef.current?.showCorrectAnswer || configRef.current?.showJustification) {
       showFeedback(isCorrect, currentQ);
     }
 
-    const shouldAutoAdvance = configRef.current?.examOption === 'A' || configRef.current?.examOption === 'D';
+    const isClosedRange = ['A', 'B', 'C', 'D', 'E', 'F'].includes(configRef.current?.examOption);
     const hasRetryLeft = configRef.current?.allowRetry && newAttempts[questionId] === 1 && !isCorrect;
-    
+
     if (hasRetryLeft) {
-      toast.info('💡 Vous pouvez réessayer une fois.', { duration: 3000 });
+      toast('💡 Vous pouvez réessayer une fois.', { duration: 3000 });
       return;
     }
 
-    if (shouldAutoAdvance) {
+    if (isClosedRange) {
       const currentIdx = currentQuestionIndexRef.current;
       const totalQuestions = examRef.current?.questions?.length || 0;
-      
+
       if (currentIdx < totalQuestions - 1) {
         const nextIndex = currentIdx + 1;
         currentQuestionIndexRef.current = nextIndex;
@@ -808,12 +772,12 @@ const QuizCompositionPage = () => {
       navigate(`/exam/profile/${examId}`, { replace: true });
       return;
     }
-    
+
     setStudentInfo(parsed.info);
     setConfig(parsed.config);
     configRef.current = parsed.config;
     terminalSessionIdRef.current = parsed.terminalSessionId || urlSessionId || null;
-    
+
     if (parsed.config?.openRange) {
       setOpenRangeMode(true);
       setRequiredQuestions(parsed.config.requiredQuestions || 0);
@@ -839,6 +803,7 @@ const QuizCompositionPage = () => {
           throw new Error("Données d'examen invalides");
         }
 
+        // ✅ CORRECTION 3: PAS DE LIMITE DE QUESTIONS - on garde toutes les questions
         let fetchedQuestions = examData.questions.map((q, idx) => normalizeQuestion({ ...q, _id: q._id || `q_${idx}` }));
 
         const safeConfig = parsed.config || {};
@@ -846,12 +811,18 @@ const QuizCompositionPage = () => {
         if (safeConfig.openRange && safeConfig.requiredQuestions > 0 && safeConfig.requiredQuestions < fetchedQuestions.length) {
           const shuffled = shuffleArray([...fetchedQuestions]);
           fetchedQuestions = shuffled.slice(0, safeConfig.requiredQuestions);
-          toast.info(`Mode plage ouverte: ${safeConfig.requiredQuestions} questions à traiter`, { duration: 4000 });
+          toast(`Mode plage ouverte : ${safeConfig.requiredQuestions} questions à traiter`, {
+            icon: 'ℹ️',
+            duration: 4000
+          });
         }
 
         if (safeConfig.sequencing === 'randomPerStudent') {
           fetchedQuestions = shuffleArray(fetchedQuestions);
-          toast.info("L'ordre des questions est aléatoire", { duration: 2000 });
+          toast("L'ordre des questions est aléatoire pour vous", {
+            icon: '🎲',
+            duration: 2000
+          });
         }
 
         setQuestions(fetchedQuestions);
@@ -869,10 +840,8 @@ const QuizCompositionPage = () => {
 
         setQuizStarted(true);
 
-        const opt = parsed.examOption;
         const closedRangeOptions = ['A', 'B', 'C', 'D', 'E', 'F'];
-        
-        if (closedRangeOptions.includes(opt)) {
+        if (closedRangeOptions.includes(parsed.examOption)) {
           setWaitingForStart(true);
           waitingForStartRef.current = true;
         } else {
@@ -892,7 +861,7 @@ const QuizCompositionPage = () => {
     fetchExam();
 
     console.log('[QuizCompositionPage] 🔌 Connexion socket:', SOCKET_URL);
-    
+
     const newSocket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 20,
@@ -939,13 +908,13 @@ const QuizCompositionPage = () => {
       if (data.examId !== examId) return;
       waitingForStartRef.current = false;
       setWaitingForStart(false);
-      
+
       if (data.examOption) {
         const updatedConfig = { ...configRef.current, examOption: data.examOption };
         setConfig(updatedConfig);
         configRef.current = updatedConfig;
       }
-      
+
       const qIdx = data.questionIndex || 0;
       currentQuestionIndexRef.current = qIdx;
       setCurrentQuestionIndex(qIdx);
@@ -1020,8 +989,10 @@ const QuizCompositionPage = () => {
       <div style={styles.waitingContainer}>
         <div style={styles.waitingCard}>
           <div style={styles.waitingIcon}><Clock size={36} color="#3b82f6" /></div>
-          <h2>Salle d'attente</h2>
-          <p>Le superviseur démarrera l'épreuve pour tous les participants simultanément.</p>
+          <h2 style={{ color: '#f8fafc', marginBottom: '12px' }}>Salle d'attente</h2>
+          <p style={{ color: '#94a3b8', marginBottom: '20px' }}>
+            Le superviseur démarrera l'épreuve pour tous les participants simultanément.
+          </p>
           <div style={styles.waitingCount}>
             <Users size={20} />
             <span>{waitingCount} participant{waitingCount > 1 ? 's' : ''} en attente</span>
@@ -1041,11 +1012,14 @@ const QuizCompositionPage = () => {
 
   const currentQuestion = questions[currentQuestionIndex];
   const answeredCount = Object.keys(answers).length;
-  const progressPercentage = (answeredCount / questions.length) * 100;
-  const displayPoints = getDisplayPoints(currentQuestion);
   
+  // ✅ CORRECTION 2: Calcul sécurisé du pourcentage (ne dépasse jamais 100%)
+  const progressPercentage = Math.min((answeredCount / (questions.length || 1)) * 100, 100);
+  const displayPoints = getDisplayPoints(currentQuestion);
+
   const finalDisablePrev = navControl.disablePrev || quizFinished || currentQuestionIndex === 0;
   const finalDisableNext = navControl.disableNext || quizFinished || currentQuestionIndex === questions.length - 1;
+  const isSubmitDisabled = navControl.disableSubmit || isSubmitting || submittingRef.current;
 
   if (!currentQuestion) {
     return (
@@ -1062,23 +1036,13 @@ const QuizCompositionPage = () => {
       <div style={styles.bgGrid} />
       <div style={styles.bgGlow} />
       {showConfetti && <Confetti recycle={false} numberOfPieces={200} gravity={0.1} />}
-      
-      {/* Feedback Modal */}
-      <FeedbackModal
-        isOpen={feedbackModal.isOpen}
-        onClose={() => setFeedbackModal({ ...feedbackModal, isOpen: false })}
-        isCorrect={feedbackModal.isCorrect}
-        correctAnswer={feedbackModal.correctAnswer}
-        explanation={feedbackModal.explanation}
-        config={config}
-      />
-      
+
       <main style={styles.main}>
         <div style={styles.quizCard}>
           <div style={styles.header}>
             <div>
               <div style={styles.titleRow}>
-                <h1>{exam.title}</h1>
+                <h1 style={{ color: '#f8fafc', fontSize: '1.25rem', fontWeight: 700 }}>{exam.title}</h1>
                 <span style={styles.optionBadge(config?.examOption)}>
                   {getExamConfig(config?.examOption)?.label || 'CONFIGURATION'}
                 </span>
@@ -1126,9 +1090,9 @@ const QuizCompositionPage = () => {
                 {getExamConfig(config.examOption).label}
               </span>
               <span style={{ fontSize: '0.7rem', color: '#94a3b8', flex: 1 }}>
-                {getExamConfig(config.examOption).lockMessage || 'Navigation libre'}
+                {getExamConfig(config.examOption).lockMessage || 'Navigation libre entre les questions'}
               </span>
-              {!getExamConfig(config.examOption).isOpenRange && (
+              {config.examOption && ['A','B','C','D','E','F'].includes(config.examOption) && (
                 <Lock size={12} color="#64748b" style={{ flexShrink: 0 }} />
               )}
             </div>
@@ -1149,26 +1113,23 @@ const QuizCompositionPage = () => {
 
           <div style={styles.progressArea}>
             <div style={styles.progressLabels}>
-              <span>Progression</span>
-              <span>{answeredCount}/{questions.length} questions · {Math.round(progressPercentage)}%</span>
+              <span style={{ color: '#94a3b8' }}>Progression</span>
+              <span style={{ color: '#94a3b8' }}>{answeredCount}/{questions.length} questions · {Math.round(progressPercentage)}%</span>
             </div>
+            {/* ✅ CORRECTION 1: Jauge avec overflow hidden et max-width */}
             <div style={styles.progressBar}>
-              <div style={{ ...styles.progressFill, width: `${progressPercentage}%` }} />
+              <div style={{ ...styles.progressFill, width: `${Math.min(progressPercentage, 100)}%` }} />
             </div>
           </div>
 
           {(openRangeMode || ['G', 'H', 'I', 'J', 'K'].includes(config?.examOption)) && (
             <div style={styles.navGrid}>
-              <h3>Navigation des questions</h3>
+              <h3 style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '8px' }}>Navigation des questions</h3>
               <div style={styles.questionButtons}>
                 {questions.map((q, idx) => (
                   <button
                     key={q._id}
                     onClick={() => {
-                      if (navControl.disablePrev && navControl.disableNext) {
-                        toast.error("Navigation bloquée");
-                        return;
-                      }
                       currentQuestionIndexRef.current = idx;
                       setCurrentQuestionIndex(idx);
                       setTimerResetTrigger(prev => prev + 1);
@@ -1261,16 +1222,16 @@ const QuizCompositionPage = () => {
             <div style={{ display: 'flex', gap: 12 }}>
               {!navControl.isLocked ? (
                 <>
-                  <button 
-                    onClick={handlePrevQuestion} 
-                    disabled={finalDisablePrev || submittingRef.current} 
+                  <button
+                    onClick={handlePrevQuestion}
+                    disabled={finalDisablePrev || submittingRef.current}
                     style={styles.prevButton(finalDisablePrev)}
                   >
                     <ArrowLeft size={16} /> Précédent
                   </button>
-                  <button 
-                    onClick={handleNextQuestion} 
-                    disabled={finalDisableNext || submittingRef.current} 
+                  <button
+                    onClick={handleNextQuestion}
+                    disabled={finalDisableNext || submittingRef.current}
                     style={styles.nextButton(finalDisableNext)}
                   >
                     Suivant <ArrowRight size={16} />
@@ -1285,7 +1246,7 @@ const QuizCompositionPage = () => {
             </div>
 
             {!quizFinished && !navControl.disableSubmit && (
-              <button onClick={handleManualSubmit} disabled={isSubmitting || submittingRef.current} style={styles.submitButton(isSubmitting)}>
+              <button onClick={handleManualSubmit} disabled={isSubmitDisabled} style={styles.submitButton(isSubmitDisabled)}>
                 {isSubmitting ? (
                   <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Soumission...</>
                 ) : (
@@ -1298,7 +1259,7 @@ const QuizCompositionPage = () => {
           {quizFinished && (
             <div style={styles.finishedBox}>
               <CheckCircle size={48} color="#10b981" />
-              <p>Examen terminé!</p>
+              <p style={{ color: '#f8fafc', marginTop: '12px' }}>Examen terminé!</p>
               <p style={{ color: '#94a3b8' }}>Redirection vers les résultats...</p>
             </div>
           )}
@@ -1309,18 +1270,40 @@ const QuizCompositionPage = () => {
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
             <AlertTriangle size={48} color="#f59e0b" />
-            <h3>Confirmer la soumission?</h3>
-            <p>Vous avez répondu à <strong>{Object.keys(answers).length}/{questions.length}</strong> questions.</p>
-            <p>Cette action est irréversible.</p>
+            <h3 style={{ color: '#f8fafc', margin: '16px 0 8px' }}>Confirmer la soumission?</h3>
+            <p style={{ color: '#94a3b8' }}>Vous avez répondu à <strong>{Object.keys(answers).length}/{questions.length}</strong> questions.</p>
+            <p style={{ color: '#94a3b8' }}>Cette action est irréversible.</p>
             <div style={styles.modalButtons}>
-              <button onClick={() => setShowSubmitConfirm(false)}>Annuler</button>
-              <button onClick={() => { setShowSubmitConfirm(false); handleSubmitExam(true); }}>Oui, soumettre</button>
+              <button
+                onClick={() => setShowSubmitConfirm(false)}
+                style={{ padding: '8px 20px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => { setShowSubmitConfirm(false); handleSubmitExam(true); }}
+                style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Oui, soumettre
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <Toaster />
+      <Toaster 
+        position="top-center"
+        toastOptions={{
+          duration: 2500,
+          style: {
+            background: '#1e293b',
+            color: '#f8fafc',
+            border: '1px solid rgba(59,130,246,0.2)',
+            borderRadius: '12px',
+            padding: '12px 20px',
+          }
+        }}
+      />
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
@@ -1330,7 +1313,7 @@ const QuizCompositionPage = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// STYLES (inchangés)
+// STYLES CORRIGÉS
 // ═══════════════════════════════════════════════════════════════
 
 const styles = {
@@ -1349,10 +1332,26 @@ const styles = {
   studentInfo: { color: '#94a3b8', fontSize: '0.875rem', marginTop: 4 },
   lockedIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef444440', borderRadius: '8px', fontSize: '0.8rem', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
   openRangeIndicator: { textAlign: 'center', padding: '8px', marginBottom: '16px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b98140', borderRadius: '8px', fontSize: '0.8rem', color: '#10b981' },
+  
+  // ✅ CORRECTION 1: Jauge avec overflow hidden et max-width
   progressArea: { marginBottom: '16px' },
-  progressLabels: { display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '8px' },
-  progressBar: { width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' },
-  progressFill: { height: '100%', background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', borderRadius: '3px', transition: 'width 0.3s ease' },
+  progressLabels: { display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '8px' },
+  progressBar: { 
+    width: '100%', 
+    maxWidth: '100%', 
+    height: '6px', 
+    background: 'rgba(255,255,255,0.1)', 
+    borderRadius: '3px',
+    overflow: 'hidden'
+  },
+  progressFill: { 
+    height: '100%', 
+    background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', 
+    borderRadius: '3px', 
+    transition: 'width 0.3s ease',
+    maxWidth: '100%'
+  },
+  
   navGrid: { marginBottom: '24px', padding: '16px', background: 'rgba(59,130,246,0.1)', borderRadius: '12px' },
   questionButtons: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: '8px', marginTop: 8 },
   questionButton: (isCurrent, hasAnswer) => ({
@@ -1381,7 +1380,7 @@ const styles = {
   prevButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', color: disabled ? '#4b5563' : '#f8fafc', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
   nextButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: disabled ? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '0.9375rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }),
   lockedNavMessage: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#ef4444', fontSize: '0.875rem' },
-  submitButton: (submitting) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: submitting ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }),
+  submitButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: disabled ? 'rgba(16,185,129,0.3)' : 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', boxShadow: disabled ? 'none' : '0 4px 12px rgba(16,185,129,0.2)' }),
   finishedBox: { marginTop: '32px', padding: '24px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: '12px', textAlign: 'center' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
   modal: { background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', textAlign: 'center' },

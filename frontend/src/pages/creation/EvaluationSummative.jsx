@@ -196,7 +196,7 @@ const ASSIGNATION_MODULES = [
     id: 'assign_exams',
     path: '/admin/assign-exams',
     icon: UserCheck,
-    title: 'Assigner une Épreuve',
+    title: 'Assigner une Épreuve à une Session d\'Evaluation',
     subtitle: 'Opérateurs',
     desc: 'Assigner des épreuves aux opérateurs pour les sessions d\'examen',
     color: COLORS.warning,

@@ -1,15 +1,14 @@
-// src/pages/ExamsPage.jsx - Version COMPLÈTE CORRIGÉE
-// ✅ Filtres fonctionnels depuis le référentiel
-// ✅ Pagination optimisée
-// ✅ AbortController pour éviter les appels multiples
-// ✅ Support complet des configurations A à K
+// src/pages/ExamsPage.jsx - Version CORRIGÉE
+// ✅ Le bouton "Composer" utilise la configuration de l'épreuve UNIQUEMENT comme suggestion
+// ✅ La configuration réelle est choisie par le surveillant
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Edit, Trash2, Play, Eye, Plus, Home, RefreshCw, Search, 
   Clock, Layers, BookOpen, ArrowLeft, Award, Tag,
-  Shield, UserCheck, ChevronLeft, ChevronRight, Filter, FilterX
+  Shield, UserCheck, ChevronLeft, ChevronRight, Filter, FilterX,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api, { getExamsPaginated } from '../../services/api';
@@ -42,6 +41,24 @@ const getExamOptionColor = (option) => {
     G: '#10b981', H: '#10b981', I: '#10b981', J: '#10b981', K: '#10b981'
   };
   return colors[option] || '#3b82f6';
+};
+
+// ✅ Texte explicatif pour chaque configuration
+const getOptionDescription = (option) => {
+  const descriptions = {
+    A: 'Plage fermée · Auto-avance · Résultat binaire',
+    B: 'Plage fermée · Auto-avance · Résultat binaire+',
+    C: 'Plage fermée · Auto-avance · Sans résultat',
+    D: 'Plage fermée · Auto-avance · QCM aléatoire · Binaire',
+    E: 'Plage fermée · Auto-avance · QCM aléatoire · Binaire+',
+    F: 'Plage fermée · Auto-avance · QCM aléatoire · Sans résultat',
+    G: 'Plage ouverte · Navigation libre · Reprise OK',
+    H: 'Plage ouverte · Navigation libre · No Reply',
+    I: 'Plage ouverte · Navigation libre · Reprise OK · Binaire+',
+    J: 'Plage ouverte · Navigation libre · No Reply · Binaire+',
+    K: 'Plage ouverte · Navigation libre · Sans résultat'
+  };
+  return descriptions[option] || 'Configuration ' + option;
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -223,8 +240,11 @@ const ExamsPage = () => {
           isAssignedToMe: exam.assignedTo === user?._id || exam.assignedTo?._id === user?._id,
           statusLabel: exam.status === 'published' ? 'Publiée' : exam.status === 'draft' ? 'Brouillon' : 'Archivée',
           statusColor: exam.status === 'published' ? '#10b981' : exam.status === 'draft' ? '#f59e0b' : '#64748b',
+          // ✅ La configuration de l'épreuve est stockée, mais c'est UNIQUEMENT une suggestion
           examOption: exam.examOption,
-          examOptionColor: getExamOptionColor(exam.examOption)
+          examOptionColor: getExamOptionColor(exam.examOption),
+          // ✅ Message explicatif pour l'utilisateur
+          optionDescription: getOptionDescription(exam.examOption)
         }));
 
         setExams(normalizedExams);
@@ -416,6 +436,9 @@ const ExamsPage = () => {
               <AnimatePresence>
                 {exams.map((exam, i) => {
                   const color = domainColor(exam.domain);
+                  const isClosedRange = ['A', 'B', 'C', 'D', 'E', 'F'].includes(exam.examOption);
+                  const isOpenRange = ['G', 'H', 'I', 'J', 'K'].includes(exam.examOption);
+                  
                   return (
                     <motion.div
                       key={exam._id}
@@ -470,6 +493,28 @@ const ExamsPage = () => {
                           )}
                         </div>
 
+                        {/* ✅ Affichage de la configuration avec description */}
+                        {exam.examOption && (
+                          <div style={{
+                            marginBottom: 8,
+                            padding: '4px 10px',
+                            background: `${exam.examOptionColor}12`,
+                            border: `1px solid ${exam.examOptionColor}30`,
+                            borderRadius: 6,
+                            fontSize: '0.65rem',
+                            color: exam.examOptionColor
+                          }}>
+                            <Info size={10} style={{ display: 'inline', marginRight: 4 }} />
+                            Config {exam.examOption} : {exam.optionDescription}
+                            {isClosedRange && (
+                              <span style={{ marginLeft: 6, color: '#f59e0b' }}>🔒 Auto-avance</span>
+                            )}
+                            {isOpenRange && (
+                              <span style={{ marginLeft: 6, color: '#10b981' }}>✅ Navigation libre</span>
+                            )}
+                          </div>
+                        )}
+
                         <div style={styles.metricsContainer}>
                           <span style={styles.metric}><Clock size={13} /> {exam.duration || 60} min</span>
                           <span style={styles.metric}><BookOpen size={13} /> {exam.totalQuestions || 0} questions</span>
@@ -478,17 +523,24 @@ const ExamsPage = () => {
 
                         <div style={styles.actionsContainer}>
                           <div style={styles.actionButtons}>
-                            <ActionBtn color="#10b981" title="Composer" onClick={() => {
-                              localStorage.setItem('studentInfoForExam', JSON.stringify({ 
-                                examId: exam._id, 
-                                info: { firstName: user?.name?.split(' ')[0] || 'Test', 
-                                        lastName: user?.name?.split(' ')[1] || 'Enseignant', 
-                                        matricule: user?.matricule || 'PROF-001', 
-                                        level: exam.level || '' }, 
-                                examOption: exam.examOption || 'C', 
-                                config: exam.config, 
-                                terminalSessionId: null 
-                              }));
+                            {/* ✅ Le bouton "Composer" utilise la config de l'épreuve comme SUGGESTION
+                                La configuration réelle sera choisie par le surveillant */}
+                            <ActionBtn color="#10b981" title="Composer (config suggérée)" onClick={() => {
+                              const examData = {
+                                examId: exam._id,
+                                info: { 
+                                  firstName: user?.name?.split(' ')[0] || 'Test', 
+                                  lastName: user?.name?.split(' ')[1] || 'Enseignant', 
+                                  matricule: user?.matricule || 'PROF-001', 
+                                  level: exam.level || '' 
+                                },
+                                // ✅ Configuration SUGGÉRÉE (pas figée)
+                                examOption: exam.examOption || 'C',
+                                // ✅ La configuration complète est stockée mais sera écrasée par le surveillant
+                                config: exam.config || null,
+                                terminalSessionId: null
+                              };
+                              localStorage.setItem('studentInfoForExam', JSON.stringify(examData));
                               navigate(`/exam/compose/${exam._id}`);
                             }}>
                               <Play size={15} />

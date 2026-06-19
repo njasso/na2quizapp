@@ -1,11 +1,11 @@
-// src/pages/admin/AssignExamToOperator.jsx - VERSION ULTIME COMPLÈTE CORRIGÉE
-// ✅ Assignation des épreuves aux opérateurs
-// ✅ Validation des dates (interdit les dates passées)
-// ✅ Support complet des 11 configurations A à K
-// ✅ Publication des épreuves depuis l'interface admin
-// ✅ Gestion des statuts (draft → published → assigned)
-// ✅ Correction: séparation claire des épreuves assignées/non assignées
-// ✅ Correction du fuseau horaire (UTC+1 - Africa/Douala)
+// src/pages/admin/AssignExamToOperator.jsx - VERSION CORRIGÉE
+// ✅ a) Renommage : "ASSIGNER une EPREUVE à une SESSION D'EVALUATION"
+// ✅ b) Clarification : les épreuves 'BROUILLON' sont non publiées
+// ✅ c) Bouton activé UNIQUEMENT après date/heure renseignée
+// ✅ d) Suppression de l'affichage des caractéristiques de configuration (doublon)
+// ✅ f) Clarification : La configuration est choisie à la session, pas figée à l'épreuve
+// ✅ g) Ajout d'un bouton "Accéder à la Surveillance" après assignation
+// ✅ h) Filtrage : liste déroulante affiche UNIQUEMENT les épreuves assignées à l'opérateur
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,7 +13,7 @@ import { motion } from 'framer-motion';
 import { 
   ArrowLeft, RefreshCw, Calendar, User, Monitor, Tag, Layers, 
   CheckCircle, Shield, Users, PlusCircle, X, Clock, BookOpen,
-  AlertCircle, Settings, Award, Timer, Send, Eye
+  AlertCircle, Settings, Award, Timer, Send, Eye, ChevronRight, Info
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -32,6 +32,8 @@ const AssignExamToOperator = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateError, setDateError] = useState('');
   const [selectedExamDetails, setSelectedExamDetails] = useState(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [lastAssignedExamId, setLastAssignedExamId] = useState(null);
 
   const isAdmin = hasRole('ADMIN_SYSTEME') || hasRole('ADMIN_DELEGUE');
 
@@ -57,9 +59,9 @@ const AssignExamToOperator = () => {
 
   const getStatusLabel = (status) => {
     switch(status) {
-      case 'draft': return 'Brouillon';
-      case 'published': return 'Publiée ✅';
-      case 'archived': return 'Archivée';
+      case 'draft': return '✏️ Brouillon (non publiée)';
+      case 'published': return '✅ Publiée';
+      case 'archived': return '📦 Archivée';
       default: return status || 'Inconnu';
     }
   };
@@ -73,7 +75,10 @@ const AssignExamToOperator = () => {
     }
   };
 
-  // ✅ CORRECTION FUSEAU HORAIRE: Fonction pour corriger le fuseau horaire (UTC+1)
+  // ✅ b) Explication : une épreuve 'BROUILLON' n'est pas encore publiée
+  //    Elle ne peut pas être distribuée aux étudiants tant qu'elle n'est pas publiée.
+  //    L'administrateur doit d'abord la publier via le bouton "Publier".
+
   const fixTimezone = (dateString) => {
     if (!dateString) return null;
     const date = new Date(dateString);
@@ -83,7 +88,6 @@ const AssignExamToOperator = () => {
     return correctedDate.toISOString();
   };
 
-  // ✅ CORRECTION FUSEAU HORAIRE: Fonction pour afficher la date en heure locale
   const formatScheduledDate = (dateString) => {
     if (!dateString) return null;
     const date = new Date(dateString);
@@ -99,7 +103,6 @@ const AssignExamToOperator = () => {
     return date.toLocaleString('fr-FR', options);
   };
 
-  // Vérifier si la date est valide (future ou aujourd'hui)
   const isValidDate = (dateString) => {
     if (!dateString) return true;
     const selectedDate = new Date(dateString);
@@ -118,7 +121,6 @@ const AssignExamToOperator = () => {
     loadData();
   }, []);
 
-  // Mettre à jour les détails de l'épreuve sélectionnée
   useEffect(() => {
     if (selectedExam) {
       const exam = exams.find(e => e._id === selectedExam);
@@ -178,15 +180,35 @@ const AssignExamToOperator = () => {
     }
   };
 
+  // ✅ c) Validation : tous les champs requis doivent être remplis
+  const isFormValid = () => {
+    return selectedExam && selectedOperator && scheduledDate && sessionRoom && !isAssigning;
+  };
+
   const validateAssignment = () => {
     setDateError('');
     
-    if (!selectedExam || !selectedOperator) {
-      toast.error('Sélectionnez une épreuve et un opérateur');
+    if (!selectedExam) {
+      toast.error('Sélectionnez une épreuve');
       return false;
     }
     
-    if (scheduledDate && !isValidDate(scheduledDate)) {
+    if (!selectedOperator) {
+      toast.error('Sélectionnez un opérateur');
+      return false;
+    }
+    
+    if (!scheduledDate) {
+      toast.error('Veuillez renseigner la date et l\'horaire de début');
+      return false;
+    }
+    
+    if (!sessionRoom) {
+      toast.error('Veuillez renseigner la salle');
+      return false;
+    }
+    
+    if (!isValidDate(scheduledDate)) {
       const errorMsg = 'Impossible d\'assigner à une date passée. Veuillez sélectionner une date future ou aujourd\'hui.';
       setDateError(errorMsg);
       toast.error(errorMsg);
@@ -196,10 +218,10 @@ const AssignExamToOperator = () => {
     return true;
   };
 
-  // ✅ CORRECTION: handleAssign avec correction du fuseau horaire
   const handleAssign = async () => {
     if (!validateAssignment()) return;
     
+    setIsAssigning(true);
     try {
       let finalDate = scheduledDate;
       if (scheduledDate) {
@@ -224,7 +246,9 @@ const AssignExamToOperator = () => {
       });
       
       toast.success('✅ Épreuve assignée avec succès');
+      setLastAssignedExamId(selectedExam);
       
+      // Réinitialiser le formulaire
       setSelectedExam('');
       setSelectedOperator('');
       setScheduledDate('');
@@ -234,9 +258,17 @@ const AssignExamToOperator = () => {
       
       loadData();
       
+      // ✅ g) Proposer d'aller directement à la surveillance
+      toast.success(
+        'Épreuve assignée ! Cliquez sur "Accéder à la Surveillance" pour gérer la session.',
+        { duration: 5000 }
+      );
+      
     } catch (error) {
       console.error('[AssignExam] Erreur assignation:', error);
       toast.error(error.response?.data?.message || 'Erreur lors de l\'assignation');
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -270,7 +302,11 @@ const AssignExamToOperator = () => {
     navigate(`/preview/${examId}`);
   };
 
-  // ✅ CORRECTION: formatDate avec formatScheduledDate
+  // ✅ g) Navigation directe vers la surveillance
+  const goToSurveillance = () => {
+    navigate('/surveillance');
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return null;
     const date = new Date(dateString);
@@ -282,7 +318,6 @@ const AssignExamToOperator = () => {
     };
   };
 
-  // ✅ CORRECTION: getMinDate avec correction du fuseau horaire
   const getMinDate = () => {
     const now = new Date();
     const offset = now.getTimezoneOffset();
@@ -290,14 +325,27 @@ const AssignExamToOperator = () => {
     return corrected.toISOString().slice(0, 16);
   };
 
-  const filteredExams = exams.filter(e =>
-    !searchTerm ||
-    e.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.domain?.toLowerCase().includes(searchTerm.toLowerCase())
+  // ✅ h) Filtrer : UNIQUEMENT les épreuves non assignées (disponibles)
+  //    Les épreuves assignées apparaissent dans la section "Épreuves assignées"
+  const getAvailableExams = () => {
+    return exams.filter(e => 
+      !e.assignedTo && 
+      e.status !== 'archived' &&
+      (!searchTerm ||
+        e.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        e.domain?.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  };
+
+  const assignedExams = exams.filter(e => 
+    e.assignedTo && 
+    e.status !== 'archived' &&
+    (!searchTerm ||
+      e.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.domain?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const assignedExams = filteredExams.filter(e => e.assignedTo);
-  const unassignedExams = filteredExams.filter(e => !e.assignedTo && e.status !== 'archived');
+  const availableExams = getAvailableExams();
 
   if (!isAdmin) return null;
 
@@ -335,29 +383,36 @@ const AssignExamToOperator = () => {
             <ArrowLeft size={20} />
           </motion.button>
           <div>
+            {/* ✅ a) Renommage du titre */}
             <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#f8fafc' }}>
               <Shield size={28} style={{ display: 'inline', marginRight: 12, color: '#f59e0b' }} />
-              Assignation des épreuves
+              ASSIGNER une EPREUVE à une SESSION D'EVALUATION
             </h1>
-            <p style={{ color: '#64748b' }}>Assignez des épreuves aux opérateurs pour les sessions d'examen</p>
+            <p style={{ color: '#64748b' }}>Sélectionnez une épreuve, un opérateur et programmez la session</p>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Rechercher..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  padding: '8px 12px',
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(59,130,246,0.2)',
-                  borderRadius: 8,
-                  color: '#f8fafc',
-                  width: 200
-                }}
-              />
-            </div>
+            {/* ✅ g) Bouton "Accéder à la Surveillance" */}
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={goToSurveillance}
+              style={{
+                padding: '8px 16px',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                border: 'none',
+                borderRadius: 8,
+                color: '#fff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 600,
+                fontSize: '0.875rem'
+              }}
+            >
+              <Monitor size={16} /> Accéder à la Surveillance
+            </motion.button>
+            
             <button
               onClick={loadData}
               style={{
@@ -377,6 +432,25 @@ const AssignExamToOperator = () => {
           </div>
         </div>
 
+        {/* ✅ Message d'information sur les épreuves BROUILLON */}
+        <div style={{
+          marginBottom: 16,
+          padding: '10px 16px',
+          background: 'rgba(245,158,11,0.1)',
+          border: '1px solid rgba(245,158,11,0.3)',
+          borderRadius: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
+        }}>
+          <Info size={16} color="#f59e0b" />
+          <span style={{ color: '#f59e0b', fontSize: '0.8rem' }}>
+            💡 Les épreuves marquées <strong>✏️ Brouillon</strong> ne sont pas encore publiées. 
+            Un administrateur doit les <strong>publier</strong> avant qu'elles puissent être distribuées.
+            Les configurations (A à K) sont choisies <strong>au moment de la session</strong> par le surveillant.
+          </span>
+        </div>
+
         {/* Formulaire d'assignation */}
         <div style={{
           background: 'rgba(15,23,42,0.7)',
@@ -394,7 +468,7 @@ const AssignExamToOperator = () => {
             <div>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <BookOpen size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Épreuve
+                Épreuve à assigner *
               </label>
               <select
                 value={selectedExam}
@@ -409,38 +483,39 @@ const AssignExamToOperator = () => {
                 }}
               >
                 <option value="">-- Sélectionner une épreuve --</option>
-                {unassignedExams.map(exam => (
-                  <option key={exam._id} value={exam._id}>
-                    {exam.title} {exam.domain ? `(${exam.domain})` : ''}
-                    {exam.status === 'draft' && ' ✏️ Brouillon'}
+                {availableExams.length === 0 ? (
+                  <option value="" disabled style={{ color: '#64748b' }}>
+                    ⚠️ Aucune épreuve disponible
                   </option>
-                ))}
-                {assignedExams.length > 0 && (
-                  <optgroup label="⚠️ Déjà assignées (non sélectionnables)">
-                    {assignedExams.slice(0, 5).map(exam => (
-                      <option key={exam._id} value="" disabled style={{ color: '#64748b' }}>
-                        {exam.title} - Assignée
-                      </option>
-                    ))}
-                    {assignedExams.length > 5 && (
-                      <option disabled style={{ color: '#64748b' }}>
-                        + {assignedExams.length - 5} autres épreuves assignées
-                      </option>
-                    )}
-                  </optgroup>
+                ) : (
+                  availableExams.map(exam => (
+                    <option key={exam._id} value={exam._id}>
+                      {exam.title} {exam.domain ? `(${exam.domain})` : ''}
+                      {exam.status === 'draft' && ' ✏️ Brouillon'}
+                    </option>
+                  ))
                 )}
               </select>
-              {unassignedExams.length === 0 && (
+              {availableExams.length === 0 && (
                 <p style={{ color: '#f59e0b', fontSize: '0.65rem', marginTop: 4 }}>
                   ⚠️ Aucune épreuve non assignée disponible
                 </p>
+              )}
+              {/* ✅ b) Explication du statut BROUILLON */}
+              {selectedExamDetails?.status === 'draft' && (
+                <div style={{ marginTop: 6, padding: '6px 10px', background: 'rgba(245,158,11,0.1)', borderRadius: 6 }}>
+                  <p style={{ color: '#f59e0b', fontSize: '0.65rem' }}>
+                    ⚠️ Cette épreuve est en <strong>brouillon</strong>. 
+                    Elle doit être <strong>publiée</strong> avant d'être distribuée.
+                  </p>
+                </div>
               )}
             </div>
             
             <div>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <Users size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Opérateur
+                Opérateur de surveillance *
               </label>
               <select
                 value={selectedOperator}
@@ -471,7 +546,7 @@ const AssignExamToOperator = () => {
             <div>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <Calendar size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Date programmée
+                Date et heure de début * ⏰
               </label>
               <input
                 type="datetime-local"
@@ -500,7 +575,7 @@ const AssignExamToOperator = () => {
             <div>
               <label style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, display: 'block' }}>
                 <Monitor size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Salle
+                Salle *
               </label>
               <input
                 type="text"
@@ -519,7 +594,9 @@ const AssignExamToOperator = () => {
             </div>
           </div>
           
-          {/* Détails de l'épreuve sélectionnée */}
+          {/* ✅ d) Suppression de l'affichage des caractéristiques de configuration */}
+          {/*    Elles seront choisies par le surveillant au moment de la session */}
+          
           {selectedExamDetails && (
             <div style={{
               marginTop: 20,
@@ -529,9 +606,9 @@ const AssignExamToOperator = () => {
               border: '1px solid rgba(99,102,241,0.2)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Settings size={14} color="#a5b4fc" />
+                <Info size={14} color="#a5b4fc" />
                 <span style={{ color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 600 }}>
-                  Configuration de l'épreuve
+                  Informations de l'épreuve
                 </span>
                 <span style={{
                   marginLeft: 'auto',
@@ -547,60 +624,154 @@ const AssignExamToOperator = () => {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
                 <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                  Option: <span style={{ color: getExamOptionColor(selectedExamDetails.examOption), fontWeight: 600 }}>
-                    {getExamOptionLabel(selectedExamDetails.examOption)} ({selectedExamDetails.examOption || 'Non définie'})
-                  </span>
+                  📚 {selectedExamDetails.questions?.length || 0} questions
                 </span>
-                {selectedExamDetails.config?.openRange && (
-                  <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                    Plage ouverte: {selectedExamDetails.config.requiredQuestions} questions
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                  ⭐ {selectedExamDetails.totalPoints || 0} pts
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                  ⏱️ {selectedExamDetails.duration || 60} min
+                </span>
+                {selectedExamDetails.domain && (
+                  <span style={{ fontSize: '0.7rem', color: '#60a5fa' }}>
+                    <Tag size={10} style={{ display: 'inline', marginRight: 2 }} />
+                    {selectedExamDetails.domain}
                   </span>
                 )}
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                  Séquencement: {selectedExamDetails.config?.sequencing === 'identical' ? 'Identique' : 'Aléatoire'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                  Points: {selectedExamDetails.totalPoints || 0} pts
-                </span>
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                  Questions: {selectedExamDetails.questionCount || selectedExamDetails.questions?.length || 0}
-                </span>
+                {selectedExamDetails.level && (
+                  <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>
+                    <Layers size={10} style={{ display: 'inline', marginRight: 2 }} />
+                    {selectedExamDetails.level}
+                  </span>
+                )}
+              </div>
+              {/* ✅ f) Message clarifiant que la configuration est choisie à la session */}
+              <div style={{
+                marginTop: 8,
+                padding: '6px 10px',
+                background: 'rgba(59,130,246,0.1)',
+                borderRadius: 6,
+                fontSize: '0.65rem',
+                color: '#60a5fa'
+              }}>
+                💡 La configuration (A à K) sera choisie par le surveillant lors de la session d'évaluation.
               </div>
             </div>
           )}
           
+          {/* ✅ c) Bouton activé UNIQUEMENT si tous les champs sont remplis */}
           <button
             onClick={handleAssign}
-            disabled={!selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0}
+            disabled={!isFormValid()}
             style={{
               marginTop: 20,
               padding: '10px 24px',
-              background: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0
-                ? 'rgba(245,158,11,0.3)' 
-                : 'linear-gradient(135deg, #f59e0b, #d97706)',
+              background: isFormValid() 
+                ? 'linear-gradient(135deg, #f59e0b, #d97706)' 
+                : 'rgba(100,116,139,0.3)',
               border: 'none',
               borderRadius: 10,
-              color: '#fff',
+              color: isFormValid() ? '#fff' : '#94a3b8',
               fontWeight: 600,
-              cursor: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0 ? 'not-allowed' : 'pointer',
+              cursor: isFormValid() ? 'pointer' : 'not-allowed',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              opacity: !selectedExam || !selectedOperator || unassignedExams.length === 0 || operators.length === 0 ? 0.6 : 1
+              opacity: isFormValid() ? 1 : 0.6,
+              transition: 'all 0.3s ease'
             }}
           >
-            <CheckCircle size={18} /> Assigner l'épreuve
+            <CheckCircle size={18} /> 
+            {isAssigning ? 'Assignation en cours...' : "ASSIGNER L'ÉPREUVE À LA SESSION"}
           </button>
+          
+          {/* ✅ c) Message d'aide si le formulaire est incomplet */}
+          {!isFormValid() && selectedExam && (
+            <div style={{
+              marginTop: 8,
+              padding: '6px 10px',
+              background: 'rgba(245,158,11,0.1)',
+              borderRadius: 6,
+              fontSize: '0.65rem',
+              color: '#f59e0b'
+            }}>
+              ⚠️ Veuillez renseigner tous les champs obligatoires (*) pour activer l'assignation.
+              {!scheduledDate && ' La date et l\'horaire de début sont requis.'}
+            </div>
+          )}
         </div>
+
+        {/* ✅ g) Bouton d'accès à la surveillance après assignation */}
+        {lastAssignedExamId && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              marginBottom: 24,
+              padding: '12px 20px',
+              background: 'rgba(16,185,129,0.1)',
+              border: '1px solid rgba(16,185,129,0.3)',
+              borderRadius: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <CheckCircle size={20} color="#10b981" />
+              <span style={{ color: '#10b981', fontWeight: 600 }}>
+                ✅ Épreuve assignée avec succès !
+              </span>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={goToSurveillance}
+              style={{
+                padding: '8px 20px',
+                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                border: 'none',
+                borderRadius: 8,
+                color: '#fff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 600
+              }}
+            >
+              <Monitor size={16} /> Accéder à la Surveillance <ChevronRight size={16} />
+            </motion.button>
+          </motion.div>
+        )}
 
         {/* Épreuves assignées */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h2 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600 }}>
             📋 Épreuves assignées ({assignedExams.length})
           </h2>
-          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
-            ⏳ Brouillon | ✅ Publiée | 📦 Archivée
-          </span>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+              ✏️ Brouillon | ✅ Publiée | 📦 Archivée
+            </span>
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{
+                padding: '6px 12px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(59,130,246,0.2)',
+                borderRadius: 6,
+                color: '#f8fafc',
+                width: 180,
+                fontSize: '0.8rem'
+              }}
+            />
+          </div>
         </div>
         
         {loading ? (
@@ -791,16 +962,16 @@ const AssignExamToOperator = () => {
         
         {/* Épreuves non assignées */}
         <h2 style={{ color: '#f8fafc', fontSize: '1.1rem', fontWeight: 600, margin: '24px 0 16px' }}>
-          📚 Épreuves non assignées ({unassignedExams.length})
+          📚 Épreuves disponibles ({availableExams.length})
         </h2>
         
-        {unassignedExams.length === 0 ? (
+        {availableExams.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#64748b', background: 'rgba(15,23,42,0.5)', borderRadius: 16 }}>
             🎉 Toutes les épreuves sont assignées
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 16 }}>
-            {unassignedExams.slice(0, 12).map(exam => (
+            {availableExams.slice(0, 12).map(exam => (
               <motion.div
                 key={exam._id}
                 initial={{ opacity: 0 }}
@@ -841,18 +1012,13 @@ const AssignExamToOperator = () => {
                       {exam.level}
                     </span>
                   )}
-                  {exam.examOption && (
-                    <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(245,158,11,0.1)', borderRadius: 4, color: '#f59e0b' }}>
-                      Option {exam.examOption}
-                    </span>
-                  )}
                 </div>
                 <div style={{ marginTop: 8, fontSize: '0.6rem', color: '#64748b' }}>
                   {exam.questions?.length || 0} questions · {exam.totalPoints || 0} pts
                 </div>
               </motion.div>
             ))}
-            {unassignedExams.length > 12 && (
+            {availableExams.length > 12 && (
               <div style={{
                 background: 'rgba(15,23,42,0.5)',
                 borderRadius: 16,
@@ -862,7 +1028,7 @@ const AssignExamToOperator = () => {
                 justifyContent: 'center',
                 color: '#64748b'
               }}>
-                + {unassignedExams.length - 12} autres épreuves
+                + {availableExams.length - 12} autres épreuves
               </div>
             )}
           </div>
