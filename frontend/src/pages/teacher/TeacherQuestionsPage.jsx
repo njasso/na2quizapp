@@ -1,4 +1,9 @@
 // src/pages/teacher/TeacherQuestionsPage.jsx - Version AVEC FILTRES DOMAINE, MATIÈRE & CHAPITRE
+// ✅ CORRECTIONS :
+//   - Normalisation des chapitres pour les filtres
+//   - Dédoublonnage des chapitres dans la liste déroulante
+//   - Filtrage par chapitre insensible aux variations (ponctuation, casse)
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,6 +21,15 @@ import toast from 'react-hot-toast';
 import { getAllDomaines } from '../../data/domainConfig';
 
 const BACKEND_URL = ENV_CONFIG.BACKEND_URL;
+
+// ── Normalisation des chapitres ──────────────────────────────
+const normalizeChapterStr = (s) =>
+  (s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.;:,!?]+$/, '')
+    .trim()
+    .toUpperCase();
 
 const TeacherQuestionsPage = () => {
   const navigate = useNavigate();
@@ -58,7 +72,7 @@ const TeacherQuestionsPage = () => {
     return uniqueMatieres.map(m => ({ id: m, nom: m }));
   }, [questions, filterDomaine]);
   
-  // ✅ Calculer les chapitres disponibles en fonction du domaine et de la matière sélectionnés
+  // ✅ Calculer les chapitres disponibles avec normalisation et dédoublonnage
   const availableChapitres = useMemo(() => {
     let filteredQuestionsForChapitres = [...questions];
     
@@ -74,8 +88,25 @@ const TeacherQuestionsPage = () => {
       );
     }
     
-    const uniqueChapitres = [...new Set(filteredQuestionsForChapitres.map(q => q.libChapitre).filter(Boolean))];
-    return uniqueChapitres.sort();
+    // ✅ Normaliser et dédoublonner les chapitres
+    const chapitreMap = new Map();
+    filteredQuestionsForChapitres.forEach(q => {
+      if (!q.libChapitre) return;
+      const normalized = normalizeChapterStr(q.libChapitre);
+      if (!chapitreMap.has(normalized)) {
+        chapitreMap.set(normalized, q.libChapitre);
+      } else {
+        // Garder la version la plus propre (la plus courte)
+        const existing = chapitreMap.get(normalized);
+        if (q.libChapitre.length < existing.length) {
+          chapitreMap.set(normalized, q.libChapitre);
+        }
+      }
+    });
+    
+    return Array.from(chapitreMap.values()).sort((a, b) => 
+      normalizeChapterStr(a).localeCompare(normalizeChapterStr(b))
+    );
   }, [questions, filterDomaine, filterMatiere]);
   
   // Réinitialiser les filtres dépendants quand le domaine ou la matière change
@@ -222,9 +253,13 @@ const TeacherQuestionsPage = () => {
       filtered = filtered.filter(q => q.matiere === filterMatiere || q.matiereId === filterMatiere);
     }
     
-    // ✅ FILTRE PAR CHAPITRE
+    // ✅ FILTRE PAR CHAPITRE AVEC NORMALISATION
     if (filterChapitre) {
-      filtered = filtered.filter(q => q.libChapitre === filterChapitre);
+      const normalizedFilter = normalizeChapterStr(filterChapitre);
+      filtered = filtered.filter(q => {
+        const normalizedQ = normalizeChapterStr(q.libChapitre || '');
+        return normalizedQ === normalizedFilter;
+      });
     }
     
     setFilteredQuestions(filtered);

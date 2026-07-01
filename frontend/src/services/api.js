@@ -325,6 +325,23 @@ export const getPendingQuestions = () => api.get('/api/questions/pending');
 export const validateQuestion = (id, approved, comment) => 
   api.put(`/api/questions/${id}/validate`, { approved, comment });
 
+// ==================== NETTOYAGE BANQUE QCM (ACTIONS COLLECTIVES) ====================
+// ✅ AJOUT — 3 nouvelles fonctions pour QCMCleanerPage
+
+/** Détecte les chapitres en doublon (ex : "LA FILIATION" vs "LA FILIATION.") */
+export const getChapterDuplicates = () =>
+  api.get('/api/questions/chapter-duplicates');
+
+/** Renomme un chapitre dans TOUTES les questions correspondantes
+ *  @param {{ oldChapter: string, newChapter: string, matiereId?: string }} data */
+export const bulkRenameChapter = (data) =>
+  api.post('/api/questions/bulk-rename-chapter', data);
+
+/** Normalise automatiquement tous les chapitres
+ *  (trim + suppression ponctuation finale + MAJUSCULES) */
+export const bulkNormalizeChapters = () =>
+  api.post('/api/questions/bulk-normalize-chapters', {});
+
 // ==================== EXAMENS ====================
 export const getExams = (params) => api.get('/api/exams', { params });
 export const getExamById = (id) => api.get(`/api/exams/${id}`);
@@ -332,7 +349,7 @@ export const createExam = (data) => api.post('/api/exams', data);
 export const updateExam = (id, data) => api.put(`/api/exams/${id}`, data);
 export const deleteExam = (id) => api.delete(`/api/exams/${id}`);
 
-// ✅ NOUVEAU: Compter les épreuves par matière (pour auto-génération du titre)
+// ✅ Compter les épreuves par matière (pour auto-génération du titre)
 export const countExamsBySubject = async (matiereId) => {
   try {
     const response = await api.get(`/api/exams/count-by-subject/${matiereId}`);
@@ -343,10 +360,7 @@ export const countExamsBySubject = async (matiereId) => {
   }
 };
 
-// ✅ NOUVEAU: Récupérer les épreuves avec pagination
-// src/services/api.js - Modifier getExamsPaginated
-
-// ✅ Remplacer la fonction getExamsPaginated par cette version optimisée
+// ✅ Récupérer les épreuves avec pagination
 export const getExamsPaginated = async (page = 1, limit = 20, filters = {}) => {
   try {
     updateApiBaseUrl();
@@ -355,7 +369,6 @@ export const getExamsPaginated = async (page = 1, limit = 20, filters = {}) => {
     params.append('page', String(page));
     params.append('limit', String(limit));
     
-    // Ajouter les filtres
     if (filters.search) params.append('search', filters.search);
     if (filters.domain) params.append('domain', filters.domain);
     if (filters.level) params.append('level', filters.level);
@@ -367,7 +380,6 @@ export const getExamsPaginated = async (page = 1, limit = 20, filters = {}) => {
     
     const response = await api.get(url);
     
-    // ✅ Normalisation de la réponse
     if (response.data?.success && response.data?.data) {
       return {
         success: true,

@@ -1,10 +1,12 @@
-// src/pages/creation/CreateQuestion.jsx — VERSION COMPLÈTE CORRIGÉE
+// src/pages/creation/CreateQuestion.jsx — VERSION COMPLÈTE AVEC NORMALISATION DES CHAPITRES
 // CORRECTIONS :
 //  1. Type de question : choix UNIQUE uniquement (pas de multiple)
 //  2. Suppression des champs Points et Temps (réservés pour les épreuves)
 //  3. Save via POST /api/questions (route unitaire) → .save() déclenche les hooks Mongoose
 //  4. libChapitre déplacé AVANT typeQuestion et rendu OBLIGATOIRE
 //  5. Après save : modal avec 4 variantes de réinitialisation intelligente
+//  6. ✅ NORMALISATION DES CHAPITRES : prévention des doublons (ponctuation, casse, espaces)
+//  7. ✅ CORRECTION ÉDITION : restauration complète des IDs (domaine, sous-domaine, niveau, matière)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -39,6 +41,26 @@ const QUESTION_TYPES = [
   { id: 3, nom: 'Savoir-être',                          description: 'Évaluation du potentiel psychologique' },
 ];
 
+// ── Normalisation des chapitres (prévention des doublons) ──────────────
+const normalizeChapterOnChange = (s) =>
+  (s || '').trimStart().replace(/\s{2,}/g, ' ');
+
+const normalizeChapterOnBlur = (s) =>
+  (s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.;:,!?]+$/, '')
+    .trim()
+    .toUpperCase();
+
+const normalizeChapterStr = (s) =>
+  (s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.;:,!?]+$/, '')
+    .trim()
+    .toUpperCase();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Modal d'aperçu
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +78,6 @@ const QuestionPreviewModal = ({ question, onClose }) => {
 
   const imageSrc = getFullImageUrl();
   const filledOptions = question.options?.filter(o => o && o.trim()) || [];
-  // Choix unique uniquement
   const correctAnswer = question.correctAnswer;
 
   return (
@@ -245,9 +266,6 @@ const CreateQuestion = () => {
   const [correctAnswer,  setCorrectAnswer]  = useState('');
   const [explanation,    setExplanation]    = useState('');
 
-  // NOTE: points et tempsMin sont supprimés car configurés au niveau de l'épreuve
-  // Ils ne sont plus utilisés dans le formulaire
-
   // ── Image ──────────────────────────────────────────────────────────────────
   const [imageQuestion, setImageQuestion] = useState('');
   const [imageBase64,   setImageBase64]   = useState('');
@@ -261,34 +279,85 @@ const CreateQuestion = () => {
   const [editingQuestionId, setEditingQuestionId]  = useState(null);
   const [validationErrors,  setValidationErrors]   = useState({});
 
-  // ── Chargement édition ─────────────────────────────────────────────────────
+  // ── Chargement édition (CORRIGÉ) ──────────────────────────────────────────
   useEffect(() => {
     const q = location.state?.editQuestion || (() => {
       const s = sessionStorage.getItem('editQuestion');
-      if (s) { sessionStorage.removeItem('editQuestion'); return JSON.parse(s); }
+      if (s) { 
+        sessionStorage.removeItem('editQuestion'); 
+        return JSON.parse(s); 
+      }
       return null;
     })();
     if (!q) return;
 
+    console.log('[CreateQuestion] 📝 Chargement édition:', q);
+
     setIsEditing(true);
     setEditingQuestionId(q._id);
     setLibQuestion(q.libQuestion || '');
-    setLibChapitre(q.libChapitre || '');
+    setLibChapitre(normalizeChapterStr(q.libChapitre || ''));
     setOptions(q.options?.length >= 3 ? q.options : ['', '', '']);
     setTypeQuestion(q.typeQuestion || 1);
     setExplanation(q.explanation || '');
     setImageQuestion(q.imageQuestion || '');
     setImageBase64(q.imageBase64 || '');
     setImageMetadata(q.imageMetadata || {});
-    // Choix unique
     setCorrectAnswer(q.correctAnswer || (q.options?.[q.bonOpRep] ?? ''));
     
-    if (q.domaine) {
+    // ✅ Restaurer le Domaine (priorité à l'ID)
+    if (q.domaineId) {
+      setSelectedDomainId(q.domaineId);
+      console.log('[CreateQuestion] ✅ Domaine restauré par ID:', q.domaineId);
+    } else if (q.domaine) {
       const found = getAllDomaines().find(d => d.nom === q.domaine);
-      if (found) setSelectedDomainId(found.id);
+      if (found) {
+        setSelectedDomainId(found.id);
+        console.log('[CreateQuestion] ✅ Domaine restauré par nom:', q.domaine, '→', found.id);
+      }
     }
+
+    // ✅ Restaurer le Sous-domaine (priorité à l'ID)
+    if (q.sousDomaineId) {
+      setSelectedSousDomaineId(q.sousDomaineId);
+      console.log('[CreateQuestion] ✅ Sous-domaine restauré par ID:', q.sousDomaineId);
+    } else if (q.sousDomaine && selectedDomainId) {
+      const sousDomaines = getAllSousDomaines(selectedDomainId);
+      const found = sousDomaines.find(sd => sd.nom === q.sousDomaine);
+      if (found) {
+        setSelectedSousDomaineId(found.id);
+        console.log('[CreateQuestion] ✅ Sous-domaine restauré par nom:', q.sousDomaine, '→', found.id);
+      }
+    }
+
+    // ✅ Restaurer le Niveau (priorité à l'ID)
+    if (q.niveauId) {
+      setSelectedLevelId(q.niveauId);
+      console.log('[CreateQuestion] ✅ Niveau restauré par ID:', q.niveauId);
+    } else if (q.niveau && selectedDomainId && selectedSousDomaineId) {
+      const levels = getAllLevels(selectedDomainId, selectedSousDomaineId);
+      const found = levels.find(l => l.nom === q.niveau);
+      if (found) {
+        setSelectedLevelId(found.id);
+        console.log('[CreateQuestion] ✅ Niveau restauré par nom:', q.niveau, '→', found.id);
+      }
+    }
+
+    // ✅ Restaurer la Matière (priorité à l'ID)
+    if (q.matiereId) {
+      setSelectedMatiereId(q.matiereId);
+      console.log('[CreateQuestion] ✅ Matière restaurée par ID:', q.matiereId);
+    } else if (q.matiere && selectedDomainId && selectedSousDomaineId) {
+      const matieres = getAllMatieres(selectedDomainId, selectedSousDomaineId);
+      const found = matieres.find(m => m.nom === q.matiere);
+      if (found) {
+        setSelectedMatiereId(found.id);
+        console.log('[CreateQuestion] ✅ Matière restaurée par nom:', q.matiere, '→', found.id);
+      }
+    }
+    
     toast.success('Question chargée pour modification');
-  }, [location]);
+  }, [location, selectedDomainId, selectedSousDomaineId]);
 
   // ── Sync noms référentiel ──────────────────────────────────────────────────
   useEffect(() => { if (selectedDomainId) setDomainNom(getDomainNom(selectedDomainId)); }, [selectedDomainId]);
@@ -306,7 +375,6 @@ const CreateQuestion = () => {
   };
   const handleOptionChange = (i, v) => { const n = [...options]; n[i] = v; setOptions(n); };
   
-  // Choix unique uniquement
   const handleCorrectChange = (v) => {
     setCorrectAnswer(v);
   };
@@ -344,24 +412,19 @@ const CreateQuestion = () => {
 
     const filled = options.filter(o => o.trim());
     
-    // Récupération des données du référentiel avec IDs
     const domainData = DOMAIN_DATA[selectedDomainId];
     const sousDomaineData = domainData?.sousDomaines[selectedSousDomaineId];
     const levelData = sousDomaineData?.levels?.find(l => String(l.id) === selectedLevelId);
     const matiereData = sousDomaineData?.matieres?.find(m => String(m.id) === selectedMatiereId);
 
-    // Validation des IDs
     if (!selectedDomainId || !selectedSousDomaineId || !selectedLevelId || !selectedMatiereId) {
       toast.error('Veuillez sélectionner tous les champs du référentiel');
       return;
     }
 
-    // Calculer bonOpRep correctement (choix unique)
     let bonOpRep = filled.findIndex(o => o === correctAnswer);
     if (bonOpRep < 0) bonOpRep = 0;
 
-    // Payload COMPLET avec IDs ET noms
-    // NOTE: points et tempsMin ne sont plus envoyés (valeur par défaut)
     const payload = {
       domaineId: selectedDomainId,
       sousDomaineId: selectedSousDomaineId,
@@ -375,13 +438,13 @@ const CreateQuestion = () => {
       matiere: matiereData?.nom || '',
       matiereCode: matiereData?.code || '',
       libQuestion,
-      libChapitre: libChapitre.trim(),
+      libChapitre: normalizeChapterStr(libChapitre),
       options: filled,
       correctAnswer: correctAnswer,
       bonOpRep,
       typeQuestion,
-      points: 1,  // Valeur par défaut, sera configurée dans l'épreuve
-      tempsMin: 1, // Valeur par défaut, sera configurée dans l'épreuve
+      points: 1,
+      tempsMin: 1,
       explanation,
       imageQuestion: imageQuestion || '',
       imageBase64: imageBase64 || '',
@@ -392,6 +455,7 @@ const CreateQuestion = () => {
 
     console.log('[CreateQuestion] 📤 Payload:', {
       ...payload,
+      libChapitre: payload.libChapitre,
       correctAnswer,
       imageBase64: payload.imageBase64 ? 'present' : 'absent'
     });
@@ -406,8 +470,6 @@ const CreateQuestion = () => {
         
         if (response.data?.success) {
           toast.success('Question mise à jour avec succès !');
-          
-          // FORCER LE RAFRAÎCHISSEMENT DE LA PAGE PRÉCÉDENTE
           sessionStorage.setItem('refreshQuestions', Date.now().toString());
           localStorage.setItem('forceRefreshQuestions', Date.now().toString());
           
@@ -555,7 +617,12 @@ const CreateQuestion = () => {
               <div>
                 <label style={{ color: '#94a3b8', fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>Domaine *</label>
                 <select ref={domainRef} value={selectedDomainId}
-                  onChange={e => { setSelectedDomainId(e.target.value); setSelectedSousDomaineId(''); setSelectedLevelId(''); setSelectedMatiereId(''); }}
+                  onChange={e => { 
+                    setSelectedDomainId(e.target.value); 
+                    setSelectedSousDomaineId(''); 
+                    setSelectedLevelId(''); 
+                    setSelectedMatiereId(''); 
+                  }}
                   style={inputStyle(validationErrors.domaine)}>
                   <option value="">Sélectionner...</option>
                   {getAllDomaines().map(d => <option key={d.id} value={d.id}>{d.id} - {d.nom}</option>)}
@@ -564,7 +631,7 @@ const CreateQuestion = () => {
               {/* Sous-domaine */}
               <div>
                 <label style={{ color: '#94a3b8', fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>Sous-domaine *</label>
-                <select value={selectedSousDomaineId} onChange={e => setSelectedSousDomaineId(e.target.value)} disabled={!selectedDomainId}
+                <select value={selectedSousDomaineId} onChange={e => { setSelectedSousDomaineId(e.target.value); setSelectedLevelId(''); setSelectedMatiereId(''); }} disabled={!selectedDomainId}
                   style={{ ...inputStyle(), opacity: !selectedDomainId ? 0.5 : 1 }}>
                   <option value="">Sélectionner...</option>
                   {getAllSousDomaines(selectedDomainId).map(sd => <option key={sd.id} value={sd.id}>{sd.id} - {sd.nom}</option>)}
@@ -573,7 +640,7 @@ const CreateQuestion = () => {
               {/* Niveau */}
               <div>
                 <label style={{ color: '#94a3b8', fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>Niveau *</label>
-                <select value={selectedLevelId} onChange={e => setSelectedLevelId(e.target.value)} disabled={!selectedSousDomaineId}
+                <select value={selectedLevelId} onChange={e => { setSelectedLevelId(e.target.value); }} disabled={!selectedSousDomaineId}
                   style={{ ...inputStyle(validationErrors.niveau), opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
                   <option value="">Sélectionner...</option>
                   {getAllLevels(selectedDomainId, selectedSousDomaineId).map(l => <option key={l.id} value={l.id}>{l.id} - {l.nom}</option>)}
@@ -582,7 +649,7 @@ const CreateQuestion = () => {
               {/* Matière */}
               <div>
                 <label style={{ color: '#94a3b8', fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>Matière *</label>
-                <select value={selectedMatiereId} onChange={e => setSelectedMatiereId(e.target.value)} disabled={!selectedSousDomaineId}
+                <select value={selectedMatiereId} onChange={e => { setSelectedMatiereId(e.target.value); }} disabled={!selectedSousDomaineId}
                   style={{ ...inputStyle(validationErrors.matiere), opacity: !selectedSousDomaineId ? 0.5 : 1 }}>
                   <option value="">Sélectionner...</option>
                   {getAllMatieres(selectedDomainId, selectedSousDomaineId).map(m => <option key={m.id} value={m.id}>{m.id} - {m.nom}</option>)}
@@ -599,15 +666,35 @@ const CreateQuestion = () => {
             )}
           </section>
 
-          {/* ═══ 2. CHAPITRE (avant typeQuestion — obligatoire) ═══ */}
+          {/* ═══ 2. CHAPITRE (avec normalisation) ═══ */}
           <section style={{ marginBottom: 20 }}>
             <label style={{ color: '#94a3b8', fontSize: '0.8rem', display: 'block', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
               <BookOpen size={14} color="#f59e0b" />
               Chapitre <span style={{ color: '#ef4444', marginLeft: 2 }}>*</span>
             </label>
-            <input ref={libChapitreRef} type="text" value={libChapitre} onChange={e => setLibChapitre(e.target.value)}
-              placeholder="Ex : Chapitre 3 — Les fonctions dérivées"
-              style={inputStyle(validationErrors.libChapitre)} />
+            <input 
+              ref={libChapitreRef} 
+              type="text" 
+              value={libChapitre} 
+              onChange={e => setLibChapitre(normalizeChapterOnChange(e.target.value))}
+              onBlur={e => {
+                const normalized = normalizeChapterOnBlur(e.target.value);
+                if (normalized !== e.target.value) {
+                  setLibChapitre(normalized);
+                }
+              }}
+              placeholder="Ex : CHAPITRE 3 — LES FONCTIONS DÉRIVÉES"
+              style={inputStyle(validationErrors.libChapitre)} 
+            />
+            
+            {/* ✅ Aperçu de la normalisation en temps réel */}
+            {libChapitre && libChapitre !== normalizeChapterOnBlur(libChapitre) && (
+              <p style={{ color: '#f59e0b', fontSize: '0.65rem', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <AlertCircle size={12} />
+                💡 Sera normalisé en : <strong>{normalizeChapterOnBlur(libChapitre)}</strong>
+              </p>
+            )}
+            
             {validationErrors.libChapitre && (
               <p style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <AlertCircle size={12} /> Le chapitre est obligatoire

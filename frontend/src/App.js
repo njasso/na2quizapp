@@ -51,6 +51,7 @@ import TeacherQuestionsPage from './pages/teacher/TeacherQuestionsPage';
 import QCMValidationPage from './pages/admin/QCMValidationPage';
 import ImportQuestions from './pages/admin/ImportQuestions';
 import UserManagementPage from './pages/admin/UserManagementPage';
+import QCMCleanerPage from './pages/admin/QCMCleanerPage'; // ✅ Nettoyage & actions collectives
 
 // Consultation analytique de la Banque de QCM
 import QCMBankPage from './pages/qcm/QCMBankPage';
@@ -275,6 +276,13 @@ function App() {
             <Route path="/admin/assign-exams" element={
               <ProtectedRoute allowedRoles={['ADMIN_DELEGUE', 'ADMIN_SYSTEME']}>
                 <AssignExamToOperator />
+              </ProtectedRoute>
+            } />
+
+            {/* ✅ Nettoyage & actions collectives sur la banque de QCM */}
+            <Route path="/admin/qcm-cleaner" element={
+              <ProtectedRoute allowedRoles={['ADMIN_DELEGUE', 'ADMIN_SYSTEME', 'ENSEIGNANT']}>
+                <QCMCleanerPage />
               </ProtectedRoute>
             } />
             

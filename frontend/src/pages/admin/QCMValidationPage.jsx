@@ -1,4 +1,7 @@
 // src/pages/admin/QCMValidationPage.jsx - Version avec aperçu amélioré
+// ✅ COMPLET - Validation des questions en attente
+// ✅ Fonctionnalités : Statistiques, Filtres, Aperçu, Validation
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
@@ -18,7 +21,7 @@ const NODE_BACKEND_URL = ENV_CONFIG.BACKEND_URL;
 console.log('[QCMValidationPage] 🚀 Backend URL:', NODE_BACKEND_URL);
 console.log('[QCMValidationPage] Environnement:', ENV_CONFIG.isLocalhost ? 'LOCAL' : 'PRODUCTION');
 
-// Fonction pour obtenir l'URL complète de l'image
+// ── Fonction pour obtenir l'URL complète de l'image ──────
 const getImageUrl = (question) => {
   if (!question) return null;
   
@@ -40,7 +43,9 @@ const getImageUrl = (question) => {
   return imagePath;
 };
 
-// Composant de détail de question avec aperçu amélioré
+// ──────────────────────────────────────────────────────────────
+// COMPOSANT : Détail de la question (Modal)
+// ──────────────────────────────────────────────────────────────
 const QuestionDetail = ({ question, onClose }) => {
   if (!question) return null;
   
@@ -306,7 +311,9 @@ const QuestionDetail = ({ question, onClose }) => {
   );
 };
 
-// Composant de statistiques
+// ──────────────────────────────────────────────────────────────
+// COMPOSANT : Carte de statistiques
+// ──────────────────────────────────────────────────────────────
 const StatsCard = ({ title, value, icon: Icon, color }) => (
   <div style={{
     background: 'rgba(15,23,42,0.6)',
@@ -327,8 +334,13 @@ const StatsCard = ({ title, value, icon: Icon, color }) => (
   </div>
 );
 
+// ──────────────────────────────────────────────────────────────
+// COMPOSANT PRINCIPAL : QCMValidationPage
+// ──────────────────────────────────────────────────────────────
 const QCMValidationPage = () => {
   const navigate = useNavigate();
+  
+  // ── États ──────────────────────────────────────────────────
   const [pendingQuestions, setPendingQuestions] = useState([]);
   const [filteredQuestions, setFilteredQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -348,7 +360,7 @@ const QCMValidationPage = () => {
   const [connectionStatus, setConnectionStatus] = useState('checking');
   const [dbStatus, setDbStatus] = useState(null);
 
-  // Vérifier la connexion au backend
+  // ── Vérifier la connexion au backend ────────────────────
   const checkConnection = useCallback(async () => {
     try {
       console.log('[QCMValidationPage] 🔍 Vérification connexion à', NODE_BACKEND_URL);
@@ -365,7 +377,7 @@ const QCMValidationPage = () => {
     }
   }, []);
 
-  // Récupérer les statistiques
+  // ── Récupérer les statistiques ──────────────────────────
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
     try {
@@ -385,7 +397,7 @@ const QCMValidationPage = () => {
     }
   }, []);
 
-  // Vérifier l'authentification
+  // ── Initialisation ──────────────────────────────────────
   useEffect(() => {
     const init = async () => {
       const token = localStorage.getItem('userToken');
@@ -426,7 +438,7 @@ const QCMValidationPage = () => {
     init();
   }, [navigate, checkConnection, loadStats]);
 
-  // Filtrage
+  // ── Filtrage ─────────────────────────────────────────────
   useEffect(() => {
     let filtered = [...pendingQuestions];
     if (search) {
@@ -444,6 +456,7 @@ const QCMValidationPage = () => {
     setFilteredQuestions(filtered);
   }, [pendingQuestions, search, filterDomain, filterLevel, filterMatiere]);
 
+  // ── Chargement des questions en attente ────────────────
   const loadPending = async () => {
     setLoading(true);
     setError(null);
@@ -508,8 +521,7 @@ const QCMValidationPage = () => {
     }
   };
 
-
-
+  // ── Valider une question (approuver/rejeter) ────────────
   const handleValidate = async (qId, approved) => {
     setValidating(prev => ({ ...prev, [qId]: true }));
     try {
@@ -566,21 +578,24 @@ const QCMValidationPage = () => {
     }
   };
 
+  // ── Toggle expansion ─────────────────────────────────────
   const toggleExpand = (qId) => {
     setExpanded(prev => ({ ...prev, [qId]: !prev[qId] }));
   };
 
+  // ── Déconnexion ──────────────────────────────────────────
   const handleLogout = () => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userInfo');
     navigate('/login');
   };
 
+  // ── Extraction des valeurs uniques pour les filtres ────
   const domains = [...new Set(pendingQuestions.map(q => q.domaine).filter(Boolean))];
   const levels = [...new Set(pendingQuestions.map(q => q.niveau).filter(Boolean))];
   const matieres = [...new Set(pendingQuestions.map(q => q.matiere).filter(Boolean))];
 
-  // Affichage du statut de connexion
+  // ── Affichage du statut de connexion ────────────────────
   if (connectionStatus === 'checking') {
     return (
       <div style={styles.loadingContainer}>
@@ -607,6 +622,9 @@ const QCMValidationPage = () => {
     );
   }
 
+  // ──────────────────────────────────────────────────────────
+  // RENDU PRINCIPAL
+  // ──────────────────────────────────────────────────────────
   return (
     <div style={styles.container}>
       <div style={styles.bgGrid} />
@@ -836,62 +854,445 @@ const QCMValidationPage = () => {
   );
 };
 
+// ──────────────────────────────────────────────────────────────
+// STYLES
+// ──────────────────────────────────────────────────────────────
 const styles = {
-  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', position: 'relative', overflow: 'hidden', padding: 24 },
-  bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', backgroundSize: '40px 40px', pointerEvents: 'none', zIndex: 0 },
-  bgGlow: { position: 'fixed', top: '-15%', left: '50%', transform: 'translateX(-50%)', width: '70vw', height: '50vh', background: 'radial-gradient(ellipse, rgba(37,99,235,0.12) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 },
-  main: { position: 'relative', zIndex: 1, maxWidth: 1200, margin: '0 auto' },
-  loadingContainer: { minHeight: '100vh', background: '#05071a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
-  errorContainer: { minHeight: '100vh', background: '#05071a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24 },
-  retryButton: { marginTop: 24, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#3b82f6', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 16 },
-  headerLeft: { display: 'flex', alignItems: 'center', gap: 16 },
-  headerRight: { display: 'flex', gap: 12, alignItems: 'center' },
-  backButton: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: 12, color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 },
-  title: { fontSize: '2rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 8 },
-  subtitle: { color: '#64748b', fontSize: '0.85rem' },
-  dbStatus: { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: 20 },
-  userBadge: { background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 20, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 },
-  logoutButton: { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '6px 12px', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 },
-  actionBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 16 },
-  filters: { display: 'flex', flexWrap: 'wrap', gap: 12, flex: 1 },
-  searchBox: { position: 'relative', flex: 1, minWidth: 200 },
-  searchIcon: { position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#64748b' },
-  searchInput: { width: '100%', padding: '10px 12px 10px 38px', background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, color: '#f8fafc', outline: 'none' },
-  select: { padding: '10px 12px', background: '#0f172a', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, color: '#f8fafc', outline: 'none' },
-  clearButton: { padding: '10px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: '#ef4444', cursor: 'pointer' },
-  refreshButton: (loading) => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 10, color: '#60a5fa', cursor: 'pointer', opacity: loading ? 0.5 : 1 }),
-  errorBox: { background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: 12, padding: 16, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, color: '#ef4444' },
-  errorRetryButton: { padding: '6px 16px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: 6, color: '#ef4444', cursor: 'pointer' },
-  loadingBox: { textAlign: 'center', padding: 60, background: 'rgba(15,23,42,0.5)', borderRadius: 16 },
-  emptyBox: { textAlign: 'center', padding: 60, background: 'rgba(15,23,42,0.5)', borderRadius: 16, border: '1px dashed rgba(59,130,246,0.2)' },
-  questionsList: { display: 'flex', flexDirection: 'column', gap: 16 },
-  questionCard: { background: 'rgba(15,23,42,0.7)', border: '1px solid', borderRadius: 16, overflow: 'hidden' },
-  questionHeader: { padding: '16px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 },
-  questionInfo: { flex: 1 },
-  questionBadges: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 },
-  questionNumber: { background: '#6366f1', color: '#fff', width: 28, height: 28, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 600 },
-  matiereBadge: { background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 },
-  niveauBadge: { background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 },
-  domaineBadge: { background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '2px 8px', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 },
-  multipleBadge: { background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '2px 6px', borderRadius: 4, fontSize: '0.65rem', fontWeight: 600 },
-  imageBadge: { background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 6px', borderRadius: 4, fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 },
-  questionText: { color: '#f8fafc', fontSize: '0.95rem', fontWeight: 500 },
-  questionMeta: { display: 'flex', gap: 16, marginTop: 8, fontSize: '0.7rem', color: '#64748b' },
-  questionActions: { display: 'flex', alignItems: 'center', gap: 8 },
-  viewButton: { padding: '6px 10px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, color: '#3b82f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 },
-  expandedContent: { borderTop: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' },
-  optionsSection: { padding: '16px 20px' },
-  optionsTitle: { color: '#94a3b8', fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 },
-  optionsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 8 },
-  optionItem: { padding: '6px 10px', border: '1px solid', borderRadius: 6, fontSize: '0.8rem', color: '#94a3b8' },
-  commentLabel: { color: '#94a3b8', fontSize: '0.75rem', marginBottom: 4, display: 'block', padding: '0 20px' },
-  commentTextarea: { width: 'calc(100% - 40px)', margin: '0 20px 12px 20px', padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#f8fafc', resize: 'vertical' },
-  validationButtons: { display: 'flex', gap: 12, justifyContent: 'flex-end', padding: '0 20px 20px 20px' },
-  approveButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: 8, color: '#10b981', cursor: 'pointer', opacity: disabled ? 0.6 : 1 }),
-  rejectButton: (disabled) => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 20px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: 8, color: '#ef4444', cursor: 'pointer', opacity: disabled ? 0.6 : 1 }),
-  toastOptions: { style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #3b82f6', borderRadius: '10px' } }
+  container: { 
+    minHeight: '100vh', 
+    background: 'linear-gradient(135deg, #05071a 0%, #0a0f2e 60%, #05071a 100%)', 
+    position: 'relative', 
+    overflow: 'hidden', 
+    padding: 24 
+  },
+  bgGrid: { 
+    position: 'fixed', 
+    inset: 0, 
+    backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)', 
+    backgroundSize: '40px 40px', 
+    pointerEvents: 'none', 
+    zIndex: 0 
+  },
+  bgGlow: { 
+    position: 'fixed', 
+    top: '-15%', 
+    left: '50%', 
+    transform: 'translateX(-50%)', 
+    width: '70vw', 
+    height: '50vh', 
+    background: 'radial-gradient(ellipse, rgba(37,99,235,0.12) 0%, transparent 70%)', 
+    pointerEvents: 'none', 
+    zIndex: 0 
+  },
+  main: { 
+    position: 'relative', 
+    zIndex: 1, 
+    maxWidth: 1200, 
+    margin: '0 auto' 
+  },
+  loadingContainer: { 
+    minHeight: '100vh', 
+    background: '#05071a', 
+    display: 'flex', 
+    flexDirection: 'column', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  errorContainer: { 
+    minHeight: '100vh', 
+    background: '#05071a', 
+    display: 'flex', 
+    flexDirection: 'column', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    textAlign: 'center', 
+    padding: 24 
+  },
+  retryButton: { 
+    marginTop: 24, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8, 
+    padding: '10px 20px', 
+    background: '#3b82f6', 
+    border: 'none', 
+    borderRadius: 10, 
+    color: '#fff', 
+    cursor: 'pointer' 
+  },
+  header: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    marginBottom: 24, 
+    flexWrap: 'wrap', 
+    gap: 16 
+  },
+  headerLeft: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 16 
+  },
+  headerRight: { 
+    display: 'flex', 
+    gap: 12, 
+    alignItems: 'center' 
+  },
+  backButton: { 
+    background: 'rgba(255,255,255,0.05)', 
+    border: '1px solid rgba(99,102,241,0.2)', 
+    borderRadius: 12, 
+    padding: 12, 
+    color: '#94a3b8', 
+    cursor: 'pointer', 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8 
+  },
+  title: { 
+    fontSize: '2rem', 
+    fontWeight: 700, 
+    color: '#f8fafc', 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8 
+  },
+  subtitle: { 
+    color: '#64748b', 
+    fontSize: '0.85rem' 
+  },
+  dbStatus: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 6, 
+    background: 'rgba(0,0,0,0.3)', 
+    padding: '6px 10px', 
+    borderRadius: 20 
+  },
+  userBadge: { 
+    background: 'rgba(16,185,129,0.1)', 
+    border: '1px solid rgba(16,185,129,0.3)', 
+    borderRadius: 20, 
+    padding: '6px 12px', 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8 
+  },
+  logoutButton: { 
+    background: 'rgba(239,68,68,0.1)', 
+    border: '1px solid rgba(239,68,68,0.3)', 
+    borderRadius: 10, 
+    padding: '6px 12px', 
+    color: '#ef4444', 
+    cursor: 'pointer', 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 6, 
+    fontSize: '0.7rem' 
+  },
+  statsGrid: { 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+    gap: 16, 
+    marginBottom: 24 
+  },
+  actionBar: { 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 20, 
+    flexWrap: 'wrap', 
+    gap: 16 
+  },
+  filters: { 
+    display: 'flex', 
+    flexWrap: 'wrap', 
+    gap: 12, 
+    flex: 1 
+  },
+  searchBox: { 
+    position: 'relative', 
+    flex: 1, 
+    minWidth: 200 
+  },
+  searchIcon: { 
+    position: 'absolute', 
+    left: 12, 
+    top: '50%', 
+    transform: 'translateY(-50%)', 
+    color: '#64748b' 
+  },
+  searchInput: { 
+    width: '100%', 
+    padding: '10px 12px 10px 38px', 
+    background: 'rgba(15,23,42,0.7)', 
+    border: '1px solid rgba(59,130,246,0.2)', 
+    borderRadius: 10, 
+    color: '#f8fafc', 
+    outline: 'none' 
+  },
+  select: { 
+    padding: '10px 12px', 
+    background: '#0f172a', 
+    border: '1px solid rgba(59,130,246,0.2)', 
+    borderRadius: 10, 
+    color: '#f8fafc', 
+    outline: 'none' 
+  },
+  clearButton: { 
+    padding: '10px 16px', 
+    background: 'rgba(239,68,68,0.1)', 
+    border: '1px solid rgba(239,68,68,0.3)', 
+    borderRadius: 10, 
+    color: '#ef4444', 
+    cursor: 'pointer' 
+  },
+  refreshButton: (loading) => ({ 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 6, 
+    padding: '10px 20px', 
+    background: 'rgba(59,130,246,0.1)', 
+    border: '1px solid rgba(59,130,246,0.3)', 
+    borderRadius: 10, 
+    color: '#60a5fa', 
+    cursor: 'pointer', 
+    opacity: loading ? 0.5 : 1 
+  }),
+  errorBox: { 
+    background: 'rgba(239,68,68,0.1)', 
+    border: '1px solid #ef4444', 
+    borderRadius: 12, 
+    padding: 16, 
+    marginBottom: 20, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 12, 
+    color: '#ef4444' 
+  },
+  errorRetryButton: { 
+    padding: '6px 16px', 
+    background: 'rgba(239,68,68,0.2)', 
+    border: 'none', 
+    borderRadius: 6, 
+    color: '#ef4444', 
+    cursor: 'pointer' 
+  },
+  loadingBox: { 
+    textAlign: 'center', 
+    padding: 60, 
+    background: 'rgba(15,23,42,0.5)', 
+    borderRadius: 16 
+  },
+  emptyBox: { 
+    textAlign: 'center', 
+    padding: 60, 
+    background: 'rgba(15,23,42,0.5)', 
+    borderRadius: 16, 
+    border: '1px dashed rgba(59,130,246,0.2)' 
+  },
+  questionsList: { 
+    display: 'flex', 
+    flexDirection: 'column', 
+    gap: 16 
+  },
+  questionCard: { 
+    background: 'rgba(15,23,42,0.7)', 
+    border: '1px solid', 
+    borderRadius: 16, 
+    overflow: 'hidden' 
+  },
+  questionHeader: { 
+    padding: '16px 20px', 
+    cursor: 'pointer', 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    flexWrap: 'wrap', 
+    gap: 12 
+  },
+  questionInfo: { 
+    flex: 1 
+  },
+  questionBadges: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8, 
+    flexWrap: 'wrap', 
+    marginBottom: 6 
+  },
+  questionNumber: { 
+    background: '#6366f1', 
+    color: '#fff', 
+    width: 28, 
+    height: 28, 
+    borderRadius: 8, 
+    display: 'inline-flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    fontSize: '0.75rem', 
+    fontWeight: 600 
+  },
+  matiereBadge: { 
+    background: 'rgba(16,185,129,0.15)', 
+    color: '#10b981', 
+    padding: '2px 8px', 
+    borderRadius: 4, 
+    fontSize: '0.7rem', 
+    fontWeight: 600, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  niveauBadge: { 
+    background: 'rgba(59,130,246,0.15)', 
+    color: '#60a5fa', 
+    padding: '2px 8px', 
+    borderRadius: 4, 
+    fontSize: '0.7rem', 
+    fontWeight: 600, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  domaineBadge: { 
+    background: 'rgba(139,92,246,0.15)', 
+    color: '#a78bfa', 
+    padding: '2px 8px', 
+    borderRadius: 4, 
+    fontSize: '0.7rem', 
+    fontWeight: 600, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  multipleBadge: { 
+    background: 'rgba(245,158,11,0.15)', 
+    color: '#f59e0b', 
+    padding: '2px 6px', 
+    borderRadius: 4, 
+    fontSize: '0.65rem', 
+    fontWeight: 600 
+  },
+  imageBadge: { 
+    background: 'rgba(59,130,246,0.15)', 
+    color: '#60a5fa', 
+    padding: '2px 6px', 
+    borderRadius: 4, 
+    fontSize: '0.65rem', 
+    fontWeight: 600, 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 3 
+  },
+  questionText: { 
+    color: '#f8fafc', 
+    fontSize: '0.95rem', 
+    fontWeight: 500 
+  },
+  questionMeta: { 
+    display: 'flex', 
+    gap: 16, 
+    marginTop: 8, 
+    fontSize: '0.7rem', 
+    color: '#64748b' 
+  },
+  questionActions: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 8 
+  },
+  viewButton: { 
+    padding: '6px 10px', 
+    background: 'rgba(59,130,246,0.1)', 
+    border: '1px solid rgba(59,130,246,0.3)', 
+    borderRadius: 6, 
+    color: '#3b82f6', 
+    cursor: 'pointer', 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  expandedContent: { 
+    borderTop: '1px solid rgba(255,255,255,0.05)', 
+    overflow: 'hidden' 
+  },
+  optionsSection: { 
+    padding: '16px 20px' 
+  },
+  optionsTitle: { 
+    color: '#94a3b8', 
+    fontSize: '0.75rem', 
+    marginBottom: 8, 
+    fontWeight: 600 
+  },
+  optionsGrid: { 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
+    gap: 8 
+  },
+  optionItem: { 
+    padding: '6px 10px', 
+    border: '1px solid', 
+    borderRadius: 6, 
+    fontSize: '0.8rem', 
+    color: '#94a3b8' 
+  },
+  commentLabel: { 
+    color: '#94a3b8', 
+    fontSize: '0.75rem', 
+    marginBottom: 4, 
+    display: 'block', 
+    padding: '0 20px' 
+  },
+  commentTextarea: { 
+    width: 'calc(100% - 40px)', 
+    margin: '0 20px 12px 20px', 
+    padding: '8px 12px', 
+    background: 'rgba(255,255,255,0.05)', 
+    border: '1px solid rgba(99,102,241,0.2)', 
+    borderRadius: 8, 
+    color: '#f8fafc', 
+    resize: 'vertical' 
+  },
+  validationButtons: { 
+    display: 'flex', 
+    gap: 12, 
+    justifyContent: 'flex-end', 
+    padding: '0 20px 20px 20px' 
+  },
+  approveButton: (disabled) => ({ 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 6, 
+    padding: '8px 20px', 
+    background: 'rgba(16,185,129,0.1)', 
+    border: '1px solid #10b981', 
+    borderRadius: 8, 
+    color: '#10b981', 
+    cursor: 'pointer', 
+    opacity: disabled ? 0.6 : 1 
+  }),
+  rejectButton: (disabled) => ({ 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: 6, 
+    padding: '8px 20px', 
+    background: 'rgba(239,68,68,0.1)', 
+    border: '1px solid #ef4444', 
+    borderRadius: 8, 
+    color: '#ef4444', 
+    cursor: 'pointer', 
+    opacity: disabled ? 0.6 : 1 
+  }),
+  toastOptions: { 
+    style: { 
+      background: '#1e293b', 
+      color: '#f8fafc', 
+      border: '1px solid #3b82f6', 
+      borderRadius: '10px' 
+    } 
+  }
 };
 
 export default QCMValidationPage;

@@ -1,7 +1,6 @@
 // src/pages/creation/EvaluationSummative.jsx — Tableau de bord professionnel
 // Version avec support complet pour SAISISEUR, assignation des épreuves et VALIDATION DES QUESTIONS
-// ✅ CORRECTION: URL du terminal dynamique (s'adapte à l'IP actuelle)
-// ✅ Libellés mis à jour selon spec Excel (Arborescence des menus principaux)
+// ✅ AJOUT: Module Nettoyage de la Banque QCM dans Administration
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -259,6 +258,19 @@ const ADMINISTRATION_MODULES = [
     gradient: 'linear-gradient(135deg, #dc2626, #ef4444)',
     tag: 'Admin',
     roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
+  },
+  // ✅ NOUVEAU MODULE - Nettoyage des données
+  {
+    id: 'qcm_cleaner',
+    path: '/admin/qcm-cleaner',
+    icon: Database,
+    title: 'Nettoyage de la Banque QCM',
+    subtitle: 'Qualité des données',
+    desc: 'Détecter et corriger les doublons de chapitres, normaliser les données en masse',
+    color: COLORS.warning,
+    gradient: 'linear-gradient(135deg, #d97706, #f59e0b)',
+    tag: 'Nettoyage',
+    roles: ['ADMIN_DELEGUE', 'ADMIN_SYSTEME']
   }
 ];
 
@@ -448,7 +460,7 @@ const INTEREST_GROUPS = [
   {
     id: 'admin',
     title: '⚙️ F - ADMINISTRATION du SYSTEM',
-    subtitle: 'Comptes · Sécurité',
+    subtitle: 'Comptes · Sécurité · Nettoyage',
     icon: Shield,
     modules: ADMINISTRATION_MODULES.map(m => m.id),
     color: COLORS.danger,
@@ -550,9 +562,9 @@ const EvaluationSummative = () => {
       case 'ENSEIGNANT':
         return 'Concevez, gérez et analysez vos évaluations pédagogiques';
       case 'ADMIN_DELEGUE':
-        return 'Validez les QCM, assignez les épreuves et consultez les rapports';
+        return 'Validez les QCM, assignez les épreuves, nettoyez la base et consultez les rapports';
       case 'ADMIN_SYSTEME':
-        return 'Administration complète du système - Vous avez accès à la validation des questions et à l\'assignation des épreuves';
+        return 'Administration complète du système - Vous avez accès à la validation des questions, à l\'assignation des épreuves et au nettoyage des données';
       default:
         return 'Tableau de bord NA²QUIZ';
     }
@@ -566,11 +578,11 @@ const EvaluationSummative = () => {
       case 'ENSEIGNANT':
         return 'Création et gestion pédagogique';
       case 'ADMIN_DELEGUE':
-        return 'Supervision, validation, assignation et rapports';
+        return 'Supervision, validation, assignation, nettoyage et rapports';
       case 'OPERATEUR_EVALUATION':
         return 'Épreuves assignées et surveillance';
       case 'ADMIN_SYSTEME':
-        return 'Configuration, administration, validation et assignation';
+        return 'Configuration, administration, validation, assignation et nettoyage';
       default:
         return 'Plateforme d\'évaluation';
     }
@@ -761,7 +773,7 @@ const EvaluationSummative = () => {
           </motion.div>
         )}
 
-        {/* Information pour ADMIN sur la validation et l'assignation */}
+        {/* Information pour ADMIN sur la validation, l'assignation et le nettoyage */}
         {isAdmin && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -781,7 +793,7 @@ const EvaluationSummative = () => {
                 Administration - Actions disponibles
               </h3>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               <div>
                 <p style={{ color: COLORS.textDim, fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>📋 Validation pédagogique</p>
                 <ul style={{ color: COLORS.textMuted, fontSize: '0.7rem', marginLeft: 20, lineHeight: 1.8 }}>
@@ -796,6 +808,14 @@ const EvaluationSummative = () => {
                   <li>✓ Assigner des épreuves aux opérateurs</li>
                   <li>✓ Planifier les sessions d'examen</li>
                   <li>✓ Configurer les salles et horaires</li>
+                </ul>
+              </div>
+              <div>
+                <p style={{ color: COLORS.textDim, fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>🧹 Nettoyage des données</p>
+                <ul style={{ color: COLORS.textMuted, fontSize: '0.7rem', marginLeft: 20, lineHeight: 1.8 }}>
+                  <li>✓ Détecter les doublons de chapitres</li>
+                  <li>✓ Normaliser automatiquement les intitulés</li>
+                  <li>✓ Renommer en masse les chapitres</li>
                 </ul>
               </div>
             </div>
