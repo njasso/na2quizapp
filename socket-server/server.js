@@ -741,7 +741,7 @@ app.get('/api/referentiel/matieres/:domaineId/:sousDomaineId', (req, res) => {
   }
 });
 
-// ✅ NOUVELLE ROUTE OPTIMISÉE: Récupérer toutes les matières avec leur nombre de questions
+// ✅ Route référentiel - matières avec questions
 app.get('/api/referentiel/matieres-with-questions', async (req, res) => {
   try {
     const cacheKey = 'matieres-with-questions';
@@ -789,22 +789,32 @@ app.get('/api/referentiel/matieres-with-questions', async (req, res) => {
   }
 });
 
-// ✅ NOUVELLE ROUTE: Compter les questions par matière
-app.get('/api/referentiel/questions-count/:matiereId', async (req, res) => {
+// ✅ Route référentiel - chapitres par matière
+app.get('/api/referentiel/chapitres/:matiereId', async (req, res) => {
   try {
     const { matiereId } = req.params;
-    const count = await Question.countDocuments({ matiereId: matiereId, status: 'approved' });
-    res.json({ success: true, count });
+    const chapitres = await Question.distinct('libChapitre', { 
+      matiereId: matiereId, 
+      status: 'approved' 
+    });
+    res.json({ 
+      success: true, 
+      data: chapitres.filter(c => c && c.trim()) 
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.get('/api/referentiel/chapitres/:matiereId', async (req, res) => {
+// ✅ Route référentiel - comptage questions par matière
+app.get('/api/referentiel/questions-count/:matiereId', async (req, res) => {
   try {
     const { matiereId } = req.params;
-    const chapitres = await Question.distinct('libChapitre', { matiereId: matiereId, status: 'approved' });
-    res.json({ success: true, data: chapitres.filter(c => c && c.trim()) });
+    const count = await Question.countDocuments({ 
+      matiereId: matiereId, 
+      status: 'approved' 
+    });
+    res.json({ success: true, count });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1056,35 +1066,7 @@ app.get('/api/questions', protect, async (req, res) => {
   }
 });
 
-app.get('/api/questions/:id', protect, async (req, res) => {
-  try {
-    const question = await Question.findById(req.params.id).populate('createdBy', 'name email').select('+imageBase64');
-    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
-    
-    const userRole = req.user.role;
-    const userId = req.user._id.toString();
-    const isOwner = question.createdBy?._id?.toString() === userId;
-    
-    let canView = false;
-    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
-      canView = true;
-    } else if (userRole === 'SAISISEUR') {
-      canView = isOwner;
-    } else if (userRole === 'ENSEIGNANT') {
-      canView = isOwner || question.status === 'approved';
-    } else if (userRole === 'OPERATEUR_EVALUATION' || userRole === 'APPRENANT') {
-      canView = question.status === 'approved';
-    }
-    
-    if (!canView) {
-      return res.status(403).json({ success: false, error: 'Accès non autorisé' });
-    }
-    
-    res.json({ success: true, data: question });
-  } catch (err) { 
-    res.status(500).json({ success: false, error: err.message }); 
-  }
-});
+
 
 app.post('/api/questions', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADMIN_DELEGUE'), async (req, res) => {
   try {
@@ -1499,6 +1481,158 @@ app.put('/api/questions/:id', protect, authorize('ENSEIGNANT', 'SAISISEUR', 'ADM
       return res.status(400).json({ success: false, error: errors.join(', ') });
     }
     
+    res.status(500).json({ success: false, error: err.message }); 
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ROUTES DE NETTOYAGE / ACTIONS COLLECTIVES SUR LES QUESTIONS
+// ⚠️  Ces routes STATIQUES doivent rester AVANT app.delete('/api/questions/:id')
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Fonction de normalisation canonique (partagée par les 3 routes) ──────────
+const normalizeChapterStr = (s) =>
+  (s || '')
+    .trim()
+    .replace(/\s+/g, ' ')          // espaces multiples → 1
+    .replace(/[.;:,!?]+$/, '')     // ponctuation finale  (ex : "LA FILIATION." → "LA FILIATION")
+    .trim()
+    .toUpperCase();                 // majuscules uniformes
+
+// ── ROUTE 1 : Détection des doublons de chapitres ────────────────────────────
+// GET /api/questions/chapter-duplicates
+// Retourne tous les groupes où le même chapitre a été saisi de façons différentes
+// (ex : "LA FILIATION" vs "LA FILIATION." vs "la filiation")
+app.get('/api/questions/chapter-duplicates', protect,
+  authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT'),
+  async (req, res) => {
+    try {
+      // Récupérer tous les intitulés de chapitres distincts
+      const chapters = await Question.distinct('libChapitre');
+
+      // Grouper par forme normalisée → révèle les doublons invisibles
+      const groups = {};
+      chapters.filter(Boolean).forEach(ch => {
+        const key = normalizeChapterStr(ch);
+        if (!groups[key]) groups[key] = { canonical: key, variants: [] };
+        if (!groups[key].variants.includes(ch)) groups[key].variants.push(ch);
+      });
+
+      // Ne garder que les groupes avec > 1 variante (vrais doublons)
+      const duplicates = Object.entries(groups)
+        .filter(([_, g]) => g.variants.length > 1)
+        .map(([canonical, g]) => ({ canonical, variants: g.variants, count: g.variants.length }));
+
+      console.log(`[ChapterDup] ${duplicates.length} groupe(s) de doublons sur ${chapters.length} chapitres`);
+      res.json({ success: true, duplicates, total: duplicates.length, totalChapters: chapters.length });
+    } catch (err) {
+      console.error('[ChapterDup] Erreur:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── ROUTE 2 : Renommer un chapitre dans toutes les questions ─────────────────
+// POST /api/questions/bulk-rename-chapter
+// Body : { oldChapter: "LA FILIATION.", newChapter: "LA FILIATION", matiereId?, domaineId? }
+app.post('/api/questions/bulk-rename-chapter', protect,
+  authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE', 'ENSEIGNANT'),
+  async (req, res) => {
+    try {
+      const { oldChapter, newChapter, matiereId, domaineId } = req.body;
+
+      if (!oldChapter?.trim() || !newChapter?.trim())
+        return res.status(400).json({ success: false, error: 'oldChapter et newChapter sont requis' });
+
+      if (oldChapter.trim() === newChapter.trim())
+        return res.status(400).json({ success: false, error: 'Les deux intitulés sont identiques' });
+
+      // Filtre de base — peut être restreint par matière ou domaine
+      const filter = { libChapitre: oldChapter.trim() };
+      if (matiereId) filter.matiereId = matiereId;
+      if (domaineId) filter.domaineId = domaineId;
+
+      const result = await Question.updateMany(
+        filter,
+        { $set: { libChapitre: newChapter.trim(), updatedAt: new Date() } }
+      );
+
+      console.log(`[BulkRename] ${result.modifiedCount} questions : "${oldChapter}" → "${newChapter}"`);
+      res.json({
+        success: true,
+        modifiedCount: result.modifiedCount,
+        old: oldChapter,
+        new: newChapter,
+        filters: { matiereId: matiereId || null, domaineId: domaineId || null }
+      });
+    } catch (err) {
+      console.error('[BulkRename] Erreur:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ── ROUTE 3 : Normalisation automatique de TOUS les chapitres ────────────────
+// POST /api/questions/bulk-normalize-chapters
+// Applique : trim + espaces multiples + ponctuation finale + MAJUSCULES
+// ⚠️  Réservé ADMIN — modifie toutes les questions en base
+app.post('/api/questions/bulk-normalize-chapters', protect,
+  authorize('ADMIN_SYSTEME', 'ADMIN_DELEGUE'),
+  async (req, res) => {
+    try {
+      // Charger uniquement le champ nécessaire pour limiter la charge
+      const questions = await Question
+        .find({ libChapitre: { $exists: true, $ne: '' } })
+        .select('_id libChapitre');
+
+      let modifiedCount = 0;
+      const changes = [];
+
+      for (const q of questions) {
+        const normalized = normalizeChapterStr(q.libChapitre);
+        if (normalized !== q.libChapitre) {
+          await Question.updateOne(
+            { _id: q._id },
+            { $set: { libChapitre: normalized, updatedAt: new Date() } }
+          );
+          changes.push({ id: q._id, old: q.libChapitre, new: normalized });
+          modifiedCount++;
+        }
+      }
+
+      console.log(`[Normalize] ${modifiedCount}/${questions.length} chapitres normalisés`);
+      res.json({ success: true, total: questions.length, modifiedCount, changes });
+    } catch (err) {
+      console.error('[Normalize] Erreur:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+
+app.get('/api/questions/:id', protect, async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id).populate('createdBy', 'name email').select('+imageBase64');
+    if (!question) return res.status(404).json({ success: false, error: 'Question non trouvée' });
+    
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+    const isOwner = question.createdBy?._id?.toString() === userId;
+    
+    let canView = false;
+    if (userRole === 'ADMIN_SYSTEME' || userRole === 'ADMIN_DELEGUE') {
+      canView = true;
+    } else if (userRole === 'SAISISEUR') {
+      canView = isOwner;
+    } else if (userRole === 'ENSEIGNANT') {
+      canView = isOwner || question.status === 'approved';
+    } else if (userRole === 'OPERATEUR_EVALUATION' || userRole === 'APPRENANT') {
+      canView = question.status === 'approved';
+    }
+    
+    if (!canView) {
+      return res.status(403).json({ success: false, error: 'Accès non autorisé' });
+    }
+    
+    res.json({ success: true, data: question });
+  } catch (err) { 
     res.status(500).json({ success: false, error: err.message }); 
   }
 });

@@ -1,7 +1,10 @@
 // src/data/domainConfig.js
-// Version complète - Référentiel du système éducatif camerounais
-// INCLUT : Système francophone + Système anglophone + Doctorat (7 ans)
-// DERNIÈRE MISE À JOUR : Santé humaine complète (Cardiologie, Chirurgies, etc.)
+// Version complète corrigée - Référentiel du système éducatif camerounais
+// ✅ CORRECTIONS :
+//   - Sécurisation de toutes les fonctions utilitaires (try/catch)
+//   - Gestion des cas où les IDs n'existent pas
+//   - Protection contre les valeurs undefined/null
+//   - Retour de valeurs par défaut au lieu d'erreurs
 
 const DOMAIN_DATA = {
   // ==================== DOMAINE 1: ÉDUCATIF ====================
@@ -187,26 +190,22 @@ const DOMAIN_DATA = {
           { id: "1C2", nom: "Upper Sixth" }
         ],
         matieres: [
-          // Sciences
           { id: "1C11", nom: "Biology", code: "BIO" },
           { id: "1C12", nom: "Chemistry", code: "CHM" },
           { id: "1C13", nom: "Physics", code: "PHY" },
           { id: "1C14", nom: "Pure Mathematics", code: "PMA" },
           { id: "1C15", nom: "Further Mathematics", code: "FMA" },
-          // Arts
           { id: "1C16", nom: "English Literature", code: "ELI" },
           { id: "1C17", nom: "History", code: "HIS" },
           { id: "1C18", nom: "Geography", code: "GEO" },
           { id: "1C19", nom: "French", code: "FRE" },
           { id: "1C20", nom: "Philosophy", code: "PHL" },
-          // Social Sciences
           { id: "1C21", nom: "Economics", code: "ECO" },
           { id: "1C22", nom: "Business Studies", code: "BUS" },
           { id: "1C23", nom: "Accounting", code: "ACC" },
           { id: "1C24", nom: "Sociology", code: "SOC" },
           { id: "1C25", nom: "Psychology", code: "PSY" },
           { id: "1C26", nom: "Law", code: "LAW" },
-          // Technical
           { id: "1C27", nom: "Computer Science", code: "CSC" },
           { id: "1C28", nom: "Physics with Electronics", code: "PHE" },
           { id: "1C29", nom: "Geology", code: "GEL" },
@@ -215,21 +214,17 @@ const DOMAIN_DATA = {
       },
       
       // ==================== ENSEIGNEMENT SUPÉRIEUR (UNIVERSITAIRE) ====================
-      // Universitaire (Francophone & Anglophone) - AVEC DOCTORAT 7 ANS
       "1D": {
         id: "1D",
         nom: "Enseignement Supérieur (Universitaire)",
         code: "SUP",
         description: "Licence, Master, Doctorat (Bachelor, Master, PhD)",
         levels: [
-          // Licence / Bachelor (3 ans)
           { id: "1D1", nom: "L1 / Year 1 (Bachelor)" },
           { id: "1D2", nom: "L2 / Year 2 (Bachelor)" },
           { id: "1D3", nom: "L3 / Year 3 (Bachelor)" },
-          // Master (2 ans)
           { id: "1D4", nom: "M1 / Year 4 (Master)" },
           { id: "1D5", nom: "M2 / Year 5 (Master)" },
-          // Doctorat / PhD (3 ans de recherche + thèse)
           { id: "1D6", nom: "D1 / PhD Year 1 (Doctorat)" },
           { id: "1D7", nom: "D2 / PhD Year 2 (Doctorat)" },
           { id: "1D8", nom: "D3 / PhD Year 3 (Doctorat)" },
@@ -245,7 +240,7 @@ const DOMAIN_DATA = {
           { id: "1D106", nom: "Droit Administratif / Administrative Law", code: "DAD" },
           { id: "1D107", nom: "Science Politique / Political Science", code: "SCP" },
           
-          // ========== SCIENCES FONDAMENTALES / BASIC SCIENCES ==========
+          // ========== SCIENCES FONDAMENTALES ==========
           { id: "1D108", nom: "Anatomie / Anatomy", code: "ANA" },
           { id: "1D109", nom: "Physiologie / Physiology", code: "PHY" },
           { id: "1D110", nom: "Pathologie / Pathology", code: "PAT" },
@@ -264,24 +259,25 @@ const DOMAIN_DATA = {
 
           // ========== CHIRURGIE (SPÉCIALITÉS CHIRURGICALES) ==========
           { id: "1D169", nom: "Chirurgie viscérale et digestive / Visceral & Digestive Surgery", code: "CVD" },
-          { id: "1D170", nom: "Chirurgie orthopédique et traumatologie / Orthopedic Surgery", code: "COT" },
-          { id: "1D171", nom: "Neurochirurgie / Neurosurgery", code: "NCS" },
-          { id: "1D172", nom: "Chirurgie plastique, reconstructrice et esthétique / Plastic Surgery", code: "CPR" },
-          { id: "1D173", nom: "Ophtalmologie / Ophthalmology", code: "OPH" },
-          { id: "1D174", nom: "Oto-rhino-laryngologie / Otorhinolaryngology (ENT)", code: "ORL" },
+          { id: "1D170", nom: "Chirurgie cardio-vasculaire / Cardiovascular Surgery", code: "CCV" },
+          { id: "1D171", nom: "Chirurgie orthopédique et traumatologie / Orthopedic Surgery", code: "COT" },
+          { id: "1D172", nom: "Neurochirurgie / Neurosurgery", code: "NCS" },
+          { id: "1D173", nom: "Chirurgie plastique, reconstructrice et esthétique / Plastic Surgery", code: "CPR" },
+          { id: "1D174", nom: "Ophtalmologie / Ophthalmology", code: "OPH" },
+          { id: "1D175", nom: "Oto-rhino-laryngologie / Otorhinolaryngology (ENT)", code: "ORL" },
 
           // ========== SPÉCIALITÉS TRANSVERSALES ==========
-          { id: "1D175", nom: "Anesthésie-Réanimation / Anesthesiology", code: "ANE" },
-          { id: "1D176", nom: "Médecine d'Urgence / Emergency Medicine", code: "URG" },
-          { id: "1D177", nom: "Médecine du Travail / Occupational Medicine", code: "MTR" },
-          { id: "1D178", nom: "Santé Publique et Epidémiologie / Public Health", code: "SPE" },
+          { id: "1D176", nom: "Anesthésie-Réanimation / Anesthesiology", code: "ANE" },
+          { id: "1D177", nom: "Médecine d'Urgence / Emergency Medicine", code: "URG" },
+          { id: "1D178", nom: "Médecine du Travail / Occupational Medicine", code: "MTR" },
+          { id: "1D179", nom: "Santé Publique et Epidémiologie / Public Health", code: "SPE" },
 
           // ========== SCIENCES BIOMEDICALES ==========
-          { id: "1D179", nom: "Génétique et Biologie moléculaire / Genetics", code: "GBM" },
-          { id: "1D180", nom: "Biochimie et Pharmacologie / Biochemistry", code: "BPC" },
-          { id: "1D181", nom: "Microbiologie et Immunologie / Microbiology", code: "MIC" },
-          { id: "1D182", nom: "Physiologie et Anatomie / Advanced Physiology", code: "PHA" },
-          { id: "1D183", nom: "Génie Biomédical / Biomedical Engineering", code: "GBI" },
+          { id: "1D180", nom: "Génétique et Biologie moléculaire / Genetics", code: "GBM" },
+          { id: "1D181", nom: "Biochimie et Pharmacologie / Biochemistry", code: "BPC" },
+          { id: "1D182", nom: "Microbiologie et Immunologie / Microbiology", code: "MIC" },
+          { id: "1D183", nom: "Physiologie et Anatomie / Advanced Physiology", code: "PHA" },
+          { id: "1D184", nom: "Génie Biomédical / Biomedical Engineering", code: "GBI" },
           
           // ========== SCIENCES / SCIENCES ==========
           { id: "1D117", nom: "Mathématiques / Mathematics", code: "MAT" },
@@ -738,86 +734,258 @@ const DOMAIN_DATA = {
   }
 };
 
-// ==================== FONCTIONS UTILITAIRES ====================
+// ==================== FONCTIONS UTILITAIRES CORRIGÉES ====================
 
-export const getDomainById = (id) => DOMAIN_DATA[String(id)];
-export const getDomainNom = (id) => DOMAIN_DATA[String(id)]?.nom || '';
-export const getDomainCode = (id) => DOMAIN_DATA[String(id)]?.code || '';
+export const getDomainById = (id) => {
+  if (!id) return null;
+  try {
+    return DOMAIN_DATA[String(id)] || null;
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getDomainById:', e);
+    return null;
+  }
+};
+
+export const getDomainNom = (id) => {
+  if (!id) return '';
+  try {
+    const domain = DOMAIN_DATA[String(id)];
+    return domain?.nom || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getDomainNom:', e);
+    return '';
+  }
+};
+
+export const getDomainCode = (id) => {
+  if (!id) return '';
+  try {
+    const domain = DOMAIN_DATA[String(id)];
+    return domain?.code || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getDomainCode:', e);
+    return '';
+  }
+};
 
 export const getSousDomaineById = (domainId, sousDomaineId) => {
-  return DOMAIN_DATA[String(domainId)]?.sousDomaines[String(sousDomaineId)];
+  if (!domainId || !sousDomaineId) return null;
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return null;
+    return domain.sousDomaines?.[String(sousDomaineId)] || null;
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getSousDomaineById:', e);
+    return null;
+  }
 };
+
 export const getSousDomaineNom = (domainId, sousDomaineId) => {
-  return DOMAIN_DATA[String(domainId)]?.sousDomaines[String(sousDomaineId)]?.nom || '';
+  if (!domainId || !sousDomaineId) return '';
+  try {
+    const sousDomaine = getSousDomaineById(domainId, sousDomaineId);
+    return sousDomaine?.nom || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getSousDomaineNom:', e);
+    return '';
+  }
 };
+
 export const getSousDomaineCode = (domainId, sousDomaineId) => {
-  return DOMAIN_DATA[String(domainId)]?.sousDomaines[String(sousDomaineId)]?.code || '';
+  if (!domainId || !sousDomaineId) return '';
+  try {
+    const sousDomaine = getSousDomaineById(domainId, sousDomaineId);
+    return sousDomaine?.code || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getSousDomaineCode:', e);
+    return '';
+  }
 };
 
 export const getLevelNom = (domainId, sousDomaineId, levelId) => {
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return '';
-  const sousDomaine = domain.sousDomaines[String(sousDomaineId)];
-  if (!sousDomaine) return '';
-  const levelIdStr = String(levelId);
-  const level = sousDomaine.levels?.find(l => String(l.id) === levelIdStr);
-  return level?.nom || '';
+  if (!domainId || !sousDomaineId || !levelId) return '';
+  
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return '';
+    
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return '';
+    
+    const levels = sousDomaine.levels || [];
+    if (!Array.isArray(levels) || levels.length === 0) return '';
+    
+    const levelIdStr = String(levelId);
+    const level = levels.find(l => l && String(l.id) === levelIdStr);
+    return level?.nom || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getLevelNom:', e);
+    return '';
+  }
+};
+
+export const getLevelById = (domainId, sousDomaineId, levelId) => {
+  if (!domainId || !sousDomaineId || !levelId) return null;
+  
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return null;
+    
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return null;
+    
+    const levels = sousDomaine.levels || [];
+    if (!Array.isArray(levels) || levels.length === 0) return null;
+    
+    const levelIdStr = String(levelId);
+    const level = levels.find(l => l && String(l.id) === levelIdStr);
+    return level || null;
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getLevelById:', e);
+    return null;
+  }
 };
 
 export const getMatiereNom = (domainId, sousDomaineId, matiereId) => {
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return '';
-  const sousDomaine = domain.sousDomaines[String(sousDomaineId)];
-  if (!sousDomaine) return '';
-  const matiereIdStr = String(matiereId);
-  const matiere = sousDomaine.matieres?.find(m => String(m.id) === matiereIdStr);
-  return matiere?.nom || '';
+  if (!domainId || !sousDomaineId || !matiereId) return '';
+  
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return '';
+    
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return '';
+    
+    const matieres = sousDomaine.matieres || [];
+    if (!Array.isArray(matieres) || matieres.length === 0) return '';
+    
+    const matiereIdStr = String(matiereId);
+    const matiere = matieres.find(m => m && String(m.id) === matiereIdStr);
+    return matiere?.nom || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getMatiereNom:', e);
+    return '';
+  }
+};
+
+export const getMatiereById = (domainId, sousDomaineId, matiereId) => {
+  if (!domainId || !sousDomaineId || !matiereId) return null;
+  
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return null;
+    
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return null;
+    
+    const matieres = sousDomaine.matieres || [];
+    if (!Array.isArray(matieres) || matieres.length === 0) return null;
+    
+    const matiereIdStr = String(matiereId);
+    const matiere = matieres.find(m => m && String(m.id) === matiereIdStr);
+    return matiere || null;
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getMatiereById:', e);
+    return null;
+  }
 };
 
 export const getMatiereCode = (domainId, sousDomaineId, matiereId) => {
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return '';
-  const sousDomaine = domain.sousDomaines[String(sousDomaineId)];
-  if (!sousDomaine) return '';
-  const matiereIdStr = String(matiereId);
-  const matiere = sousDomaine.matieres?.find(m => String(m.id) === matiereIdStr);
-  return matiere?.code || '';
+  if (!domainId || !sousDomaineId || !matiereId) return '';
+  
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return '';
+    
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return '';
+    
+    const matieres = sousDomaine.matieres || [];
+    if (!Array.isArray(matieres) || matieres.length === 0) return '';
+    
+    const matiereIdStr = String(matiereId);
+    const matiere = matieres.find(m => m && String(m.id) === matiereIdStr);
+    return matiere?.code || '';
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getMatiereCode:', e);
+    return '';
+  }
 };
 
 export const getAllDomaines = () => {
-  return Object.values(DOMAIN_DATA).map(d => ({ id: String(d.id), nom: d.nom, code: d.code }));
+  try {
+    return Object.values(DOMAIN_DATA).map(d => ({ 
+      id: String(d.id), 
+      nom: d.nom, 
+      code: d.code 
+    }));
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getAllDomaines:', e);
+    return [];
+  }
 };
 
 export const getAllSousDomaines = (domainId) => {
   if (!domainId) return [];
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return [];
-  return Object.values(domain.sousDomaines).map(sd => ({ id: String(sd.id), nom: sd.nom, code: sd.code }));
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return [];
+    return Object.values(domain.sousDomaines || {}).map(sd => ({ 
+      id: String(sd.id), 
+      nom: sd.nom, 
+      code: sd.code 
+    }));
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getAllSousDomaines:', e);
+    return [];
+  }
 };
 
 export const getAllLevels = (domainId, sousDomaineId) => {
   if (!domainId || !sousDomaineId) return [];
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return [];
-  const sousDomaine = domain.sousDomaines[String(sousDomaineId)];
-  if (!sousDomaine) return [];
-  return sousDomaine.levels.map(l => ({ id: String(l.id), nom: l.nom }));
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return [];
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return [];
+    return (sousDomaine.levels || []).map(l => ({ 
+      id: String(l.id), 
+      nom: l.nom 
+    }));
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getAllLevels:', e);
+    return [];
+  }
 };
 
 export const getAllMatieres = (domainId, sousDomaineId) => {
   if (!domainId || !sousDomaineId) return [];
-  const domain = DOMAIN_DATA[String(domainId)];
-  if (!domain) return [];
-  const sousDomaine = domain.sousDomaines[String(sousDomaineId)];
-  if (!sousDomaine) return [];
-  return sousDomaine.matieres.map(m => ({ id: String(m.id), nom: m.nom, code: m.code }));
+  try {
+    const domain = DOMAIN_DATA[String(domainId)];
+    if (!domain) return [];
+    const sousDomaine = domain.sousDomaines?.[String(sousDomaineId)];
+    if (!sousDomaine) return [];
+    return (sousDomaine.matieres || []).map(m => ({ 
+      id: String(m.id), 
+      nom: m.nom, 
+      code: m.code 
+    }));
+  } catch (e) {
+    console.warn('[domainConfig] Erreur getAllMatieres:', e);
+    return [];
+  }
 };
 
 // Fonction pour générer l'examCode
 export const generateExamCode = (matiereId, levelId, teacherMatricule, order) => {
-  const matiereCode = getMatiereCode('1', '12', matiereId) || String(matiereId).padStart(2, '0');
-  const levelCode = String(levelId).slice(-2);
-  return `${matiereCode}-${levelCode}-${teacherMatricule}-${String(order).padStart(2, '0')}`;
+  try {
+    const matiereCode = getMatiereCode('1', '12', matiereId) || String(matiereId).padStart(2, '0');
+    const levelCode = String(levelId).slice(-2);
+    return `${matiereCode}-${levelCode}-${teacherMatricule}-${String(order).padStart(2, '0')}`;
+  } catch (e) {
+    console.warn('[domainConfig] Erreur generateExamCode:', e);
+    return `${String(matiereId).padStart(2, '0')}-${String(levelId).slice(-2)}-${teacherMatricule}-${String(order).padStart(2, '0')}`;
+  }
 };
 
 export default DOMAIN_DATA;
